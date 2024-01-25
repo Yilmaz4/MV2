@@ -1,20 +1,7 @@
 ﻿#include <glad/glad.h>
 #include <GLFW/glfw3.h>
 #include <glm/glm.hpp>
-#include <windows.h>
 #include <iostream>
-#include <cstdlib>
-#include <cwchar>
-
-std::wstring convertToWideString(const char* narrowStr) { // i got this from chatgpt
-    size_t size;
-    mbstowcs_s(&size, nullptr, 0, narrowStr, 0);
-    wchar_t* wideStr = new wchar_t[size + 1];
-    mbstowcs_s(nullptr, wideStr, size + 1, narrowStr, size);
-    std::wstring result(wideStr);
-    delete[] wideStr;
-    return result;
-}
 
 constexpr bool fullscreen = false;
 
@@ -66,8 +53,7 @@ vec3 color(int i) {
 }
 
 void main() {
-    int ss = min(screenSize.x, screenSize.y);
-    dvec2 c = ((dvec2(gl_FragCoord.x, ss - gl_FragCoord.y) / ss) - dvec2(0.5, 0.5)) * zoom + offset;
+    dvec2 c = (dvec2(gl_FragCoord.x / screenSize.x, (screenSize.y - gl_FragCoord.y) / screenSize.y) - dvec2(0.5, 0.5)) * dvec2(zoom, (screenSize.y * zoom) / screenSize.x) + offset;
     dvec2 z = c;
 
     for (int i = 0; i < max_iters; i++) {
@@ -81,6 +67,7 @@ void main() {
     fragColor = vec4(0, 0, 0, 1);
 }
 )";
+
 
 unsigned int shaderProgram = 0;
 
@@ -103,16 +90,17 @@ namespace vars {
     int max_iters = 100;
 }
 
-glm::dvec2 position_in_plane(glm::dvec2 pixelCoord, glm::ivec2 screenSize, double zoom, glm::dvec2 offset) {
-    return ((pixelCoord / static_cast<double>(min(screenSize.x, screenSize.y))) - glm::dvec2(0.5, 0.5)) * zoom + offset;
+// function to calculate the complex plane coordinate of a pixel
+glm::dvec2 pixel_to_complex(glm::dvec2 pixelCoord, glm::ivec2 screenSize, double zoom, glm::dvec2 offset) {
+    return ((glm::dvec2(pixelCoord.x / screenSize.x, pixelCoord.y / screenSize.y)) - glm::dvec2(0.5, 0.5)) * glm::dvec2(zoom, (screenSize.y * zoom) / screenSize.x) + offset;
 }
-glm::dvec2 position_in_plane(glm::dvec2 pixelCoord) {
-    return ((pixelCoord / static_cast<double>(min(vars::screenSize.x, vars::screenSize.y))) - glm::dvec2(0.5, 0.5)) * vars::zoom + vars::offset;
+glm::dvec2 pixel_to_complex(glm::dvec2 pixelCoord) {
+    return ((glm::dvec2(pixelCoord.x / vars::screenSize.x, pixelCoord.y / vars::screenSize.y)) - glm::dvec2(0.5, 0.5)) * glm::dvec2(vars::zoom, (vars::screenSize.y * vars::zoom) / vars::screenSize.x) + vars::offset;
 }
 
 namespace events {
     glm::dvec2 oldPos = { 0, 0 };
-    glm::dvec2 lastPresses = { -1, 0 };
+    glm::dvec2 lastPresses = { -consts::doubleClick_interval, 0 };
     bool dragging = false;
     bool rightClickHold = false;
 
@@ -137,8 +125,8 @@ namespace events {
             }
             else if (lastPresses.y - lastPresses.x < consts::doubleClick_interval) { // button released, check if interval between last two presses is less than the max interval
                 glfwGetCursorPos(window, &events::oldPos.x, &events::oldPos.y);
-                glm::dvec2 pos = position_in_plane(events::oldPos);
-                glm::dvec2 center = position_in_plane(static_cast<glm::dvec2>(vars::screenSize) / 2.0);
+                glm::dvec2 pos = pixel_to_complex(events::oldPos);
+                glm::dvec2 center = pixel_to_complex(static_cast<glm::dvec2>(vars::screenSize) / 2.0);
                 vars::offset += pos - center;
                 glUniform2d(glGetUniformLocation(shaderProgram, "offset"), vars::offset.x, vars::offset.y);
                 dragging = false;
@@ -150,10 +138,9 @@ namespace events {
 
     void on_cursorMove(GLFWwindow* window, double x, double y) {
         if (dragging) {
-            lastPresses = { -1, 0 }; // reset to prevent accidental centering while quick dragging
-            int ss = min(vars::screenSize.x, vars::screenSize.y);
-            vars::offset.x -= ((x - oldPos.x) * vars::zoom) / ss;
-            vars::offset.y -= ((y - oldPos.y) * vars::zoom) / ss;
+            lastPresses = { -consts::doubleClick_interval, 0 }; // reset to prevent accidental centering while quick dragging
+            vars::offset.x -= ((x - oldPos.x) * vars::zoom) / vars::screenSize.x;
+            vars::offset.y -= ((y - oldPos.y) * ((vars::zoom * vars::screenSize.y) / vars::screenSize.x)) / vars::screenSize.y;
             glUniform2d(glGetUniformLocation(shaderProgram, "offset"), vars::offset.x, vars::offset.y);
             oldPos = { x, y };
             pending_render = true;
@@ -199,7 +186,7 @@ int main() {
         window = glfwCreateWindow(600, 600, "OpenGL Test", NULL, NULL);
     }
     if (window == nullptr) {
-        MessageBox(NULL, L"Failed to create OpenGL window", L"FATAL ERROR", MB_OK | MB_ICONEXCLAMATION);
+        std::cout << "Failed to create OpenGL window" << std::endl;
         return -1;
     }
 
@@ -213,7 +200,7 @@ int main() {
     glfwSwapInterval(1);
 
     if (!gladLoadGLLoader((GLADloadproc)glfwGetProcAddress)) {
-        MessageBox(NULL, L"Failed to create OpenGL window", L"FATAL ERROR", MB_OK | MB_ICONEXCLAMATION);
+        std::cout << "Failed to create OpenGL window" << std::endl;
         return -1;
     }
 
@@ -226,7 +213,7 @@ int main() {
     glGetShaderiv(vertexShader, GL_COMPILE_STATUS, &success);
     if (!success) {
         glGetShaderInfoLog(vertexShader, 512, NULL, infoLog);
-        MessageBox(NULL, convertToWideString(infoLog).c_str(), L"Shader compilation error", MB_OK | MB_ICONEXCLAMATION);
+        std::cout << infoLog << std::endl;
         return -1;
     }
 
@@ -237,7 +224,7 @@ int main() {
     glGetShaderiv(fragmentShader, GL_COMPILE_STATUS, &success);
     if (!success) {
         glGetShaderInfoLog(fragmentShader, 512, NULL, infoLog);
-        MessageBox(NULL, convertToWideString(infoLog).c_str(), L"Shader compilation error", MB_OK | MB_ICONEXCLAMATION);
+        std::cout << infoLog << std::endl;
         return -1;
     }
 
@@ -272,8 +259,6 @@ int main() {
         processInput(window);
 
         if (pending_render) {
-            glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
-            glClear(GL_COLOR_BUFFER_BIT);
             glDrawArrays(GL_TRIANGLES, 0, 6);
             glfwSwapBuffers(window);
             pending_render = false;
