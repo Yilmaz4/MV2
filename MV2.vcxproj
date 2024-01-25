@@ -71,20 +71,20 @@
   </ImportGroup>
   <PropertyGroup Label="UserMacros" />
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
-    <IncludePath>H:\Software Development\C++ Projects\MV2\libs\include;$(IncludePath)</IncludePath>
-    <LibraryPath>H:\Software Development\C++ Projects\MV2\libs\lib;$(LibraryPath)</LibraryPath>
+    <IncludePath>libs\include;$(IncludePath)</IncludePath>
+    <LibraryPath>libs\lib;$(LibraryPath)</LibraryPath>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
-    <IncludePath>H:\Software Development\C++ Projects\MV2\libs\include;$(IncludePath)</IncludePath>
-    <LibraryPath>H:\Software Development\C++ Projects\MV2\libs\lib;$(LibraryPath)</LibraryPath>
+    <IncludePath>libs\include;$(IncludePath)</IncludePath>
+    <LibraryPath>libs\lib;$(LibraryPath)</LibraryPath>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
-    <IncludePath>H:\Software Development\C++ Projects\MV2\libs\include;$(IncludePath)</IncludePath>
-    <LibraryPath>H:\Software Development\C++ Projects\MV2\libs\lib;$(LibraryPath)</LibraryPath>
+    <IncludePath>libs\include;$(IncludePath)</IncludePath>
+    <LibraryPath>libs\lib;$(LibraryPath)</LibraryPath>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
-    <IncludePath>H:\Software Development\C++ Projects\MV2\libs\include;$(IncludePath)</IncludePath>
-    <LibraryPath>H:\Software Development\C++ Projects\MV2\libs\lib;$(LibraryPath)</LibraryPath>
+    <IncludePath>libs\include;$(IncludePath)</IncludePath>
+    <LibraryPath>libs\lib;$(LibraryPath)</LibraryPath>
   </PropertyGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
     <ClCompile>
