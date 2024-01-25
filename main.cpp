@@ -65,12 +65,8 @@ vec3 color(int i) {
     }
 }
 
-vec3 interpolateColor(float t, vec3 color1, vec3 color2) {
-    return (1.0 - t) * color1 + t * color2;
-}
-
 void main() {
-    dvec2 c = (dvec2(gl_FragCoord.x, gl_FragCoord.y) / min(screenSize.x, screenSize.y)) * zoom + offset;
+    dvec2 c = ((gl_FragCoord.xy / min(screenSize.x, screenSize.y)) - dvec2(0.5, 0.5)) * zoom + offset;
     dvec2 z = c;
 
     for (int i = 0; i < max_iters; i++) {
@@ -90,7 +86,7 @@ unsigned int shaderProgram = 0;
 bool pending_render = true;
 
 namespace vars {
-    glm::dvec2 offset = { -2, -1.5 };
+    glm::dvec2 offset = { -0.4, 0 };
     glm::ivec2 screenSize;
 
     float zoom = 3.0;
