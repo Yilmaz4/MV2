@@ -89,8 +89,8 @@ bool pending_render = true;
 
 
 namespace consts {
-    constexpr double zoom_co = 0.9;
-    constexpr double iter_co = 1.04;
+    constexpr double zoom_co = 0.85;
+    constexpr double iter_co = 1.060;
 
     constexpr double doubleClick_interval = 0.5; // seconds
 }
@@ -112,7 +112,7 @@ glm::dvec2 position_in_plane(glm::dvec2 pixelCoord) {
 
 namespace events {
     glm::dvec2 oldPos = { 0, 0 };
-    glm::dvec2 lastPresses = { -1, -1 };
+    glm::dvec2 lastPresses = { -1, 0 };
     bool dragging = false;
     bool rightClickHold = false;
 
@@ -150,8 +150,10 @@ namespace events {
 
     void on_cursorMove(GLFWwindow* window, double x, double y) {
         if (dragging) {
-            vars::offset.x -= ((x - oldPos.x) * vars::zoom) / vars::screenSize.x;
-            vars::offset.y -= ((y - oldPos.y) * vars::zoom) / vars::screenSize.y;
+            lastPresses = { -1, 0 }; // reset to prevent accidental centering while quick dragging
+            int ss = min(vars::screenSize.x, vars::screenSize.y);
+            vars::offset.x -= ((x - oldPos.x) * vars::zoom) / ss;
+            vars::offset.y -= ((y - oldPos.y) * vars::zoom) / ss;
             glUniform2d(glGetUniformLocation(shaderProgram, "offset"), vars::offset.x, vars::offset.y);
             oldPos = { x, y };
             pending_render = true;
