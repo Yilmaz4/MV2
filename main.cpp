@@ -1,4 +1,4 @@
-#include <glad/glad.h>
+﻿#include <glad/glad.h>
 #include <GLFW/glfw3.h>
 #include <glm/glm.hpp>
 #include <windows.h>
@@ -25,7 +25,7 @@ float vertices[] = {
     -1.0f, -1.0f,
      1.0f,  1.0f,
     -1.0f,  1.0f
-};
+}; // just two triangles to cover the entire screen
 
 const char* vertexShaderSource = R"(
 #version 400 core
@@ -66,7 +66,8 @@ vec3 color(int i) {
 }
 
 void main() {
-    dvec2 c = ((gl_FragCoord.xy / min(screenSize.x, screenSize.y)) - dvec2(0.5, 0.5)) * zoom + offset;
+    int ss = min(screenSize.x, screenSize.y);
+    dvec2 c = ((dvec2(gl_FragCoord.x, ss - gl_FragCoord.y) / ss) - dvec2(0.5, 0.5)) * zoom + offset;
     dvec2 z = c;
 
     for (int i = 0; i < max_iters; i++) {
@@ -85,16 +86,33 @@ unsigned int shaderProgram = 0;
 
 bool pending_render = true;
 
+
+
+namespace consts {
+    constexpr double zoom_co = 0.9;
+    constexpr double iter_co = 1.04;
+
+    constexpr double doubleClick_interval = 0.5; // seconds
+}
+
 namespace vars {
     glm::dvec2 offset = { -0.4, 0 };
     glm::ivec2 screenSize;
 
-    float zoom = 3.0;
+    double zoom = 3.0;
     int max_iters = 100;
+}
+
+glm::dvec2 position_in_plane(glm::dvec2 pixelCoord, glm::ivec2 screenSize, double zoom, glm::dvec2 offset) {
+    return ((pixelCoord / static_cast<double>(min(screenSize.x, screenSize.y))) - glm::dvec2(0.5, 0.5)) * zoom + offset;
+}
+glm::dvec2 position_in_plane(glm::dvec2 pixelCoord) {
+    return ((pixelCoord / static_cast<double>(min(vars::screenSize.x, vars::screenSize.y))) - glm::dvec2(0.5, 0.5)) * vars::zoom + vars::offset;
 }
 
 namespace events {
     glm::dvec2 oldPos = { 0, 0 };
+    glm::dvec2 lastPresses = { -1, -1 };
     bool dragging = false;
     bool rightClickHold = false;
 
@@ -102,10 +120,8 @@ namespace events {
         glViewport(0, 0, width, height);
 
         vars::screenSize = { width, height };
-        if (shaderProgram) {
-            int location = glGetUniformLocation(shaderProgram, "screenSize");
-            glUniform2i(location, width, height);
-        }
+        if (shaderProgram)
+            glUniform2i(glGetUniformLocation(shaderProgram, "screenSize"), width, height);
         pending_render = true;
     }
 
@@ -114,7 +130,19 @@ namespace events {
         case GLFW_MOUSE_BUTTON_LEFT:
             if (action == GLFW_PRESS) {
                 dragging = true;
+                // shift vector to the left and add new timestamp
+                lastPresses.x = lastPresses.y;
+                lastPresses.y = glfwGetTime();
                 glfwGetCursorPos(window, &events::oldPos.x, &events::oldPos.y);
+            }
+            else if (lastPresses.y - lastPresses.x < consts::doubleClick_interval) { // button released, check if interval between last two presses is less than the max interval
+                glfwGetCursorPos(window, &events::oldPos.x, &events::oldPos.y);
+                glm::dvec2 pos = position_in_plane(events::oldPos);
+                glm::dvec2 center = position_in_plane(static_cast<glm::dvec2>(vars::screenSize) / 2.0);
+                vars::offset += pos - center;
+                glUniform2d(glGetUniformLocation(shaderProgram, "offset"), vars::offset.x, vars::offset.y);
+                dragging = false;
+                pending_render = true;
             }
             else dragging = false;
         }
@@ -123,17 +151,16 @@ namespace events {
     void on_cursorMove(GLFWwindow* window, double x, double y) {
         if (dragging) {
             vars::offset.x -= ((x - oldPos.x) * vars::zoom) / vars::screenSize.x;
-            vars::offset.y -= ((oldPos.y - y) * vars::zoom) / vars::screenSize.y;
+            vars::offset.y -= ((y - oldPos.y) * vars::zoom) / vars::screenSize.y;
             glUniform2d(glGetUniformLocation(shaderProgram, "offset"), vars::offset.x, vars::offset.y);
             oldPos = { x, y };
             pending_render = true;
         }
     }
 
-    void on_mouseScroll(GLFWwindow* window, double x, double y) { // x will always be 0
-        float co = pow(0.9, y);
-        vars::zoom *= co;
-        vars::max_iters /= 0.96;
+    void on_mouseScroll(GLFWwindow* window, double x, double y) { // y is usually either 1 or -1 depending on direction, x is always 0
+        vars::zoom *= pow(consts::zoom_co, y);
+        vars::max_iters *= pow(consts::iter_co, y);
         glUniform1d(glGetUniformLocation(shaderProgram, "zoom"), vars::zoom);
         glUniform1i(glGetUniformLocation(shaderProgram, "max_iters"), vars::max_iters);
         pending_render = true;
