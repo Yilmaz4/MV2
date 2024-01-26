@@ -24,7 +24,8 @@ void main() {
 
 const char* fragmentShaderSource = R"(
 #version 400 core
-    
+#extension GL_ARB_gpu_shader_fp64 : enable
+
 out vec4 fragColor;
 
 uniform ivec2  screenSize;
@@ -34,12 +35,16 @@ uniform int    max_iters;
 uniform int    spectrum_offset;
 uniform int    iter_multiplier;
 
-vec3 color(int i) {
-    if (i < 255 - spectrum_offset)
-        return vec3(float(i + spectrum_offset) / 255.0f, 0.0f, 0.0f);
-    else i -= 255 - spectrum_offset;
-    float val = float(i % 256) / 255;
-    switch (int(floor(i / 256)) % 6) {
+double mod(double a, double b) {
+    return a - b * floor(a / b);
+}
+
+vec3 color(double i) {
+    //if (i < 255 - spectrum_offset)
+        //return vec3(i + spectrum_offset / 255.0, 0.0, 0.0);
+    //else i -= 255 - spectrum_offset;
+    double val = mod(i, 256.0) / 255.0;
+    switch (int(mod(floor(i / 256.0), 6.0))) {
     case 0:
         return vec3(1.0f, val, 0.0f);
     case 1:
@@ -61,7 +66,9 @@ void main() {
     
     for (int i = 0; i < max_iters; i++) {
         if (z.x * z.x + z.y * z.y >= 4) {
-            vec3 c = color(i * iter_multiplier);
+            double mu = i + 1 - log2(log2(float(length(z)))) / log2(2);
+            double mv = i;
+            vec3 c = color(mu * iter_multiplier);
             fragColor = vec4(c, 1);
             return;
         }
@@ -70,7 +77,6 @@ void main() {
     fragColor = vec4(0, 0, 0, 1);
 }
 )";
-
 
 unsigned int shaderProgram = 0;
 
