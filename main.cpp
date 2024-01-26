@@ -3,8 +3,6 @@
 #include <glm/glm.hpp>
 #include <iostream>
 
-constexpr bool fullscreen = false;
-
 float vertices[] = {
     -1.0f, -1.0f,
      1.0f, -1.0f,
@@ -33,7 +31,8 @@ uniform ivec2  screenSize;
 uniform dvec2  offset;
 uniform double zoom;
 uniform int    max_iters;
-uniform int    spectrum_offset = 0;
+uniform int    spectrum_offset;
+uniform int    iter_multiplier;
 
 vec3 color(int i) {
     if (i < 255 - spectrum_offset)
@@ -59,10 +58,10 @@ vec3 color(int i) {
 void main() {
     dvec2 c = (dvec2(gl_FragCoord.x / screenSize.x, (screenSize.y - gl_FragCoord.y) / screenSize.y) - dvec2(0.5, 0.5)) * dvec2(zoom, (screenSize.y * zoom) / screenSize.x) + offset;
     dvec2 z = c;
-
+    
     for (int i = 0; i < max_iters; i++) {
         if (z.x * z.x + z.y * z.y >= 4) {
-            vec3 c = color(i * 20);
+            vec3 c = color(i * iter_multiplier);
             fragColor = vec4(c, 1);
             return;
         }
@@ -86,10 +85,12 @@ namespace consts {
 
 namespace vars {
     glm::dvec2 offset = { -0.4, 0 };
-    glm::ivec2 screenSize;
+    glm::ivec2 screenSize = { 600, 600 };
 
     double zoom = 3.0;
     int max_iters = 100;
+    int spectrum_offset = 0;
+    int iter_multiplier = 10;
 }
 
 namespace utils {
@@ -178,22 +179,14 @@ int main() {
     glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 0);
     glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
 
-    GLFWmonitor* monitor = glfwGetPrimaryMonitor();
-    const GLFWvidmode* mode = glfwGetVideoMode(monitor);
+    const GLFWvidmode* mode = glfwGetVideoMode(glfwGetPrimaryMonitor());
 
     glfwWindowHint(GLFW_RED_BITS, mode->redBits);
     glfwWindowHint(GLFW_GREEN_BITS, mode->greenBits);
     glfwWindowHint(GLFW_BLUE_BITS, mode->blueBits);
     glfwWindowHint(GLFW_REFRESH_RATE, mode->refreshRate);
 
-    GLFWwindow* window;
-    if (fullscreen) {
-        window = glfwCreateWindow(mode->width, mode->height, "OpenGL Test", monitor, NULL);
-        glfwWindowHint(GLFW_SCALE_TO_MONITOR, true);
-    }
-    else {
-        window = glfwCreateWindow(600, 600, "OpenGL Test", NULL, NULL);
-    }
+    GLFWwindow* window = glfwCreateWindow(vars::screenSize.x, vars::screenSize.y, "OpenGL Test", NULL, NULL);
     if (window == nullptr) {
         std::cout << "Failed to create OpenGL window" << std::endl;
         return -1;
@@ -260,9 +253,12 @@ int main() {
 
     events::on_windowResize(window, 600, 600);
 
+    // load defaults for uniforms
     glUniform2d(glGetUniformLocation(shaderProgram, "offset"), vars::offset.x, vars::offset.y);
     glUniform1d(glGetUniformLocation(shaderProgram, "zoom"), vars::zoom);
     glUniform1i(glGetUniformLocation(shaderProgram, "max_iters"), vars::max_iters);
+    glUniform1i(glGetUniformLocation(shaderProgram, "spectrum_offset"), vars::spectrum_offset);
+    glUniform1i(glGetUniformLocation(shaderProgram, "iter_multiplier"), vars::iter_multiplier);
     
     do {
         processInput(window);
