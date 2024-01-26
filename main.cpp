@@ -33,8 +33,12 @@ uniform ivec2  screenSize;
 uniform dvec2  offset;
 uniform double zoom;
 uniform int    max_iters;
+uniform int    spectrum_offset = 0;
 
 vec3 color(int i) {
+    if (i < 255 - spectrum_offset)
+        return vec3(float(i + spectrum_offset) / 255.0f, 0.0f, 0.0f);
+    else i -= 255 - spectrum_offset;
     float val = float(i % 256) / 255;
     switch (int(floor(i / 256)) % 6) {
     case 0:
@@ -71,15 +75,13 @@ void main() {
 
 unsigned int shaderProgram = 0;
 
-bool pending_render = true;
-
-
+bool pending_flag = true;
 
 namespace consts {
     constexpr double zoom_co = 0.85;
     constexpr double iter_co = 1.060;
 
-    constexpr double doubleClick_interval = 0.5; // seconds
+    constexpr double doubleClick_interval = 0.2; // seconds
 }
 
 namespace vars {
@@ -90,12 +92,19 @@ namespace vars {
     int max_iters = 100;
 }
 
-// function to calculate the complex plane coordinate of a pixel
-glm::dvec2 pixel_to_complex(glm::dvec2 pixelCoord, glm::ivec2 screenSize, double zoom, glm::dvec2 offset) {
-    return ((glm::dvec2(pixelCoord.x / screenSize.x, pixelCoord.y / screenSize.y)) - glm::dvec2(0.5, 0.5)) * glm::dvec2(zoom, (screenSize.y * zoom) / screenSize.x) + offset;
-}
-glm::dvec2 pixel_to_complex(glm::dvec2 pixelCoord) {
-    return ((glm::dvec2(pixelCoord.x / vars::screenSize.x, pixelCoord.y / vars::screenSize.y)) - glm::dvec2(0.5, 0.5)) * glm::dvec2(vars::zoom, (vars::screenSize.y * vars::zoom) / vars::screenSize.x) + vars::offset;
+namespace utils {
+    glm::dvec2 pixel_to_complex(glm::dvec2 pixelCoord, glm::ivec2 screenSize, double zoom, glm::dvec2 offset) {
+        return ((glm::dvec2(pixelCoord.x / screenSize.x, pixelCoord.y / screenSize.y)) - glm::dvec2(0.5, 0.5)) *
+            glm::dvec2(zoom, (screenSize.y * zoom) / screenSize.x) + offset;
+    }
+    glm::dvec2 pixel_to_complex(glm::dvec2 pixelCoord) {
+        return ((glm::dvec2(pixelCoord.x / vars::screenSize.x, pixelCoord.y / vars::screenSize.y)) - glm::dvec2(0.5, 0.5)) *
+            glm::dvec2(vars::zoom, (vars::screenSize.y * vars::zoom) / vars::screenSize.x) + vars::offset;
+    }
+
+    double max_iters(double zoom, double zoom_co, double iter_co) {
+        return 100 * pow(iter_co, log2(zoom / 3) / log2(zoom_co));
+    }
 }
 
 namespace events {
@@ -110,7 +119,7 @@ namespace events {
         vars::screenSize = { width, height };
         if (shaderProgram)
             glUniform2i(glGetUniformLocation(shaderProgram, "screenSize"), width, height);
-        pending_render = true;
+        pending_flag = true;
     }
 
     void on_mouseButton(GLFWwindow* window, int button, int action, int mod) {
@@ -125,12 +134,12 @@ namespace events {
             }
             else if (lastPresses.y - lastPresses.x < consts::doubleClick_interval) { // button released, check if interval between last two presses is less than the max interval
                 glfwGetCursorPos(window, &events::oldPos.x, &events::oldPos.y);
-                glm::dvec2 pos = pixel_to_complex(events::oldPos);
-                glm::dvec2 center = pixel_to_complex(static_cast<glm::dvec2>(vars::screenSize) / 2.0);
+                glm::dvec2 pos = utils::pixel_to_complex(events::oldPos);
+                glm::dvec2 center = utils::pixel_to_complex(static_cast<glm::dvec2>(vars::screenSize) / 2.0);
                 vars::offset += pos - center;
                 glUniform2d(glGetUniformLocation(shaderProgram, "offset"), vars::offset.x, vars::offset.y);
                 dragging = false;
-                pending_render = true;
+                pending_flag = true;
             }
             else dragging = false;
         }
@@ -138,21 +147,21 @@ namespace events {
 
     void on_cursorMove(GLFWwindow* window, double x, double y) {
         if (dragging) {
-            lastPresses = { -consts::doubleClick_interval, 0 }; // reset to prevent accidental centering while quick dragging
+            lastPresses = { -consts::doubleClick_interval, 0 }; // reset to prevent accidental centering while rapidly dragging
             vars::offset.x -= ((x - oldPos.x) * vars::zoom) / vars::screenSize.x;
             vars::offset.y -= ((y - oldPos.y) * ((vars::zoom * vars::screenSize.y) / vars::screenSize.x)) / vars::screenSize.y;
             glUniform2d(glGetUniformLocation(shaderProgram, "offset"), vars::offset.x, vars::offset.y);
             oldPos = { x, y };
-            pending_render = true;
+            pending_flag = true;
         }
     }
 
     void on_mouseScroll(GLFWwindow* window, double x, double y) { // y is usually either 1 or -1 depending on direction, x is always 0
         vars::zoom *= pow(consts::zoom_co, y);
-        vars::max_iters *= pow(consts::iter_co, y);
+        vars::max_iters = utils::max_iters(vars::zoom, consts::zoom_co, consts::iter_co);
         glUniform1d(glGetUniformLocation(shaderProgram, "zoom"), vars::zoom);
         glUniform1i(glGetUniformLocation(shaderProgram, "max_iters"), vars::max_iters);
-        pending_render = true;
+        pending_flag = true;
     }
 }
 
@@ -254,14 +263,13 @@ int main() {
     glUniform2d(glGetUniformLocation(shaderProgram, "offset"), vars::offset.x, vars::offset.y);
     glUniform1d(glGetUniformLocation(shaderProgram, "zoom"), vars::zoom);
     glUniform1i(glGetUniformLocation(shaderProgram, "max_iters"), vars::max_iters);
-
+    
     do {
         processInput(window);
-
-        if (pending_render) {
+        if (pending_flag) {
             glDrawArrays(GL_TRIANGLES, 0, 6);
             glfwSwapBuffers(window);
-            pending_render = false;
+            pending_flag = false;
         }
         glfwPollEvents();
     } while (!glfwWindowShouldClose(window));
