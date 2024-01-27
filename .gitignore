@@ -31,3 +31,4 @@
 *.app
 /.vs/MV2
 /x64/Debug
+/x64/Release
