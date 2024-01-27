@@ -39,16 +39,17 @@ uniform double zoom;
 uniform int    max_iters;
 uniform int    spectrum_offset;
 uniform int    iter_multiplier;
+uniform double bailout_radius;
 
 double mod(double a, double b) {
     return a - b * floor(a / b);
 }
 
 vec3 color(double i) {
+    if (i < 255 - spectrum_offset)
+        return vec3((i + spectrum_offset) / 255.0, 0.0, 0.0);
+    else i -= 255 - spectrum_offset;
     double val = mod(i, 256.0) / 255.0;
-    //if (i < 256) // uncomment to make the background black
-    //    return vec3(val, 0.0f, 0.0f);
-    //else i -= 256;
     switch (int(mod(floor(i / 256.0), 6.0))) {
     case 0:
         return vec3(1.0f, val, 0.0f);
@@ -68,22 +69,39 @@ vec3 color(double i) {
 void main() {
     dvec2 c = (dvec2(gl_FragCoord.x / screenSize.x, (screenSize.y - gl_FragCoord.y) / screenSize.y) - dvec2(0.5, 0.5)) * dvec2(zoom, (screenSize.y * zoom) / screenSize.x) + offset;
     dvec2 z = c;
-    
-    for (int i = 0; i < max_iters; i++) {
-        if (z.x * z.x + z.y * z.y >= 4) {
-            double mu = i + 1 - log2(log2(float(length(z)))) / log2(2);
-            double mv = i;
-            vec3 c = color(mu * iter_multiplier);
-            fragColor = vec4(c, 1);
-            return;
+
+    // Initialize color accumulator
+    vec3 accumulatedColor = vec3(0.0);
+
+    // Perform linear interpolation
+    for (int i = -1; i <= 1; i += 2) {
+        for (int j = -1; j <= 1; j += 2) {
+            dvec2 sampleCoord = gl_FragCoord.xy + dvec2(i, j) * 0.5;
+            dvec2 sampleC = (dvec2(sampleCoord.x / screenSize.x, (screenSize.y - sampleCoord.y) / screenSize.y) - dvec2(0.5, 0.5)) * dvec2(zoom, (screenSize.y * zoom) / screenSize.x) + offset;
+            dvec2 sampleZ = sampleC;
+
+            // Perform the fractal algorithm for each sample
+            for (int k = 0; k < max_iters; k++) {
+                if (sampleZ.x * sampleZ.x + sampleZ.y * sampleZ.y >= bailout_radius) {
+                    double mu = k + 1 - log2(log2(float(length(sampleZ)))) / log2(2);
+                    accumulatedColor += color(mu * iter_multiplier);
+                    break;
+                }
+                sampleZ = dvec2(sampleZ.x * sampleZ.x - sampleZ.y * sampleZ.y, 2.0f * sampleZ.x * sampleZ.y) + sampleC;
+            }
         }
-        z = dvec2(z.x * z.x - z.y * z.y, 2.0f * z.x * z.y) + c;
     }
-    fragColor = vec4(0, 0, 0, 1);
+
+    // Average the accumulated color
+    accumulatedColor /= 4.0;
+
+    // Output the final color
+    fragColor = vec4(accumulatedColor, 1);
 }
 )";
 
 unsigned int shaderProgram = 0;
+unsigned int downsamplingShaderProgram = 0;
 
 bool pending_flag = true;
 
@@ -99,23 +117,23 @@ namespace vars {
     glm::ivec2 screenSize = { 600, 600 };
 
     double zoom = 3.0;
-    int max_iters = 100;
-    int spectrum_offset = 0;
-    int iter_multiplier = 10;
+    int    max_iters = 100;
+    int    spectrum_offset = 0;
+    int    iter_multiplier = 15;
 }
 
 namespace utils {
-    glm::dvec2 pixel_to_complex(glm::dvec2 pixelCoord, glm::ivec2 screenSize, double zoom, glm::dvec2 offset) {
+    static glm::dvec2 pixel_to_complex(glm::dvec2 pixelCoord, glm::ivec2 screenSize, double zoom, glm::dvec2 offset) {
         return ((glm::dvec2(pixelCoord.x / screenSize.x, pixelCoord.y / screenSize.y)) - glm::dvec2(0.5, 0.5)) *
             glm::dvec2(zoom, (screenSize.y * zoom) / screenSize.x) + offset;
     }
-    glm::dvec2 pixel_to_complex(glm::dvec2 pixelCoord) {
+    static glm::dvec2 pixel_to_complex(glm::dvec2 pixelCoord) {
         return ((glm::dvec2(pixelCoord.x / vars::screenSize.x, pixelCoord.y / vars::screenSize.y)) - glm::dvec2(0.5, 0.5)) *
             glm::dvec2(vars::zoom, (vars::screenSize.y * vars::zoom) / vars::screenSize.x) + vars::offset;
     }
 
-    double max_iters(double zoom, double zoom_co, double iter_co) {
-        return 100 * pow(iter_co, log2(zoom / 3) / log2(zoom_co));
+    static int max_iters(double zoom, double zoom_co, double iter_co) {
+        return 100 * static_cast<int>(pow(iter_co, log2(zoom / 3) / log2(zoom_co)));
     }
 }
 
@@ -126,8 +144,6 @@ namespace events {
     bool rightClickHold = false;
 
     void on_windowResize(GLFWwindow* window, int width, int height) {
-        glViewport(0, 0, width, height);
-
         vars::screenSize = { width, height };
         if (shaderProgram)
             glUniform2i(glGetUniformLocation(shaderProgram, "screenSize"), width, height);
@@ -259,8 +275,11 @@ int main() {
     glEnableVertexAttribArray(0);
 
     glBindBuffer(GL_ARRAY_BUFFER, NULL);
-
     glUseProgram(shaderProgram);
+
+    
+
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
 
     events::on_windowResize(window, 600, 600);
 
@@ -270,20 +289,22 @@ int main() {
     glUniform1i(glGetUniformLocation(shaderProgram, "max_iters"), vars::max_iters);
     glUniform1i(glGetUniformLocation(shaderProgram, "spectrum_offset"), vars::spectrum_offset);
     glUniform1i(glGetUniformLocation(shaderProgram, "iter_multiplier"), vars::iter_multiplier);
+    // calculate minimum bailout radius to avoid visual artifacts when using continuous coloring
+    glUniform1d(glGetUniformLocation(shaderProgram, "bailout_radius"), (3 * (double)vars::iter_multiplier) / 10 + 5);
     
-    IMGUI_CHECKVERSION();
-    ImGui::CreateContext();
-    ImGuiIO& io = ImGui::GetIO(); (void)io;
-    ImGui::StyleColorsDark();
-    ImGui_ImplGlfw_InitForOpenGL(window, true);
-    ImGui_ImplOpenGL3_Init("#version 400");
-
     do {
         processInput(window);
-        if (pending_flag) {
+        if (true) {
+            glViewport(0, 0, vars::screenSize.x * 4, vars::screenSize.y * 4);
             glDrawArrays(GL_TRIANGLES, 0, 6);
+
+            glBindFramebuffer(GL_FRAMEBUFFER, 0);
+            glViewport(0, 0, vars::screenSize.x, vars::screenSize.y);
+            glDrawArrays(GL_TRIANGLES, 0, 6);
+
             glfwSwapBuffers(window);
             pending_flag = false;
+
         }
         glfwPollEvents();
     } while (!glfwWindowShouldClose(window));
