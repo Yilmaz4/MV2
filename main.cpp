@@ -1,6 +1,11 @@
-﻿#include <glad/glad.h>
+﻿#include <imgui.h>
+#include <imgui_impl_glfw.h>
+#include <imgui_impl_opengl3.h>
+
+#include <glad/glad.h>
 #include <GLFW/glfw3.h>
 #include <glm/glm.hpp>
+
 #include <iostream>
 
 float vertices[] = {
@@ -40,10 +45,10 @@ double mod(double a, double b) {
 }
 
 vec3 color(double i) {
-    //if (i < 255 - spectrum_offset)
-        //return vec3(i + spectrum_offset / 255.0, 0.0, 0.0);
-    //else i -= 255 - spectrum_offset;
     double val = mod(i, 256.0) / 255.0;
+    //if (i < 256) // uncomment to make the background black
+    //    return vec3(val, 0.0f, 0.0f);
+    //else i -= 256;
     switch (int(mod(floor(i / 256.0), 6.0))) {
     case 0:
         return vec3(1.0f, val, 0.0f);
@@ -266,6 +271,13 @@ int main() {
     glUniform1i(glGetUniformLocation(shaderProgram, "spectrum_offset"), vars::spectrum_offset);
     glUniform1i(glGetUniformLocation(shaderProgram, "iter_multiplier"), vars::iter_multiplier);
     
+    IMGUI_CHECKVERSION();
+    ImGui::CreateContext();
+    ImGuiIO& io = ImGui::GetIO(); (void)io;
+    ImGui::StyleColorsDark();
+    ImGui_ImplGlfw_InitForOpenGL(window, true);
+    ImGui_ImplOpenGL3_Init("#version 400");
+
     do {
         processInput(window);
         if (pending_flag) {
