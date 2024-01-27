@@ -69,19 +69,18 @@ vec3 color(double i) {
 void main() {
     dvec2 c = (dvec2(gl_FragCoord.x / screenSize.x, (screenSize.y - gl_FragCoord.y) / screenSize.y) - dvec2(0.5, 0.5)) * dvec2(zoom, (screenSize.y * zoom) / screenSize.x) + offset;
     dvec2 z = c;
-    
-    double bailout = bailout_radius;
-    if (z.x * z.x + z.y * z.y >= 3.5)
-        bailout = 16.0;
+
     for (int i = 0; i < max_iters; i++) {
-        if (z.x * z.x + z.y * z.y >= bailout) {
+        double xx = z.x * z.x;
+        double yy = z.y * z.y;
+        if (xx + yy >= bailout_radius) {
             double mu = i + 1 - log2(log2(float(length(z)))) / log2(2);
             double mv = i;
             vec3 c = color(mu * iter_multiplier);
             fragColor = vec4(c, 1);
             return;
         }
-        z = dvec2(z.x * z.x - z.y * z.y, 2.0f * z.x * z.y) + c;
+        z = dvec2(xx - yy, 2.0f * z.x * z.y) + c;
     }
     fragColor = vec4(0, 0, 0, 1);
 }
@@ -118,7 +117,6 @@ namespace utils {
         return ((glm::dvec2(pixelCoord.x / vars::screenSize.x, pixelCoord.y / vars::screenSize.y)) - glm::dvec2(0.5, 0.5)) *
             glm::dvec2(vars::zoom, (vars::screenSize.y * vars::zoom) / vars::screenSize.x) + vars::offset;
     }
-
     static int max_iters(double zoom, double zoom_co, double iter_co) {
         return 100 * pow(iter_co, log2(zoom / 3) / log2(zoom_co));
     }
@@ -130,7 +128,7 @@ namespace events {
     bool dragging = false;
     bool rightClickHold = false;
 
-    void on_windowResize(GLFWwindow* window, int width, int height) {
+    static void on_windowResize(GLFWwindow* window, int width, int height) {
         glViewport(0, 0, width, height);
 
         vars::screenSize = { width, height };
@@ -139,7 +137,7 @@ namespace events {
         pending_flag = true;
     }
 
-    void on_mouseButton(GLFWwindow* window, int button, int action, int mod) {
+    static void on_mouseButton(GLFWwindow* window, int button, int action, int mod) {
         switch (button) {
         case GLFW_MOUSE_BUTTON_LEFT:
             if (action == GLFW_PRESS) {
@@ -162,7 +160,7 @@ namespace events {
         }
     }
 
-    void on_cursorMove(GLFWwindow* window, double x, double y) {
+    static void on_cursorMove(GLFWwindow* window, double x, double y) {
         if (dragging) {
             lastPresses = { -consts::doubleClick_interval, 0 }; // reset to prevent accidental centering while rapidly dragging
             vars::offset.x -= ((x - oldPos.x) * vars::zoom) / vars::screenSize.x;
@@ -173,7 +171,7 @@ namespace events {
         }
     }
 
-    void on_mouseScroll(GLFWwindow* window, double x, double y) { // y is usually either 1 or -1 depending on direction, x is always 0
+    static void on_mouseScroll(GLFWwindow* window, double x, double y) { // y is usually either 1 or -1 depending on direction, x is always 0
         vars::zoom *= pow(consts::zoom_co, y);
         vars::max_iters = utils::max_iters(vars::zoom, consts::zoom_co, consts::iter_co);
         glUniform1d(glGetUniformLocation(shaderProgram, "zoom"), vars::zoom);
@@ -182,7 +180,7 @@ namespace events {
     }
 }
 
-void processInput(GLFWwindow* window) {
+static void processInput(GLFWwindow* window) {
     if (glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS) {
         glfwSetWindowShouldClose(window, true);
     }
@@ -272,7 +270,7 @@ int main() {
     // load defaults for uniforms
     glUniform2d(glGetUniformLocation(shaderProgram, "offset"), vars::offset.x, vars::offset.y);
     glUniform1d(glGetUniformLocation(shaderProgram, "zoom"), vars::zoom);
-    glUniform1i(glGetUniformLocation(shaderProgram, "max_iters"), vars::max_iters);
+    glUniform1i(glGetUniformLocation(shaderProgram, "max_iters"), utils::max_iters(vars::zoom, consts::zoom_co, consts::iter_co));
     glUniform1i(glGetUniformLocation(shaderProgram, "spectrum_offset"), vars::spectrum_offset);
     glUniform1i(glGetUniformLocation(shaderProgram, "iter_multiplier"), vars::iter_multiplier);
     glUniform1d(glGetUniformLocation(shaderProgram, "bailout_radius"), vars::bailout_radius);
