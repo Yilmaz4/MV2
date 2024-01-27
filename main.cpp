@@ -34,15 +34,16 @@ uniform double zoom;
 uniform int    max_iters;
 uniform int    spectrum_offset;
 uniform int    iter_multiplier;
+uniform double bailout_radius;
 
 double mod(double a, double b) {
     return a - b * floor(a / b);
 }
 
 vec3 color(double i) {
-    //if (i < 255 - spectrum_offset)
-        //return vec3(i + spectrum_offset / 255.0, 0.0, 0.0);
-    //else i -= 255 - spectrum_offset;
+    if (i < 255 - spectrum_offset)
+        return vec3((i + spectrum_offset) / 255.0, 0.0, 0.0);
+    else i -= 255 - spectrum_offset;
     double val = mod(i, 256.0) / 255.0;
     switch (int(mod(floor(i / 256.0), 6.0))) {
     case 0:
@@ -64,8 +65,11 @@ void main() {
     dvec2 c = (dvec2(gl_FragCoord.x / screenSize.x, (screenSize.y - gl_FragCoord.y) / screenSize.y) - dvec2(0.5, 0.5)) * dvec2(zoom, (screenSize.y * zoom) / screenSize.x) + offset;
     dvec2 z = c;
     
+    double bailout = bailout_radius;
+    if (z.x * z.x + z.y * z.y >= 3.5)
+        bailout = 16.0;
     for (int i = 0; i < max_iters; i++) {
-        if (z.x * z.x + z.y * z.y >= 4) {
+        if (z.x * z.x + z.y * z.y >= bailout) {
             double mu = i + 1 - log2(log2(float(length(z)))) / log2(2);
             double mv = i;
             vec3 c = color(mu * iter_multiplier);
@@ -94,9 +98,10 @@ namespace vars {
     glm::ivec2 screenSize = { 600, 600 };
 
     double zoom = 3.0;
-    int max_iters = 100;
-    int spectrum_offset = 0;
-    int iter_multiplier = 10;
+    int    max_iters = 100;
+    int    spectrum_offset = 0;
+    int    iter_multiplier = 10;
+    double bailout_radius = 10.0;
 }
 
 namespace utils {
@@ -265,6 +270,7 @@ int main() {
     glUniform1i(glGetUniformLocation(shaderProgram, "max_iters"), vars::max_iters);
     glUniform1i(glGetUniformLocation(shaderProgram, "spectrum_offset"), vars::spectrum_offset);
     glUniform1i(glGetUniformLocation(shaderProgram, "iter_multiplier"), vars::iter_multiplier);
+    glUniform1d(glGetUniformLocation(shaderProgram, "bailout_radius"), vars::bailout_radius);
     
     do {
         processInput(window);
