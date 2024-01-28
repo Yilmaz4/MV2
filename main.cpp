@@ -191,6 +191,37 @@ static void processInput(GLFWwindow* window) {
     }
 }
 
+template <typename T> requires std::integral<T>
+void toggleButton(T* v, const char* id, const char* name, PFNGLUNIFORM1IPROC uniform) {
+    ImVec2 p = ImGui::GetCursorScreenPos();
+    ImDrawList* draw_list = ImGui::GetWindowDrawList();
+
+    float height = ImGui::GetFrameHeight();
+    float width = height * 1.8f;
+    float radius = height * 0.50f;
+    float rounding = 0.4f;
+
+    ImGui::InvisibleButton(id, ImVec2(width, height));
+    if (ImGui::IsItemClicked()) {
+        *v ^= 1;
+        uniform(glGetUniformLocation(shaderProgram, id), *v);
+    }
+    ImGuiContext& gg = *GImGui;
+    float ANIM_SPEED = 0.055f;
+    if (gg.LastActiveId == gg.CurrentWindow->GetID(id))
+        float t_anim = ImSaturate(gg.LastActiveIdTimer / ANIM_SPEED);
+    if (ImGui::IsItemHovered())
+        draw_list->AddRectFilled(p, ImVec2(p.x + width, p.y + height), ImGui::GetColorU32(ImVec4(0.2196f, 0.2196f, 0.2196f, 1.0f)), height * rounding);
+    else
+        draw_list->AddRectFilled(p, ImVec2(p.x + width, p.y + height), ImGui::GetColorU32(vars::continuous_coloring ? ImVec4(0.2196f, 0.2196f, 0.2196f, 1.0f) : ImVec4(0.08f, 0.08f, 0.08f, 1.0f)), height * rounding);
+    ImVec2 center = ImVec2(radius + (vars::continuous_coloring ? 1 : 0) * (width - radius * 2.0f), radius);
+    draw_list->AddRectFilled(ImVec2((p.x + center.x) - 9.0f, p.y + 1.5f),
+        ImVec2((p.x + (width / 2) + center.x) - 9.0f, p.y + height - 1.5f), IM_COL32(255, 255, 255, 255), height * rounding);
+    ImGui::SameLine(35.f);
+    ImGui::SetCursorPosY(ImGui::GetCursorPosY() + 3.f);
+    ImGui::Text(name);
+}
+
 int main() {
     glfwInit();
 
@@ -223,7 +254,9 @@ int main() {
     IMGUI_CHECKVERSION();
     ImGui::CreateContext();
     ImGuiIO& io = ImGui::GetIO(); (void)io;
-    io.Fonts->AddFontFromFileTTF("Consolas.ttf", 88);
+    io.Fonts->AddFontDefault();
+    ImFont* font_title = io.Fonts->AddFontFromFileTTF("C:\\Users\\ymzym\\Downloads\\consola.ttf", 12.f);
+    IM_ASSERT(font_title != NULL);
     io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;     // Enable Keyboard Controls
     io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;         // Enable Docking
 
@@ -393,6 +426,7 @@ int main() {
         static float f = 0.0f;
         static int counter = 0;
 
+        ImGui::PushFont(font_title);
         ImGui::Begin("Settings", nullptr, 
             ImGuiWindowFlags_NoScrollbar |
             ImGuiWindowFlags_NoScrollWithMouse |
@@ -401,47 +435,18 @@ int main() {
         );
 
         ImGui::BeginGroup();
-        {
-            if (ImGui::SliderFloat("Iteration coefficient", &vars::iter_co, 1.01, 1.1))
-                glUniform1i(glGetUniformLocation(shaderProgram, "max_iters"), utils::max_iters(vars::zoom, consts::zoom_co, vars::iter_co));
-            if (ImGui::SliderFloat("Bailout radius", &vars::bailout_radius, 4.0, 50.0))
-                glUniform1d(glGetUniformLocation(shaderProgram, "bailout_radius"), vars::bailout_radius);
-            if (ImGui::SliderInt("Iteration Multiplier", &vars::iter_multiplier, 1, 128, "x%d", ImGuiSliderFlags_Logarithmic | ImGuiSliderFlags_NoRoundToFormat))
-                glUniform1i(glGetUniformLocation(shaderProgram, "iter_multiplier"), vars::iter_multiplier);
-            if (ImGui::SliderInt("Spectrum Offset", &vars::spectrum_offset, 0, 256 * 7))
-                glUniform1i(glGetUniformLocation(shaderProgram, "spectrum_offset"), vars::spectrum_offset);
+        if (ImGui::SliderFloat("Iteration coefficient", &vars::iter_co, 1.01, 1.1))
+            glUniform1i(glGetUniformLocation(shaderProgram, "max_iters"), utils::max_iters(vars::zoom, consts::zoom_co, vars::iter_co));
+        if (ImGui::SliderFloat("Bailout radius", &vars::bailout_radius, 4.0, 50.0))
+            glUniform1d(glGetUniformLocation(shaderProgram, "bailout_radius"), vars::bailout_radius);
+        if (ImGui::SliderInt("Iteration Multiplier", &vars::iter_multiplier, 1, 128, "x%d", ImGuiSliderFlags_Logarithmic | ImGuiSliderFlags_NoRoundToFormat))
+            glUniform1i(glGetUniformLocation(shaderProgram, "iter_multiplier"), vars::iter_multiplier);
+        if (ImGui::SliderInt("Spectrum Offset", &vars::spectrum_offset, 0, 256 * 7))
+            glUniform1i(glGetUniformLocation(shaderProgram, "spectrum_offset"), vars::spectrum_offset);
+        toggleButton(&vars::continuous_coloring, "continuous_coloring", "Continuous coloring", glUniform1i);
+        ImGui::EndGroup();
 
-            ImVec4* colors = ImGui::GetStyle().Colors;
-            ImVec2 p = ImGui::GetCursorScreenPos();
-            ImDrawList* draw_list = ImGui::GetWindowDrawList();
 
-            float height = ImGui::GetFrameHeight();
-            float width = height * 1.8f;
-            float radius = height * 0.50f;
-            float rounding = 0.4f;
-
-            ImGui::InvisibleButton("continuous_coloring", ImVec2(width, height));
-            if (ImGui::IsItemClicked()) {
-                vars::continuous_coloring ^= 1;
-                glUniform1i(glGetUniformLocation(shaderProgram, "continuous_coloring"), vars::continuous_coloring);
-            }
-            ImGuiContext& gg = *GImGui;
-            float ANIM_SPEED = 0.055f;
-            if (gg.LastActiveId == gg.CurrentWindow->GetID("continuous_coloring"))
-                float t_anim = ImSaturate(gg.LastActiveIdTimer / ANIM_SPEED);
-            if (ImGui::IsItemHovered())
-                draw_list->AddRectFilled(p, ImVec2(p.x + width, p.y + height), ImGui::GetColorU32(ImVec4(0.2196f, 0.2196f, 0.2196f, 1.0f)), height * rounding);
-            else
-                draw_list->AddRectFilled(p, ImVec2(p.x + width, p.y + height), ImGui::GetColorU32(vars::continuous_coloring ? colors[ImGuiCol_ButtonActive] : ImVec4(0.08f, 0.08f, 0.08f, 1.0f)), height * rounding);
-            ImVec2 center = ImVec2(radius + (vars::continuous_coloring ? 1 : 0) * (width - radius * 2.0f), radius);
-            draw_list->AddRectFilled(ImVec2((p.x + center.x) - 9.0f, p.y + 1.5f),
-                ImVec2((p.x + (width / 2) + center.x) - 9.0f, p.y + height - 1.5f), IM_COL32(255, 255, 255, 255), height * rounding);
-            ImGui::SameLine(40.f);
-            ImGui::SetCursorPosY(ImGui::GetCursorPosY() + 1.9f);
-            ImGui::Text("Continuous coloring");
-            ImGui::EndGroup();
-
-        }
         ImGui::End();
         ImGui::DockBuilderDockWindow("Settings", ImGui::DockBuilderAddNode(0, 0));
 
