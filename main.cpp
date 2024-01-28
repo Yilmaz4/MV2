@@ -42,6 +42,7 @@ uniform int    max_iters;
 uniform int    spectrum_offset;
 uniform int    iter_multiplier;
 uniform double bailout_radius;
+uniform int    continuous_coloring;
 
 double mod(double a, double b) {
     return a - b * floor(a / b);
@@ -76,9 +77,9 @@ void main() {
         double xx = z.x * z.x;
         double yy = z.y * z.y;
         if (xx + yy >= bailout_radius) {
-            double mu = i + 1 - log2(log2(float(length(z)))) / log2(2);
-            double mv = i;
-            vec3 c = color(mu * iter_multiplier);
+            double mu = iter_multiplier * (i + 1 - log2(log2(float(length(z)))) / log2(2));
+            double mv = iter_multiplier * i;
+            vec3 c = color(continuous_coloring == 0 ? mv : mu);
             fragColor = vec4(c, 1);
             return;
         }
@@ -108,6 +109,7 @@ namespace vars {
     int    iter_multiplier = 10;
     float  bailout_radius = 10.0;
     float  iter_co = 1.060;
+    int    continuous_coloring = 1;
 }
 
 namespace utils {
@@ -370,6 +372,14 @@ int main() {
 
     glUseProgram(shaderProgram);
 
+    glUniform2d(glGetUniformLocation(shaderProgram, "offset"), vars::offset.x, vars::offset.y);
+    glUniform1i(glGetUniformLocation(shaderProgram, "iter_multiplier"), vars::iter_multiplier);
+    glUniform1d(glGetUniformLocation(shaderProgram, "zoom"), vars::zoom);
+    glUniform1i(glGetUniformLocation(shaderProgram, "max_iters"), utils::max_iters(vars::zoom, consts::zoom_co, vars::iter_co));
+    glUniform1i(glGetUniformLocation(shaderProgram, "spectrum_offset"), vars::spectrum_offset);
+    glUniform1d(glGetUniformLocation(shaderProgram, "bailout_radius"), vars::bailout_radius);
+    glUniform1i(glGetUniformLocation(shaderProgram, "continuous_coloring"), vars::continuous_coloring);
+
     events::on_windowResize(window, 600, 600);
 
     do {
@@ -380,33 +390,60 @@ int main() {
 
         ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 6);
 
+        static float f = 0.0f;
+        static int counter = 0;
+
+        ImGui::Begin("Settings", nullptr, 
+            ImGuiWindowFlags_NoScrollbar |
+            ImGuiWindowFlags_NoScrollWithMouse |
+            ImGuiWindowFlags_AlwaysAutoResize |
+            ImGuiWindowFlags_NoMove
+        );
+
+        ImGui::BeginGroup();
         {
-            static float f = 0.0f;
-            static int counter = 0;
+            if (ImGui::SliderFloat("Iteration coefficient", &vars::iter_co, 1.01, 1.1))
+                glUniform1i(glGetUniformLocation(shaderProgram, "max_iters"), utils::max_iters(vars::zoom, consts::zoom_co, vars::iter_co));
+            if (ImGui::SliderFloat("Bailout radius", &vars::bailout_radius, 4.0, 50.0))
+                glUniform1d(glGetUniformLocation(shaderProgram, "bailout_radius"), vars::bailout_radius);
+            if (ImGui::SliderInt("Iteration Multiplier", &vars::iter_multiplier, 1, 128, "x%d", ImGuiSliderFlags_Logarithmic | ImGuiSliderFlags_NoRoundToFormat))
+                glUniform1i(glGetUniformLocation(shaderProgram, "iter_multiplier"), vars::iter_multiplier);
+            if (ImGui::SliderInt("Spectrum Offset", &vars::spectrum_offset, 0, 256 * 7))
+                glUniform1i(glGetUniformLocation(shaderProgram, "spectrum_offset"), vars::spectrum_offset);
 
-            ImGui::Begin("Settings", nullptr, 
-                ImGuiWindowFlags_NoScrollbar |
-                ImGuiWindowFlags_NoScrollWithMouse |
-                ImGuiWindowFlags_AlwaysAutoResize);
+            ImVec4* colors = ImGui::GetStyle().Colors;
+            ImVec2 p = ImGui::GetCursorScreenPos();
+            ImDrawList* draw_list = ImGui::GetWindowDrawList();
 
-            ImGui::BeginGroup();
-            {
-                ImGui::SliderInt("Multiplier", &vars::iter_multiplier, 1, 128, "x%d", ImGuiSliderFlags_Logarithmic | ImGuiSliderFlags_NoRoundToFormat);
-                ImGui::SliderInt("Offset", &vars::spectrum_offset, 0, 256 * 7);
-                ImGui::SliderFloat("Iteration coefficient", &vars::iter_co, 1.01, 1.1);
-                ImGui::SliderFloat("Bailout radius", &vars::bailout_radius, 4.0, 50.0);
-                ImGui::EndGroup();
+            float height = ImGui::GetFrameHeight();
+            float width = height * 1.8f;
+            float radius = height * 0.50f;
+            float rounding = 0.4f;
+
+            ImGui::InvisibleButton("continuous_coloring", ImVec2(width, height));
+            if (ImGui::IsItemClicked()) {
+                vars::continuous_coloring ^= 1;
+                glUniform1i(glGetUniformLocation(shaderProgram, "continuous_coloring"), vars::continuous_coloring);
             }
-            ImGui::End();
-            ImGui::DockBuilderDockWindow("Settings", ImGui::DockBuilderAddNode(0, 0));
-        }
+            ImGuiContext& gg = *GImGui;
+            float ANIM_SPEED = 0.055f;
+            if (gg.LastActiveId == gg.CurrentWindow->GetID("continuous_coloring"))
+                float t_anim = ImSaturate(gg.LastActiveIdTimer / ANIM_SPEED);
+            if (ImGui::IsItemHovered())
+                draw_list->AddRectFilled(p, ImVec2(p.x + width, p.y + height), ImGui::GetColorU32(ImVec4(0.2196f, 0.2196f, 0.2196f, 1.0f)), height * rounding);
+            else
+                draw_list->AddRectFilled(p, ImVec2(p.x + width, p.y + height), ImGui::GetColorU32(vars::continuous_coloring ? colors[ImGuiCol_ButtonActive] : ImVec4(0.08f, 0.08f, 0.08f, 1.0f)), height * rounding);
+            ImVec2 center = ImVec2(radius + (vars::continuous_coloring ? 1 : 0) * (width - radius * 2.0f), radius);
+            draw_list->AddRectFilled(ImVec2((p.x + center.x) - 9.0f, p.y + 1.5f),
+                ImVec2((p.x + (width / 2) + center.x) - 9.0f, p.y + height - 1.5f), IM_COL32(255, 255, 255, 255), height * rounding);
+            ImGui::SameLine(40.f);
+            ImGui::SetCursorPosY(ImGui::GetCursorPosY() + 1.9f);
+            ImGui::Text("Continuous coloring");
+            ImGui::EndGroup();
 
-        glUniform2d(glGetUniformLocation(shaderProgram, "offset"), vars::offset.x, vars::offset.y);
-        glUniform1d(glGetUniformLocation(shaderProgram, "zoom"), vars::zoom);
-        glUniform1i(glGetUniformLocation(shaderProgram, "max_iters"), utils::max_iters(vars::zoom, consts::zoom_co, vars::iter_co));
-        glUniform1i(glGetUniformLocation(shaderProgram, "spectrum_offset"), vars::spectrum_offset);
-        glUniform1i(glGetUniformLocation(shaderProgram, "iter_multiplier"), vars::iter_multiplier);
-        glUniform1d(glGetUniformLocation(shaderProgram, "bailout_radius"), vars::bailout_radius);
+        }
+        ImGui::End();
+        ImGui::DockBuilderDockWindow("Settings", ImGui::DockBuilderAddNode(0, 0));
 
         ImGui::Render();
         
