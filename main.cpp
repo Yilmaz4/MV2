@@ -43,6 +43,7 @@ uniform int    spectrum_offset;
 uniform int    iter_multiplier;
 uniform double bailout_radius;
 uniform int    continuous_coloring;
+uniform dvec3  set_color;
 
 double mod(double a, double b) {
     return a - b * floor(a / b);
@@ -73,25 +74,32 @@ void main() {
     dvec2 c = (dvec2(gl_FragCoord.x / screenSize.x, (screenSize.y - gl_FragCoord.y) / screenSize.y) - dvec2(0.5, 0.5)) * dvec2(zoom, (screenSize.y * zoom) / screenSize.x) + offset;
     dvec2 z = c;
 
-    for (int i = 0; i < max_iters; i++) {
-        double xx = z.x * z.x;
-        double yy = z.y * z.y;
-        if (xx + yy >= bailout_radius) {
-            double mu = iter_multiplier * (i + 1 - log2(log2(float(length(z)))) / log2(2));
-            double mv = iter_multiplier * i;
-            vec3 c = color(continuous_coloring == 0 ? mv : mu);
-            fragColor = vec4(c, 1);
-            return;
+    double xx = z.x * z.x;
+    double yy = z.y * z.y;
+
+    double p = xx - z.x / 2.0 + 0.0625 + yy;
+    if (4.0 * p * (p + (z.x - 0.25)) > yy && (xx + yy + 2 * z.x + 1) > 0.0625) {
+        for (int i = 0; i < max_iters; i++) {
+            if (xx + yy >= bailout_radius) {
+                double mu = iter_multiplier * (i + 1 - log2(log2(float(length(z)))) / log2(2));
+                double mv = iter_multiplier * i;
+                vec3 co = color(continuous_coloring == 0 ? mv : mu);
+                fragColor = vec4(co, 1);
+                return;
+            }
+            z = dvec2(xx - yy, 2.0f * z.x * z.y) + c;
+            xx = z.x * z.x;
+            yy = z.y * z.y;
         }
-        z = dvec2(xx - yy, 2.0f * z.x * z.y) + c;
     }
-    fragColor = vec4(0, 0, 0, 1);
+    fragColor = vec4(set_color, 1);
 }
 )";
 
+
 unsigned int shaderProgram = 0;
 
-bool pending_flag = true;
+int pending_flag = 1;
 
 namespace consts {
     constexpr double zoom_co = 0.85;
@@ -101,15 +109,16 @@ namespace consts {
 
 namespace vars {
     glm::dvec2 offset = { -0.4, 0 };
-    glm::ivec2 screenSize = { 600, 600 };
-
-    double zoom = 3.0;
-    int    max_iters = 100;
+    glm::ivec2 screenSize = { 760, 540 };
+    double zoom = 5.0;
     int    spectrum_offset = 0;
     int    iter_multiplier = 10;
     float  bailout_radius = 10.0;
     float  iter_co = 1.060;
     int    continuous_coloring = 1;
+    glm::dvec3 set_color = { 0., 0., 0. };
+
+    int display_texture = 0;
 }
 
 namespace utils {
@@ -122,7 +131,7 @@ namespace utils {
             glm::dvec2(vars::zoom, (vars::screenSize.y * vars::zoom) / vars::screenSize.x) + vars::offset;
     }
     static int max_iters(double zoom, double zoom_co, double iter_co) {
-        return 100 * pow(iter_co, log2(zoom / 3) / log2(zoom_co));
+        return 100 * pow(iter_co, log2(zoom / 5.0) / log2(zoom_co));
     }
 }
 
@@ -138,7 +147,7 @@ namespace events {
         vars::screenSize = { width, height };
         if (shaderProgram)
             glUniform2i(glGetUniformLocation(shaderProgram, "screenSize"), width, height);
-        pending_flag = true;
+        pending_flag = 2;
     }
 
     static void on_mouseButton(GLFWwindow* window, int button, int action, int mod) {
@@ -159,35 +168,51 @@ namespace events {
                 vars::offset += pos - center;
                 glUniform2d(glGetUniformLocation(shaderProgram, "offset"), vars::offset.x, vars::offset.y);
                 dragging = false;
-                pending_flag = true;
+                pending_flag = 2;
             }
-            else dragging = false;
+            else {
+                dragging = false;
+            }
+            break;
+        case GLFW_MOUSE_BUTTON_RIGHT:
+            rightClickHold = action == GLFW_PRESS;
         }
     }
 
     static void on_cursorMove(GLFWwindow* window, double x, double y) {
-        if (dragging && !ImGui::GetIO().WantCaptureMouse) {
+        if (ImGui::GetIO().WantCaptureMouse)
+            return;
+        if (dragging) {
             lastPresses = { -consts::doubleClick_interval, 0 }; // reset to prevent accidental centering while rapidly dragging
             vars::offset.x -= ((x - oldPos.x) * vars::zoom) / vars::screenSize.x;
             vars::offset.y -= ((y - oldPos.y) * ((vars::zoom * vars::screenSize.y) / vars::screenSize.x)) / vars::screenSize.y;
             glUniform2d(glGetUniformLocation(shaderProgram, "offset"), vars::offset.x, vars::offset.y);
             oldPos = { x, y };
-            pending_flag = true;
+            pending_flag = 2;
         }
     }
 
     static void on_mouseScroll(GLFWwindow* window, double x, double y) { // y is usually either 1 or -1 depending on direction, x is always 0
         vars::zoom *= pow(consts::zoom_co, y);
-        vars::max_iters = utils::max_iters(vars::zoom, consts::zoom_co, vars::iter_co);
         glUniform1d(glGetUniformLocation(shaderProgram, "zoom"), vars::zoom);
-        glUniform1i(glGetUniformLocation(shaderProgram, "max_iters"), vars::max_iters);
-        pending_flag = true;
+        glUniform1i(glGetUniformLocation(shaderProgram, "max_iters"), utils::max_iters(vars::zoom, consts::zoom_co, vars::iter_co));
+        pending_flag = 2;
     }
 }
 
 static void processInput(GLFWwindow* window) {
     if (glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS) {
         glfwSetWindowShouldClose(window, true);
+    }
+}
+
+static void HelpMarker(const char* desc) { // code from imgui demo
+    ImGui::TextDisabled("[?]");
+    if (ImGui::BeginItemTooltip()) {
+        ImGui::PushTextWrapPos(ImGui::GetFontSize() * 35.0f);
+        ImGui::TextUnformatted(desc);
+        ImGui::PopTextWrapPos();
+        ImGui::EndTooltip();
     }
 }
 
@@ -205,6 +230,7 @@ void toggleButton(T* v, const char* id, const char* name, PFNGLUNIFORM1IPROC uni
     if (ImGui::IsItemClicked()) {
         *v ^= 1;
         uniform(glGetUniformLocation(shaderProgram, id), *v);
+        pending_flag = 2;
     }
     ImGuiContext& gg = *GImGui;
     float ANIM_SPEED = 0.055f;
@@ -412,10 +438,12 @@ int main() {
     glUniform1i(glGetUniformLocation(shaderProgram, "spectrum_offset"), vars::spectrum_offset);
     glUniform1d(glGetUniformLocation(shaderProgram, "bailout_radius"), vars::bailout_radius);
     glUniform1i(glGetUniformLocation(shaderProgram, "continuous_coloring"), vars::continuous_coloring);
+    glUniform3d(glGetUniformLocation(shaderProgram, "set_color"), vars::set_color.x, vars::set_color.y, vars::set_color.z);
+    glUniform1i(glGetUniformLocation(shaderProgram, "display_texture"), vars::display_texture);
 
-    events::on_windowResize(window, 600, 600);
+    events::on_windowResize(window, vars::screenSize.x, vars::screenSize.y);
 
-    do {
+    do { // mainloop
         glfwPollEvents();
         ImGui_ImplOpenGL3_NewFrame();
         ImGui_ImplGlfw_NewFrame();
@@ -427,6 +455,7 @@ int main() {
         static int counter = 0;
 
         ImGui::PushFont(font_title);
+        ImGui::SetNextWindowPos({ 10, 10 });
         ImGui::Begin("Settings", nullptr, 
             ImGuiWindowFlags_NoScrollbar |
             ImGuiWindowFlags_NoScrollWithMouse |
@@ -435,24 +464,63 @@ int main() {
         );
 
         ImGui::BeginGroup();
-        if (ImGui::SliderFloat("Iteration coefficient", &vars::iter_co, 1.01, 1.1))
+        ImGui::SeparatorText("Computation configuration");
+        //ImGui::PushItemFlag(ImGuiItemFlags_Disabled, true);
+        if (ImGui::SliderFloat("Iteration coefficient", &vars::iter_co, 1.01, 1.1)) {
             glUniform1i(glGetUniformLocation(shaderProgram, "max_iters"), utils::max_iters(vars::zoom, consts::zoom_co, vars::iter_co));
-        if (ImGui::SliderFloat("Bailout radius", &vars::bailout_radius, 4.0, 50.0))
+            pending_flag = 2;
+        }
+        //ImGui::PushItemFlag(ImGuiItemFlags_Disabled, false);
+        if (ImGui::SliderFloat("Bailout radius", &vars::bailout_radius, 4.0, 50.0)) {
             glUniform1d(glGetUniformLocation(shaderProgram, "bailout_radius"), vars::bailout_radius);
-        if (ImGui::SliderInt("Iteration Multiplier", &vars::iter_multiplier, 1, 128, "x%d", ImGuiSliderFlags_Logarithmic | ImGuiSliderFlags_NoRoundToFormat))
+            pending_flag = 2;
+        } 
+        ImGui::SeparatorText("Rendering settings");
+        if (ImGui::SliderInt("Iteration Multiplier", &vars::iter_multiplier, 1, 128, "x%d", ImGuiSliderFlags_Logarithmic | ImGuiSliderFlags_NoRoundToFormat)) {
             glUniform1i(glGetUniformLocation(shaderProgram, "iter_multiplier"), vars::iter_multiplier);
-        if (ImGui::SliderInt("Spectrum Offset", &vars::spectrum_offset, 0, 256 * 7))
+            pending_flag = 2;
+        }
+        if (ImGui::SliderInt("Spectrum Offset", &vars::spectrum_offset, 0, 256 * 7)) {
             glUniform1i(glGetUniformLocation(shaderProgram, "spectrum_offset"), vars::spectrum_offset);
+            pending_flag = 2;
+        }
         toggleButton(&vars::continuous_coloring, "continuous_coloring", "Continuous coloring", glUniform1i);
         ImGui::EndGroup();
-
-
         ImGui::End();
-        ImGui::DockBuilderDockWindow("Settings", ImGui::DockBuilderAddNode(0, 0));
+
+        if (events::rightClickHold) {
+            double x, y;
+            glfwGetCursorPos(window, &x, &y);
+            ImGui::SetNextWindowPos({ (float)x + 10.0f, (float)y });
+            ImGui::Begin("info", nullptr, ImGuiWindowFlags_NoCollapse |
+                ImGuiWindowFlags_NoScrollbar |
+                ImGuiWindowFlags_NoScrollWithMouse |
+                ImGuiWindowFlags_AlwaysAutoResize |
+                ImGuiWindowFlags_NoMove |
+                ImGuiWindowFlags_NoTitleBar);
+            glm::dvec2 c = utils::pixel_to_complex({x, y});
+            glm::dvec2 z = c;
+            int i;
+            for (i = 0; i < utils::max_iters(vars::zoom, consts::zoom_co, vars::iter_co); i++) {
+                double xx = z.x * z.x;
+                double yy = z.y * z.y;
+                if (xx + yy > vars::bailout_radius)
+                    goto display;
+                z = glm::dvec2(xx - yy, 2.0f * z.x * z.y) + c;
+            }
+            i = -1;
+        display:
+            if (i > 0)
+                ImGui::Text("Re: %.17g\nIm: %.17g\nIterations before bailout: %d", c.x, c.y, i);
+            else
+                ImGui::Text("Re: %.17g\nIm: %.17g\nPoint is in set", c.x, c.y);
+            ImGui::End();
+        }
 
         ImGui::Render();
         
         glDrawArrays(GL_TRIANGLES, 0, 6);
+        
         ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
 
         if (io.ConfigFlags & ImGuiConfigFlags_ViewportsEnable) {
