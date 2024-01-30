@@ -48,6 +48,9 @@ uniform dvec3  set_color;
 uniform sampler2D tex;
 uniform int use_tex;
 
+uniform dvec2 mouseCoord;
+uniform int julia;
+
 double mod(double a, double b) {
     return a - b * floor(a / b);
 }
@@ -78,15 +81,13 @@ void main() {
         fragColor = texture(tex, vec2(gl_FragCoord.x / screenSize.x, gl_FragCoord.y / screenSize.y));
         return;
     }
-    dvec2 c = (dvec2(gl_FragCoord.x / screenSize.x, (screenSize.y - gl_FragCoord.y) / screenSize.y) - dvec2(0.5, 0.5)) * dvec2(zoom, (screenSize.y * zoom) / screenSize.x) + offset;
-    dvec2 z = c;
-
-    double xx = z.x * z.x;
-    double yy = z.y * z.y;
-
-    double p = xx - z.x / 2.0 + 0.0625 + yy;
-    if (4.0 * p * (p + (z.x - 0.25)) > yy && (xx + yy + 2 * z.x + 1) > 0.0625) {
-        for (int i = 0; i < max_iters; i++) {
+    if (julia == 1) {
+        dvec2 c = (dvec2(gl_FragCoord.x / screenSize.x, (screenSize.y - gl_FragCoord.y) / screenSize.y) - dvec2(0.5, 0.5)) * dvec2(3.0, 3.0);
+        dvec2 z = c;
+        
+        for (int i = 0; i < 500; i++) {
+            double xx = z.x * z.x;
+            double yy = z.y * z.y;
             if (xx + yy >= bailout_radius) {
                 double mu = iter_multiplier * (i + 1 - log2(log2(float(length(z)))) / log2(2));
                 double mv = iter_multiplier * i;
@@ -94,12 +95,34 @@ void main() {
                 fragColor = vec4(co, 1);
                 return;
             }
-            z = dvec2(xx - yy, 2.0f * z.x * z.y) + c;
-            xx = z.x * z.x;
-            yy = z.y * z.y;
+            z = dvec2(xx - yy, 2.0f * z.x * z.y) + mouseCoord;
         }
+        fragColor = vec4(set_color, 1.0);
     }
-    fragColor = vec4(set_color, 1);
+    else {
+        dvec2 c = (dvec2(gl_FragCoord.x / screenSize.x, (screenSize.y - gl_FragCoord.y) / screenSize.y) - dvec2(0.5, 0.5)) * dvec2(zoom, (screenSize.y * zoom) / screenSize.x) + offset;
+        dvec2 z = c;
+
+        double xx = z.x * z.x;
+        double yy = z.y * z.y;
+
+        double p = xx - z.x / 2.0 + 0.0625 + yy;
+        if (4.0 * p * (p + (z.x - 0.25)) > yy && (xx + yy + 2 * z.x + 1) > 0.0625) {
+            for (int i = 0; i < max_iters; i++) {
+                if (xx + yy >= bailout_radius) {
+                    double mu = iter_multiplier * (i + 1 - log2(log2(float(length(z)))) / log2(2));
+                    double mv = iter_multiplier * i;
+                    vec3 co = color(continuous_coloring == 0 ? mv : mu);
+                    fragColor = vec4(co, 1);
+                    return;
+                }
+                z = dvec2(xx - yy, 2.0f * z.x * z.y) + c;
+                xx = z.x * z.x;
+                yy = z.y * z.y;
+            }
+        }
+        fragColor = vec4(set_color, 1.0);
+    }
 }
 )glsl";
 
@@ -126,6 +149,8 @@ namespace vars {
     glm::dvec3 set_color = { 0., 0., 0. };
 
     double ssaa_factor = 2;
+
+    int julia_size = 200;
 
     double fps_update_interval = 0.0;
 }
@@ -396,21 +421,30 @@ int main() {
         return -1;
     }
 
-    GLuint frameBuffer;
-    glGenFramebuffers(1, &frameBuffer);
-    glBindFramebuffer(GL_FRAMEBUFFER, frameBuffer);
-
+    GLuint mandelbrotFrameBuffer;
+    glGenFramebuffers(1, &mandelbrotFrameBuffer);
+    glBindFramebuffer(GL_FRAMEBUFFER, mandelbrotFrameBuffer);
     GLuint mandelbrotTexBuffer;
     glGenTextures(1, &mandelbrotTexBuffer);
     glBindTexture(GL_TEXTURE_2D, mandelbrotTexBuffer);
-
     glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, vars::screenSize.x * vars::ssaa_factor, vars::screenSize.y * vars::ssaa_factor, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
-
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-
     glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, mandelbrotTexBuffer, 0);
 
+
+    GLuint juliaFrameBuffer;
+    glGenFramebuffers(1, &juliaFrameBuffer);
+    glBindFramebuffer(GL_FRAMEBUFFER, juliaFrameBuffer);
+    GLuint juliaTexBuffer;
+    glGenTextures(1, &juliaTexBuffer);
+    glBindTexture(GL_TEXTURE_2D, juliaTexBuffer);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, vars::julia_size * vars::ssaa_factor, vars::julia_size * vars::ssaa_factor, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, juliaTexBuffer, 0);
+
+    
     unsigned int vertexShader;
     vertexShader = glCreateShader(GL_VERTEX_SHADER);
     glShaderSource(vertexShader, 1, &vertexShaderSource, NULL);
@@ -549,18 +583,27 @@ int main() {
                 ImGui::Text("Re: %.17g\nIm: %.17g\nIterations before bailout: %d", c.x, c.y, i);
             else
                 ImGui::Text("Re: %.17g\nIm: %.17g\nPoint is in set", c.x, c.y);
-            ImGui::Image((void*)(intptr_t)mandelbrotTexBuffer, ImVec2(200, 200));
+            glViewport(0, 0, vars::julia_size * vars::ssaa_factor, vars::julia_size * vars::ssaa_factor);
+            glBindFramebuffer(GL_FRAMEBUFFER, juliaFrameBuffer);
+            glUniform1i(glGetUniformLocation(shaderProgram, "use_tex"), 0);
+            glUniform1i(glGetUniformLocation(shaderProgram, "julia"), 1);
+            glUniform2d(glGetUniformLocation(shaderProgram, "mouseCoord"), c.x, c.y);
+            glUniform2i(glGetUniformLocation(shaderProgram, "screenSize"), vars::julia_size * vars::ssaa_factor, vars::julia_size * vars::ssaa_factor);
+            glDrawArrays(GL_TRIANGLES, 0, 6);
+            ImGui::Image((void*)(intptr_t)juliaTexBuffer, ImVec2(vars::julia_size, vars::julia_size));
             ImGui::End();
         }
 
         if (pending_flag) {
             glViewport(0, 0, vars::screenSize.x * vars::ssaa_factor, vars::screenSize.y * vars::ssaa_factor);
+            glBindTexture(GL_TEXTURE_2D, mandelbrotTexBuffer);
+            glBindFramebuffer(GL_FRAMEBUFFER, mandelbrotFrameBuffer);
+            glUniform1i(glGetUniformLocation(shaderProgram, "julia"), 0);
             glUniform2i(glGetUniformLocation(shaderProgram, "screenSize"), vars::screenSize.x * vars::ssaa_factor, vars::screenSize.y * vars::ssaa_factor);
-            glBindFramebuffer(GL_FRAMEBUFFER, frameBuffer);
             glUniform1i(glGetUniformLocation(shaderProgram, "use_tex"), 0);
             pending_flag -= 1;
             glDrawArrays(GL_TRIANGLES, 0, 6);
-            glViewport(0, 0, vars::screenSize.x, vars::screenSize.y);
+            
             glUniform2i(glGetUniformLocation(shaderProgram, "screenSize"), vars::screenSize.x, vars::screenSize.y);
             glBindFramebuffer(GL_FRAMEBUFFER, 0);
             glUniform1i(glGetUniformLocation(shaderProgram, "use_tex"), 1);
@@ -569,11 +612,13 @@ int main() {
             ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
             glfwSwapBuffers(window);
         }
-        
         else {
-            ImGui::Render();
+            glViewport(0, 0, vars::screenSize.x, vars::screenSize.y);
+            glUniform1i(glGetUniformLocation(shaderProgram, "julia"), 0);
+            glUniform2i(glGetUniformLocation(shaderProgram, "screenSize"), vars::screenSize.x, vars::screenSize.y);
             glBindFramebuffer(GL_FRAMEBUFFER, 0);
             glUniform1i(glGetUniformLocation(shaderProgram, "use_tex"), 1);
+            ImGui::Render();
             glDrawArrays(GL_TRIANGLES, 0, 6);
             ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
             glfwSwapBuffers(window);
