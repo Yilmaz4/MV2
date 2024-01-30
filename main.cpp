@@ -23,13 +23,13 @@ const char* vertexShaderSource = R"(
 #version 400 core
 
 layout(location = 0) in vec2 aPos;
-    
+
 void main() {
     gl_Position = vec4(aPos, 0.0, 1.0);
 }
 )";
 
-const char* fragmentShaderSource = R"(
+const char* fragmentShaderSource = R"glsl(
 #version 400 core
 #extension GL_ARB_gpu_shader_fp64 : enable
 
@@ -44,6 +44,9 @@ uniform int    iter_multiplier;
 uniform double bailout_radius;
 uniform int    continuous_coloring;
 uniform dvec3  set_color;
+
+uniform sampler2D tex;
+uniform int use_tex;
 
 double mod(double a, double b) {
     return a - b * floor(a / b);
@@ -71,6 +74,10 @@ vec3 color(double i) {
 }
 
 void main() {
+    if (use_tex == 1) {
+        fragColor = texture(tex, vec2(gl_FragCoord.x / screenSize.x, gl_FragCoord.y / screenSize.y));
+        return;
+    }
     dvec2 c = (dvec2(gl_FragCoord.x / screenSize.x, (screenSize.y - gl_FragCoord.y) / screenSize.y) - dvec2(0.5, 0.5)) * dvec2(zoom, (screenSize.y * zoom) / screenSize.x) + offset;
     dvec2 z = c;
 
@@ -94,7 +101,7 @@ void main() {
     }
     fragColor = vec4(set_color, 1);
 }
-)";
+)glsl";
 
 
 unsigned int shaderProgram = 0;
@@ -118,7 +125,7 @@ namespace vars {
     int    continuous_coloring = 1;
     glm::dvec3 set_color = { 0., 0., 0. };
 
-    int display_texture = 0;
+    double fps_update_interval = 0.0;
 }
 
 namespace utils {
@@ -386,6 +393,21 @@ int main() {
         return -1;
     }
 
+    GLuint frameBuffer;
+    glGenFramebuffers(1, &frameBuffer);
+    glBindFramebuffer(GL_FRAMEBUFFER, frameBuffer);
+
+    GLuint texColorBuffer;
+    glGenTextures(1, &texColorBuffer);
+    glBindTexture(GL_TEXTURE_2D, texColorBuffer);
+
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, vars::screenSize.x, vars::screenSize.y, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
+
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, texColorBuffer, 0);
+
     unsigned int vertexShader;
     vertexShader = glCreateShader(GL_VERTEX_SHADER);
     glShaderSource(vertexShader, 1, &vertexShaderSource, NULL);
@@ -439,9 +461,12 @@ int main() {
     glUniform1d(glGetUniformLocation(shaderProgram, "bailout_radius"), vars::bailout_radius);
     glUniform1i(glGetUniformLocation(shaderProgram, "continuous_coloring"), vars::continuous_coloring);
     glUniform3d(glGetUniformLocation(shaderProgram, "set_color"), vars::set_color.x, vars::set_color.y, vars::set_color.z);
-    glUniform1i(glGetUniformLocation(shaderProgram, "display_texture"), vars::display_texture);
 
     events::on_windowResize(window, vars::screenSize.x, vars::screenSize.y);
+
+    double lastFrame = glfwGetTime();
+    double lastUpdate = glfwGetTime();
+    double fps = 0;
 
     do { // mainloop
         glfwPollEvents();
@@ -462,7 +487,14 @@ int main() {
             ImGuiWindowFlags_AlwaysAutoResize |
             ImGuiWindowFlags_NoMove
         );
-
+        double currentTime = glfwGetTime();
+        if (currentTime - lastUpdate > vars::fps_update_interval) {
+            fps = 1 / (currentTime - lastFrame);
+            lastUpdate = currentTime;
+        }
+        ImGui::Text("FPS: %.3g   Frametime: %.3g", fps, 1000.0 * (currentTime - lastFrame));
+        lastFrame = currentTime;
+        
         ImGui::BeginGroup();
         ImGui::SeparatorText("Computation configuration");
         //ImGui::PushItemFlag(ImGuiItemFlags_Disabled, true);
@@ -519,18 +551,25 @@ int main() {
 
         ImGui::Render();
         
-        glDrawArrays(GL_TRIANGLES, 0, 6);
-        
-        ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
-
-        if (io.ConfigFlags & ImGuiConfigFlags_ViewportsEnable) {
-            GLFWwindow* backup_current_context = glfwGetCurrentContext();
-            ImGui::UpdatePlatformWindows();
-            ImGui::RenderPlatformWindowsDefault();
-            glfwMakeContextCurrent(backup_current_context);
+        if (pending_flag) {
+            glBindFramebuffer(GL_FRAMEBUFFER, frameBuffer);
+            glUniform1i(glGetUniformLocation(shaderProgram, "use_tex"), 0);
+            pending_flag -= 1;
+            glDrawArrays(GL_TRIANGLES, 0, 6);
+            glBindFramebuffer(GL_FRAMEBUFFER, 0);
+            glUniform1i(glGetUniformLocation(shaderProgram, "use_tex"), 1);
+            glDrawArrays(GL_TRIANGLES, 0, 6);
+            ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
+            glfwSwapBuffers(window);
         }
-
-        glfwSwapBuffers(window);
+        else {
+            glBindFramebuffer(GL_FRAMEBUFFER, 0);
+            glUniform1i(glGetUniformLocation(shaderProgram, "use_tex"), 1);
+            glDrawArrays(GL_TRIANGLES, 0, 6);
+            ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
+            glfwSwapBuffers(window);
+        }
+        
     } while (!glfwWindowShouldClose(window));
 
     glfwDestroyWindow(window);
