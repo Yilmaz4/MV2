@@ -125,6 +125,8 @@ namespace vars {
     int    continuous_coloring = 1;
     glm::dvec3 set_color = { 0., 0., 0. };
 
+    double ssaa_factor = 2;
+
     double fps_update_interval = 0.0;
 }
 
@@ -149,6 +151,7 @@ namespace events {
     bool rightClickHold = false;
 
     static void on_windowResize(GLFWwindow* window, int width, int height) {
+        std::cout << "resize" << std::endl;
         glViewport(0, 0, width, height);
 
         vars::screenSize = { width, height };
@@ -282,7 +285,7 @@ int main() {
     glfwSetMouseButtonCallback(window, events::on_mouseButton);
     glfwSetScrollCallback(window, events::on_mouseScroll);
 
-    glfwSwapInterval(1);
+    glfwSwapInterval(0);
 
     IMGUI_CHECKVERSION();
     ImGui::CreateContext();
@@ -397,16 +400,16 @@ int main() {
     glGenFramebuffers(1, &frameBuffer);
     glBindFramebuffer(GL_FRAMEBUFFER, frameBuffer);
 
-    GLuint texColorBuffer;
-    glGenTextures(1, &texColorBuffer);
-    glBindTexture(GL_TEXTURE_2D, texColorBuffer);
+    GLuint mandelbrotTexBuffer;
+    glGenTextures(1, &mandelbrotTexBuffer);
+    glBindTexture(GL_TEXTURE_2D, mandelbrotTexBuffer);
 
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, vars::screenSize.x, vars::screenSize.y, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, vars::screenSize.x * vars::ssaa_factor, vars::screenSize.y * vars::ssaa_factor, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
 
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
 
-    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, texColorBuffer, 0);
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, mandelbrotTexBuffer, 0);
 
     unsigned int vertexShader;
     vertexShader = glCreateShader(GL_VERTEX_SHADER);
@@ -546,23 +549,29 @@ int main() {
                 ImGui::Text("Re: %.17g\nIm: %.17g\nIterations before bailout: %d", c.x, c.y, i);
             else
                 ImGui::Text("Re: %.17g\nIm: %.17g\nPoint is in set", c.x, c.y);
+            ImGui::Image((void*)(intptr_t)mandelbrotTexBuffer, ImVec2(200, 200));
             ImGui::End();
         }
 
-        ImGui::Render();
-        
         if (pending_flag) {
+            glViewport(0, 0, vars::screenSize.x * vars::ssaa_factor, vars::screenSize.y * vars::ssaa_factor);
+            glUniform2i(glGetUniformLocation(shaderProgram, "screenSize"), vars::screenSize.x * vars::ssaa_factor, vars::screenSize.y * vars::ssaa_factor);
             glBindFramebuffer(GL_FRAMEBUFFER, frameBuffer);
             glUniform1i(glGetUniformLocation(shaderProgram, "use_tex"), 0);
             pending_flag -= 1;
             glDrawArrays(GL_TRIANGLES, 0, 6);
+            glViewport(0, 0, vars::screenSize.x, vars::screenSize.y);
+            glUniform2i(glGetUniformLocation(shaderProgram, "screenSize"), vars::screenSize.x, vars::screenSize.y);
             glBindFramebuffer(GL_FRAMEBUFFER, 0);
             glUniform1i(glGetUniformLocation(shaderProgram, "use_tex"), 1);
+            ImGui::Render();
             glDrawArrays(GL_TRIANGLES, 0, 6);
             ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
             glfwSwapBuffers(window);
         }
+        
         else {
+            ImGui::Render();
             glBindFramebuffer(GL_FRAMEBUFFER, 0);
             glUniform1i(glGetUniformLocation(shaderProgram, "use_tex"), 1);
             glDrawArrays(GL_TRIANGLES, 0, 6);
