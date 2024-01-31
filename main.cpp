@@ -9,6 +9,7 @@
 #include <glm/glm.hpp>
 
 #include <iostream>
+#include <vector>
 
 float vertices[] = {
     -1.0f, -1.0f,
@@ -20,7 +21,7 @@ float vertices[] = {
 };
 
 const char* vertexShaderSource = R"(
-#version 400 core
+#version 430 core
 
 layout(location = 0) in vec2 aPos;
 
@@ -30,8 +31,10 @@ void main() {
 )";
 
 const char* doublePrecFragmentShader = R"glsl(
-#version 400 core
+#version 430 core
+
 #extension GL_ARB_gpu_shader_fp64 : enable
+#extension GL_NV_uniform_buffer_std430_layout : enable
 
 double M_PI = 	 3.14159265358979323846LF;
 double M_2PI =   M_PI * 2.0LF;
@@ -59,6 +62,11 @@ uniform dvec2  mouseCoord;
 uniform int    julia;
 uniform double julia_zoom;
 uniform int    julia_maxiters;
+
+layout(std430, binding = 1) readonly buffer spectrum
+{
+    vec4 spec[];
+};
 
 int TrigIter = 5; //slider[0,5,20]
 double TrigLimit = 1.1; //slider[0.001,1.1,1.5]
@@ -388,6 +396,9 @@ int pending_flag = 1;
 GLuint mandelbrotFrameBuffer;
 GLuint mandelbrotTexBuffer;
 
+GLuint juliaFrameBuffer;
+GLuint juliaTexBuffer;
+
 namespace consts {
     constexpr double zoom_co = 0.85;
 
@@ -406,7 +417,8 @@ namespace vars {
     glm::dvec3 set_color = { 0., 0., 0. };
     int    degree = 2;
 
-    int    ssaa_factor = 1;
+    bool   ssaa = false;
+    int    ssaa_factor = 2;
 
     int    julia_size = 210;
     double julia_zoom = 3;
@@ -443,7 +455,8 @@ namespace events {
         pending_flag = 2;
         glBindFramebuffer(GL_FRAMEBUFFER, mandelbrotFrameBuffer);
         glBindTexture(GL_TEXTURE_2D, mandelbrotTexBuffer);
-        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, vars::screenSize.x * vars::ssaa_factor, vars::screenSize.y * vars::ssaa_factor, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
+        int factor = (vars::ssaa ? vars::ssaa_factor : 1);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, vars::screenSize.x * factor, vars::screenSize.y * factor, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
     }
 
     static void on_mouseButton(GLFWwindow* window, int button, int action, int mod) {
@@ -564,7 +577,7 @@ int main() {
     glfwInit();
 
     glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 4);
-    glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 0);
+    glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
     glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
 
     const GLFWvidmode* mode = glfwGetVideoMode(glfwGetPrimaryMonitor());
@@ -574,7 +587,7 @@ int main() {
     glfwWindowHint(GLFW_BLUE_BITS, mode->blueBits);
     glfwWindowHint(GLFW_REFRESH_RATE, mode->refreshRate);
 
-    GLFWwindow* window = glfwCreateWindow(vars::screenSize.x, vars::screenSize.y, "OpenGL Test", NULL, NULL);
+    GLFWwindow* window = glfwCreateWindow(vars::screenSize.x, vars::screenSize.y, "Mandelbrot Voyage II", NULL, NULL);
     if (window == nullptr) {
         std::cout << "Failed to create OpenGL window" << std::endl;
         return -1;
@@ -587,7 +600,7 @@ int main() {
     glfwSetMouseButtonCallback(window, events::on_mouseButton);
     glfwSetScrollCallback(window, events::on_mouseScroll);
 
-    glfwSwapInterval(0);
+    glfwSwapInterval(1);
 
     IMGUI_CHECKVERSION();
     ImGui::CreateContext();
@@ -702,19 +715,17 @@ int main() {
     glBindFramebuffer(GL_FRAMEBUFFER, mandelbrotFrameBuffer);
     glGenTextures(1, &mandelbrotTexBuffer);
     glBindTexture(GL_TEXTURE_2D, mandelbrotTexBuffer);
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, vars::screenSize.x * vars::ssaa_factor, vars::screenSize.y * vars::ssaa_factor, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, vars::screenSize.x, vars::screenSize.y, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
     glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, mandelbrotTexBuffer, 0);
 
 
-    GLuint juliaFrameBuffer;
     glGenFramebuffers(1, &juliaFrameBuffer);
     glBindFramebuffer(GL_FRAMEBUFFER, juliaFrameBuffer);
-    GLuint juliaTexBuffer;
     glGenTextures(1, &juliaTexBuffer);
     glBindTexture(GL_TEXTURE_2D, juliaTexBuffer);
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, vars::julia_size * vars::ssaa_factor, vars::julia_size * vars::ssaa_factor, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, vars::julia_size, vars::julia_size, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
     glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, juliaTexBuffer, 0);
@@ -764,6 +775,25 @@ int main() {
     glBindBuffer(GL_ARRAY_BUFFER, NULL);
 
     glUseProgram(shaderProgram);
+
+    GLuint spectrumBuffer;
+    glGenBuffers(1, &spectrumBuffer);
+
+
+    std::vector<glm::vec4> spectrum = {
+        {1.f, 0.f, 0.f, 1.f},
+        {1.f, 1.f, 0.f, 1.f},
+        {0.f, 1.f, 0.f, 1.f},
+        {0.f, 1.f, 1.f, 1.f},
+        {0.f, 0.f, 1.f, 1.f},
+        {1.f, 0.f, 1.f, 1.f}
+    };
+    glBindBuffer(GL_SHADER_STORAGE_BUFFER, spectrumBuffer);
+    glBufferData(GL_SHADER_STORAGE_BUFFER, spectrum.size() * sizeof(glm::vec4), spectrum.data(), GL_DYNAMIC_COPY);
+    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 2, spectrumBuffer);
+    GLuint block_index = glGetProgramResourceIndex(shaderProgram, GL_SHADER_STORAGE_BLOCK, "spectrum");
+    GLuint ssbo_binding_point_index = 2;
+    glShaderStorageBlockBinding(shaderProgram, block_index, ssbo_binding_point_index);
 
     glUniform2d(glGetUniformLocation(shaderProgram, "offset"), vars::offset.x, vars::offset.y);
     glUniform1i(glGetUniformLocation(shaderProgram, "iter_multiplier"), vars::iter_multiplier);
@@ -835,18 +865,39 @@ int main() {
             glUniform1i(glGetUniformLocation(shaderProgram, "spectrum_offset"), vars::spectrum_offset);
             pending_flag = 2;
         }
-        bool ssaa;
-        if (ImGui::Checkbox("SSAA (super sampling)", &ssaa))
-            ImGui::PushItemFlag(ImGuiItemFlags_Disabled, false);
-        else
-            ImGui::PushItemFlag(ImGuiItemFlags_Disabled, true);
+        if (ImGui::Checkbox("SSAA (super sampling)", &vars::ssaa)) {
+            int factor = ((vars::ssaa) ? vars::ssaa_factor : 1);
+            glBindFramebuffer(GL_FRAMEBUFFER, mandelbrotFrameBuffer);
+            glBindTexture(GL_TEXTURE_2D, mandelbrotTexBuffer);
+            glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, vars::screenSize.x * factor, vars::screenSize.y * factor, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
+
+            glBindFramebuffer(GL_FRAMEBUFFER, juliaFrameBuffer);
+            glBindTexture(GL_TEXTURE_2D, juliaTexBuffer);
+            glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, vars::julia_size * factor, vars::julia_size * factor, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
+
+            pending_flag = 2;
+        }
+        if (vars::ssaa) ImGui::PushItemFlag(ImGuiItemFlags_Disabled, false);
+        else ImGui::PushItemFlag(ImGuiItemFlags_Disabled, true);
         ImGui::SameLine();
         ImGui::SetNextItemWidth(30);
-        ImGui::DragInt("Factor", &vars::ssaa_factor, 0.2f, 2, 16, "%dX");
+        if (ImGui::DragInt("Factor", &vars::ssaa_factor, 0.2f, 2, 8, "%dX")) {
+            glBindFramebuffer(GL_FRAMEBUFFER, mandelbrotFrameBuffer);
+            glBindTexture(GL_TEXTURE_2D, mandelbrotTexBuffer);
+            glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, vars::screenSize.x * vars::ssaa_factor, vars::screenSize.y * vars::ssaa_factor, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
+
+            glBindFramebuffer(GL_FRAMEBUFFER, juliaFrameBuffer);
+            glBindTexture(GL_TEXTURE_2D, juliaTexBuffer);
+            glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, vars::julia_size * vars::ssaa_factor, vars::julia_size * vars::ssaa_factor, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
+
+            pending_flag = 2;
+        }
         ImGui::PushItemFlag(ImGuiItemFlags_Disabled, false);
         toggleButton(&vars::continuous_coloring, "continuous_coloring", "Continuous coloring", glUniform1i);
         ImGui::EndGroup();
         ImGui::End();
+
+        int factor = ((vars::ssaa) ? vars::ssaa_factor : 1);
 
         if (events::rightClickHold) {
             double x, y;
@@ -906,12 +957,12 @@ int main() {
                 ImGui::Text("Re: %.17g\nIm: %.17g\nIterations before bailout: %d", c.x, c.y, i);
             else
                 ImGui::Text("Re: %.17g\nIm: %.17g\nPoint is in set", c.x, c.y);
-            glViewport(0, 0, vars::julia_size * vars::ssaa_factor, vars::julia_size * vars::ssaa_factor);
+            glViewport(0, 0, vars::julia_size * factor, vars::julia_size * factor);
             glBindFramebuffer(GL_FRAMEBUFFER, juliaFrameBuffer);
             glUniform1i(glGetUniformLocation(shaderProgram, "use_tex"), 0);
             glUniform1i(glGetUniformLocation(shaderProgram, "julia"), 1);
             glUniform2d(glGetUniformLocation(shaderProgram, "mouseCoord"), c.x, c.y);
-            glUniform2i(glGetUniformLocation(shaderProgram, "screenSize"), vars::julia_size * vars::ssaa_factor, vars::julia_size * vars::ssaa_factor);
+            glUniform2i(glGetUniformLocation(shaderProgram, "screenSize"), vars::julia_size * factor, vars::julia_size * factor);
             glDrawArrays(GL_TRIANGLES, 0, 6);
             ImGui::SeparatorText("Julia Set");
             ImGui::Image((void*)(intptr_t)juliaTexBuffer, ImVec2(vars::julia_size, vars::julia_size));
@@ -919,11 +970,11 @@ int main() {
         }
 
         if (pending_flag) {
-            glViewport(0, 0, vars::screenSize.x * vars::ssaa_factor, vars::screenSize.y * vars::ssaa_factor);
+            glViewport(0, 0, vars::screenSize.x * factor, vars::screenSize.y * factor);
             glBindTexture(GL_TEXTURE_2D, mandelbrotTexBuffer);
             glBindFramebuffer(GL_FRAMEBUFFER, mandelbrotFrameBuffer);
             glUniform1i(glGetUniformLocation(shaderProgram, "julia"), 0);
-            glUniform2i(glGetUniformLocation(shaderProgram, "screenSize"), vars::screenSize.x * vars::ssaa_factor, vars::screenSize.y * vars::ssaa_factor);
+            glUniform2i(glGetUniformLocation(shaderProgram, "screenSize"), vars::screenSize.x * factor, vars::screenSize.y * factor);
             glUniform1i(glGetUniformLocation(shaderProgram, "use_tex"), 0);
             pending_flag -= 1;
             glDrawArrays(GL_TRIANGLES, 0, 6);
