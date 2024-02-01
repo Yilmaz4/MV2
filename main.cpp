@@ -67,209 +67,9 @@ layout(std430, binding = 1) readonly buffer spectrum
 {
     vec4 spec[];
 };
+uniform int    span;
 
-int TrigIter = 5; //slider[0,5,20]
-double TrigLimit = 1.1; //slider[0.001,1.1,1.5]
 
-double atan_approx(double x)
-{
-    double u = -5.2358956372931703e-129LF;
-    u = u * x + 2.0845114175438905e-2LF;
-    u = u * x + -1.4352617885833465e-128LF;
-    u = u * x + -8.51563508337138e-2LF;
-    u = u * x + 4.4982824080679609e-128LF;
-    u = u * x + 1.8015929463653335e-1LF;
-    u = u * x + -3.2151159799554032e-128LF;
-    u = u * x + -3.3030478550486476e-1LF;
-    u = u * x + 6.8552431842688999e-129LF;
-    u = u * x + 9.9986632946592026e-1LF;
-    u = u * x + -9.8393942267841755e-131LF;
-	if(isnan(u) || isinf(u))
-		return 0.0LF;
-    return u;
-}
-
-double atan(double y, double x){
-    double ay = abs(y), ax = abs(x);
-    bool inv = (ay > ax);
-    
-    double z;
-    if(inv) z = ax/ay; else z = ay/ax; // [0,1]
-    double th = atan_approx(z);        // [0,π/4]
-    if(inv) th = M_PI2 - th;           // [0,π/2]
-    if(x < 0.0) th = M_PI - th;        // [0,π]
-    if(y < 0.0) th = -th;              // [-π,π]
-    return th;
-}
-
-double sin( double x ){
-	int i;
-	int counter = 0;
-	double sum = x, t = x;
-	double s = x;
-
-	if(isnan(x) || isinf(x))
-		return 0.0LF;
-
-    while(abs(s) > TrigLimit){
-		s = s/3.0;
-		counter += 1;
-	}
-
-	sum = s;
-	t = s;
-
-	for(i=1;i<=TrigIter;i++)
-	{
-		t=(t*(-1.0)*s*s)/(2.0*double(i)*(2.0*double(i)+1.0));
-		sum=sum+t;
-	}
-
-	for(i=0;i<counter;i++)
-		sum = 3.0*sum - 4.0*sum*sum*sum;
-     
-	return sum;
-}
-
-double cos( double x ){
-	int i;
-	int counter = 0;
-	double sum = 1, t = 1;
-	double s = x;
-
-	if(isnan(x) || isinf(x))
-		return 0.0LF;
-
-    while(abs(s) > TrigLimit){
-		s = s/3.0;
-		counter += 1;
-	}
-
-	for(i=1;i<=TrigIter;i++)
-	{
-        t=t*(-1.0)*s*s/(2.0*double(i)*(2.0*double(i)-1.0));
-        sum=sum+t;
-	}
-
-	for(i=0;i<counter;i++)
-		sum = -3.0*sum + 4.0*sum*sum*sum;
-     
-	return sum;
-}
-
-double tan(double x) {
-    return sin(x)/cos(x);
-}
-
-double log(double x) {
-	double
-		Ln2Hi = 6.93147180369123816490e-01LF, /* 3fe62e42 fee00000 */
-		Ln2Lo = 1.90821492927058770002e-10LF, /* 3dea39ef 35793c76 */
-        L0    = 7.0710678118654752440e-01LF,  /* 1/sqrt(2) */
-		L1    = 6.666666666666735130e-01LF,   /* 3FE55555 55555593 */
-		L2    = 3.999999999940941908e-01LF,   /* 3FD99999 9997FA04 */
-		L3    = 2.857142874366239149e-01LF,   /* 3FD24924 94229359 */
-		L4    = 2.222219843214978396e-01LF,   /* 3FCC71C5 1D8E78AF */
-		L5    = 1.818357216161805012e-01LF,   /* 3FC74664 96CB03DE */
-		L6    = 1.531383769920937332e-01LF,   /* 3FC39A09 D078C69F */
-		L7    = 1.479819860511658591e-01LF;   /* 3FC2F112 DF3E5244 */
-
-	if( isinf(x) )
-        return 1.0/0.0; /* return +inf */
-	if( isnan(x) || x < 0 )
-        return -0.0; /* nan */
-	if( x == 0 )
-        return -1.0/0.0; /* return -inf */
-
-    int ki;
-    double f1 = frexp(x, ki);
-    
-    if (f1 < L0) {
-		f1 *= 2.0;
-		ki--;
-	}
-	
-	double f = f1 - 1.0;
-	double k = double(ki);
-
-	double s = f / (2.0 + f);
-	double s2 = s * s;
-	double s4 = s2 * s2;
-	double t1 = s2 * (L1 + s4 * (L3 + s4 * (L5 + s4 * L7)));
-	double t2 = s4 * (L2 + s4 * (L4 + s4 * L6));
-	double R = t1 + t2;
-	double hfsq = 0.5 * f * f;
-    
-    return k*Ln2Hi - ((hfsq - (s*(hfsq+R) + k*Ln2Lo)) - f);
-}
-
-double exp_approx(double x) {
-    double u = 3.5438786726672135e-7LF;
-    u = u * x + 2.6579928825872315e-6LF;
-    u = u * x + 2.4868626682939294e-5LF;
-    u = u * x + 1.983843872760968e-4LF;
-    u = u * x + 1.3888965369092271e-3LF;
-    u = u * x + 8.3333320096674514e-3LF;
-    u = u * x + 4.1666666809276345e-2LF;
-    u = u * x + 1.6666666665771182e-1LF;
-    u = u * x + 5.0000000000028821e-1LF;
-    u = u * x + 9.9999999999999638e-1LF;
-    u = u * x + 1.0LF;
-	if (isnan(u) || isinf(u))
-		return 0.0LF;
-    return u;
-}
-
-double exp(double x) {
-	int i;
-	int n;
-    double f;
-    double e_accum = M_E;
-    double answer = 1.0LF;
-	bool invert_answer = true;
-
-    if (x < 0.0){
-		x = -x;
-		invert_answer = true;
-	}
-
-    n = int(x);
-    f = x - double(n);
-
-	if (f > 0.5){
-		f -= 0.5;
-		answer = M_EHALF;
-	}
-
-    for (i = 0; i < 8; i++) {
-		if(((n >> i) & 1) == 1)
-			answer *= e_accum;
-		e_accum *= e_accum;
-	}
-	
-	answer *= exp_approx(x);
-
-    if (invert_answer)
-		answer = 1.0/answer;
-    
-	return answer;
-}
-
-dvec2 exp(dvec2 z) {
-    return exp(z.x) * dvec2(cos(z.y), sin(z.y));
-}
-
-dvec2 log(dvec2 z) {
-    return dvec2(log(length(z)), atan(z.y, z.x));
-}
-
-dvec2 pow(dvec2 z, double x) {
-    return exp(x * log(z));
-}
-
-double mod(double a, double b) {
-    return a - b * floor(a / b);
-}
 
 vec3 color(double i) {
     if (i < 255 - spectrum_offset)
@@ -292,6 +92,19 @@ vec3 color(double i) {
     }
 }
 
+vec3 custom_color(float i) {
+    i = mod(i, span) / span;
+    for (int v = 0; v < spec.length(); v++) {
+        if (spec[v].w >= i) {
+            vec4 v1 = spec[v];
+            vec4 v2 = (v != spec.length() - 1 ? spec[v + 1] : spec[0]);
+            vec4 dv = v1 - v2;
+            return v2.rgb - (dv.rgb * (i - v1.w)) / abs(dv.w);
+        }
+    }
+    return vec3(i, i, i);
+}
+
 void main() {
     if (use_tex == 1) {
         fragColor = texture(tex, vec2(gl_FragCoord.x / screenSize.x, gl_FragCoord.y / screenSize.y));
@@ -305,8 +118,8 @@ void main() {
             double xx = z.x * z.x;
             double yy = z.y * z.y;
             if (xx + yy >= bailout_radius) {
-                double mu = iter_multiplier * (i + 1 - log2(log2(float(length(z)))) / log2(degree));
-                double mv = iter_multiplier * i;
+                float mu = iter_multiplier * (i + 1 - log2(log2(float(length(z)))) / log2(degree));
+                float mv = iter_multiplier * i;
                 vec3 co = color(continuous_coloring == 0 ? mv : mu);
                 fragColor = vec4(co, 1);
                 return;
@@ -349,9 +162,9 @@ void main() {
         if (degree != 2 || degree == 2 && (4.0 * p * (p + (z.x - 0.25)) > yy && (xx + yy + 2 * z.x + 1) > 0.0625)) {
             for (int i = 0; i < max_iters; i++) {
                 if (xx + yy >= bailout_radius) {
-                    double mu = iter_multiplier * (i + 1 - log2(log2(float(length(z)))) / log2(degree));
-                    double mv = iter_multiplier * i;
-                    vec3 co = color(continuous_coloring == 0 ? mv : mu);
+                    float mu = iter_multiplier * (i + 1 - log2(log2(float(length(z)))) / log2(degree));
+                    float mv = iter_multiplier * i;
+                    vec3 co = custom_color(continuous_coloring == 0 ? mv : mu);
                     fragColor = vec4(co, 1);
                     return;
                 }
@@ -398,6 +211,34 @@ GLuint mandelbrotTexBuffer;
 
 GLuint juliaFrameBuffer;
 GLuint juliaTexBuffer;
+
+GLuint spectrumBuffer;
+
+
+namespace spectrum {
+    std::vector<glm::fvec4> data = {
+        {1.f, 0.f, 0.f, 0.16f},
+        {1.f, 1.f, 0.f, 0.32f},
+        {0.f, 1.f, 0.f, 0.48f},
+        {0.f, 1.f, 1.f, 0.64f},
+        {0.f, 0.f, 1.f, 0.80f},
+        {1.f, 0.f, 1.f, 0.92f},
+        {1.f, 0.f, 0.f, 1.00f}
+    };
+
+    int span = 1e+3;
+
+    void bind_ssbo(void) {
+        glGenBuffers(1, &spectrumBuffer);
+        glBindBuffer(GL_SHADER_STORAGE_BUFFER, spectrumBuffer);
+        glBufferData(GL_SHADER_STORAGE_BUFFER, data.size() * sizeof(glm::fvec4), data.data(), GL_DYNAMIC_COPY);
+        glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 2, spectrumBuffer);
+        GLuint block_index = glGetProgramResourceIndex(shaderProgram, GL_SHADER_STORAGE_BLOCK, "spectrum");
+        GLuint ssbo_binding_point_index = 2;
+        glShaderStorageBlockBinding(shaderProgram, block_index, ssbo_binding_point_index);
+        glUniform1i(glGetUniformLocation(shaderProgram, "span"), spectrum::span);
+    }
+}
 
 namespace consts {
     constexpr double zoom_co = 0.85;
@@ -776,24 +617,7 @@ int main() {
 
     glUseProgram(shaderProgram);
 
-    GLuint spectrumBuffer;
-    glGenBuffers(1, &spectrumBuffer);
-
-
-    std::vector<glm::vec4> spectrum = {
-        {1.f, 0.f, 0.f, 1.f},
-        {1.f, 1.f, 0.f, 1.f},
-        {0.f, 1.f, 0.f, 1.f},
-        {0.f, 1.f, 1.f, 1.f},
-        {0.f, 0.f, 1.f, 1.f},
-        {1.f, 0.f, 1.f, 1.f}
-    };
-    glBindBuffer(GL_SHADER_STORAGE_BUFFER, spectrumBuffer);
-    glBufferData(GL_SHADER_STORAGE_BUFFER, spectrum.size() * sizeof(glm::vec4), spectrum.data(), GL_DYNAMIC_COPY);
-    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 2, spectrumBuffer);
-    GLuint block_index = glGetProgramResourceIndex(shaderProgram, GL_SHADER_STORAGE_BLOCK, "spectrum");
-    GLuint ssbo_binding_point_index = 2;
-    glShaderStorageBlockBinding(shaderProgram, block_index, ssbo_binding_point_index);
+    spectrum::bind_ssbo();
 
     glUniform2d(glGetUniformLocation(shaderProgram, "offset"), vars::offset.x, vars::offset.y);
     glUniform1i(glGetUniformLocation(shaderProgram, "iter_multiplier"), vars::iter_multiplier);
