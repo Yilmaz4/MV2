@@ -4,9 +4,12 @@
 #include <imgui_impl_opengl3.h>
 #include <imgui_internal.h>
 
+#include <ImGradientHDR.h>
+
 #include <glad/glad.h>
 #include <GLFW/glfw3.h>
 #include <glm/glm.hpp>
+
 
 #include <iostream>
 #include <vector>
@@ -69,47 +72,63 @@ layout(std430, binding = 1) readonly buffer spectrum
 };
 uniform int    span;
 
-
-
-vec3 color(double i) {
-    if (i < 255 - spectrum_offset)
-        return vec3((i + spectrum_offset) / 255.0, 0.0, 0.0);
-    else i -= 255 - spectrum_offset;
-    double val = mod(i, 256.0) / 255.0;
-    switch (int(mod(floor(i / 256.0), 6.0))) {
-    case 0:
-        return vec3(1.0f, val, 0.0f);
-    case 1:
-        return vec3(1.0f - val, 1.0f, 0.0f);
-    case 2:
-        return vec3(0.0f, 1.0f, val);
-    case 3:
-        return vec3(0.0f, 1.0f - val, 1.0f);
-    case 4:
-        return vec3(val, 0.0f, 1.0f);
-    case 5:
-        return vec3(1.0f, 0.0f, 1.0f - val);
-    }
+vec4 blur13(sampler2D image, vec2 uv, vec2 resolution, vec2 direction) {
+    vec4 color = vec4(0.0);
+    vec2 off1 = vec2(1.411764705882353) * direction;
+    vec2 off2 = vec2(3.2941176470588234) * direction;
+    vec2 off3 = vec2(5.176470588235294) * direction;
+    color += texture2D(image, uv) * 0.1964825501511404;
+    color += texture2D(image, uv + (off1 / resolution)) * 0.2969069646728344;
+    color += texture2D(image, uv - (off1 / resolution)) * 0.2969069646728344;
+    color += texture2D(image, uv + (off2 / resolution)) * 0.09447039785044732;
+    color += texture2D(image, uv - (off2 / resolution)) * 0.09447039785044732;
+    color += texture2D(image, uv + (off3 / resolution)) * 0.010381362401148057;
+    color += texture2D(image, uv - (off3 / resolution)) * 0.010381362401148057;
+    return color;
 }
 
-vec3 custom_color(float i) {
+vec3 color(float i) {
     i = mod(i, span) / span;
     for (int v = 0; v < spec.length(); v++) {
         if (spec[v].w >= i) {
-            vec4 v1 = spec[v];
-            vec4 v2 = (v != spec.length() - 1 ? spec[v + 1] : spec[0]);
-            vec4 dv = v1 - v2;
-            return v2.rgb - (dv.rgb * (i - v1.w)) / abs(dv.w);
+            vec4 v1 = (v > 0 ? spec[v - 1] : spec[spec.length() - 1]);
+            vec4 v2 = spec[v];
+            vec4 dv = v2 - v1;
+            return v1.rgb + (dv.rgb * (i - v1.w)) / dv.w;
         }
     }
     return vec3(i, i, i);
 }
 
-void main() {
-    if (use_tex == 1) {
-        fragColor = texture(tex, vec2(gl_FragCoord.x / screenSize.x, gl_FragCoord.y / screenSize.y));
-        return;
+dvec2 advance(dvec2 z, dvec2 c, double xx, double yy) {
+    switch (degree) {
+    case 2:
+        z = dvec2(xx - yy, 2.0f * z.x * z.y) + c;
+        break;
+    case 3:
+        z = dvec2(xx * z.x - 3 * z.x * yy, 3 * xx * z.y - yy * z.y) + c;
+        break;
+    case 4:
+        z = dvec2(xx * xx + yy * yy - 6 * xx * yy,
+            4 * xx * z.x * z.y - 4 * z.x * yy * z.y) + c;
+        break;
+    case 5:
+        z = dvec2(xx * xx * z.x + 5 * z.x * yy * yy - 10 * xx * z.x * yy,
+            5 * xx * xx * z.y + yy * yy * z.y - 10 * xx * yy * z.y) + c;
+        break;
+    case 6:
+        z = dvec2(xx * xx * xx - 15 * xx * xx * yy + 15 * xx * yy * yy - yy * yy * yy,
+            6 * xx * xx * z.x * z.y - 20 * xx * z.x * yy * z.y + 6 * z.x * yy * yy * z.y) + c;
+        break;
+    case 7:
+        z = dvec2(xx * xx * xx * z.x - 21 * xx * xx * z.x * yy + 35 * xx * z.x * yy * yy - 7 * z.x * yy * yy * yy,
+            7 * xx * xx * xx * z.y - 35 * xx * xx * yy * z.y + 21 * xx * yy * yy * z.y - yy * yy * yy * z.y) + c;
+        break;
     }
+    return z;
+}
+
+void main() {
     if (julia == 1) {
         dvec2 c = (dvec2(gl_FragCoord.x / screenSize.x, (screenSize.y - gl_FragCoord.y) / screenSize.y) - dvec2(0.5, 0.5)) * dvec2(julia_zoom, julia_zoom);
         dvec2 z = c;
@@ -124,32 +143,12 @@ void main() {
                 fragColor = vec4(co, 1);
                 return;
             }
-            switch (degree) {
-            case 2:
-                z = dvec2(xx - yy, 2.0f * z.x * z.y) + mouseCoord;
-                break;
-            case 3:
-                z = dvec2(xx * z.x - 3 * z.x * yy, 3 * xx * z.y - yy * z.y) + mouseCoord;
-                break;
-            case 4:
-                z = dvec2(xx * xx + yy * yy - 6 * xx * yy,
-                    4 * xx * z.x * z.y - 4 * z.x * yy * z.y) + mouseCoord;
-                break;
-            case 5:
-                z = dvec2(xx * xx * z.x + 5 * z.x * yy * yy - 10 * xx * z.x * yy,
-                    5 * xx * xx * z.y + yy * yy * z.y - 10 * xx * yy * z.y) + mouseCoord;
-                break;
-            case 6:
-                z = dvec2(xx * xx * xx - 15 * xx * xx * yy + 15 * xx * yy * yy - yy * yy * yy,
-                    6 * xx * xx * z.x * z.y - 20 * xx * z.x * yy * z.y + 6 * z.x * yy * yy * z.y) + mouseCoord;
-                break;
-            case 7:
-                z = dvec2(xx * xx * xx * z.x - 21 * xx * xx * z.x * yy + 35 * xx * z.x * yy * yy - 7 * z.x * yy * yy * yy,
-                    7 * xx * xx * xx * z.y - 35 * xx * xx * yy * z.y + 21 * xx * yy * yy * z.y - yy * yy * yy * z.y) + mouseCoord;
-                break;
-            }
+            z = advance(z, mouseCoord, xx, yy);
         }
         fragColor = vec4(set_color, 1.0);
+    }
+    else if (use_tex == 1) {
+        fragColor = texture(tex, vec2(gl_FragCoord.x / screenSize.x, gl_FragCoord.y / screenSize.y));
     }
     else {
         dvec2 c = (dvec2(gl_FragCoord.x / screenSize.x, (screenSize.y - gl_FragCoord.y) / screenSize.y) - dvec2(0.5, 0.5)) * dvec2(zoom, (screenSize.y * zoom) / screenSize.x) + offset;
@@ -162,36 +161,12 @@ void main() {
         if (degree != 2 || degree == 2 && (4.0 * p * (p + (z.x - 0.25)) > yy && (xx + yy + 2 * z.x + 1) > 0.0625)) {
             for (int i = 0; i < max_iters; i++) {
                 if (xx + yy >= bailout_radius) {
-                    float mu = iter_multiplier * (i + 1 - log2(log2(float(length(z)))) / log2(degree));
-                    float mv = iter_multiplier * i;
-                    vec3 co = custom_color(continuous_coloring == 0 ? mv : mu);
-                    fragColor = vec4(co, 1);
+                    float m1 = iter_multiplier * (i + 1 - log2(log2(float(length(z)))) / log2(degree));
+                    float m2 = iter_multiplier * i;
+                    fragColor = vec4(color(continuous_coloring != 0 ? m1 : m2), 0);
                     return;
                 }
-                switch (degree) {
-                case 2:
-                    z = dvec2(xx - yy, 2.0f * z.x * z.y) + c;
-                    break;
-                case 3:
-                    z = dvec2(xx * z.x - 3 * z.x * yy, 3 * xx * z.y - yy * z.y) + c;
-                    break;
-                case 4:
-                    z = dvec2(xx * xx + yy * yy - 6 * xx * yy,
-                        4 * xx * z.x * z.y - 4 * z.x * yy * z.y) + c;
-                    break;
-                case 5:
-                    z = dvec2(xx * xx * z.x + 5 * z.x * yy * yy - 10 * xx * z.x * yy,
-                        5 * xx * xx * z.y + yy * yy * z.y - 10 * xx * yy * z.y) + c;
-                    break;
-                case 6:
-                    z = dvec2(xx * xx * xx - 15 * xx * xx * yy + 15 * xx * yy * yy - yy * yy * yy,
-                        6 * xx * xx * z.x * z.y - 20 * xx * z.x * yy * z.y + 6 * z.x * yy * yy * z.y) + c;
-                    break;
-                case 7:
-                    z = dvec2(xx * xx * xx * z.x - 21 * xx * xx * z.x * yy + 35 * xx * z.x * yy * yy - 7 * z.x * yy * yy * yy,
-                        7 * xx * xx * xx * z.y - 35 * xx * xx * yy * z.y + 21 * xx * yy * yy * z.y - yy * yy * yy * z.y) + c;
-                    break;
-                }
+                z = advance(z, c, xx, yy);
                 xx = z.x * z.x;
                 yy = z.y * z.y;
             }
@@ -202,9 +177,7 @@ void main() {
 )glsl";
 
 // TODO: https://blog.cyclemap.link/2011-06-09-glsl-part2-emu/ implement nth power of complex number, use quad-single precision
-unsigned int shaderProgram = 0;
-
-int pending_flag = 1;
+GLuint shaderProgram = 0;
 
 GLuint mandelbrotFrameBuffer;
 GLuint mandelbrotTexBuffer;
@@ -214,24 +187,25 @@ GLuint juliaTexBuffer;
 
 GLuint spectrumBuffer;
 
+int pending_flag = 1;
 
 namespace spectrum {
-    std::vector<glm::fvec4> data = {
-        {1.f, 0.f, 0.f, 0.16f},
-        {1.f, 1.f, 0.f, 0.32f},
-        {0.f, 1.f, 0.f, 0.48f},
-        {0.f, 1.f, 1.f, 0.64f},
-        {0.f, 0.f, 1.f, 0.80f},
-        {1.f, 0.f, 1.f, 0.92f},
-        {1.f, 0.f, 0.f, 1.00f}
+    std::vector<glm::vec4> data = {
+        {0.0f, 0.0274f, 0.3921f, 0.f},
+        {0.1254f, 0.4196f, 0.7960f, 0.16f},
+        {0.9294f, 1.f, 1.f, 0.42f},
+        {1.f, 0.6666f, 0.f, 0.6425f},
+        {0.f, 0.0078f, 0.f, 0.8575f},
+        {0.0f, 0.0274f, 0.3921f, 1.000000f}
     };
 
     int span = 1e+3;
+    constexpr int max_colors = 8;
 
     void bind_ssbo(void) {
         glGenBuffers(1, &spectrumBuffer);
         glBindBuffer(GL_SHADER_STORAGE_BUFFER, spectrumBuffer);
-        glBufferData(GL_SHADER_STORAGE_BUFFER, data.size() * sizeof(glm::fvec4), data.data(), GL_DYNAMIC_COPY);
+        glBufferData(GL_SHADER_STORAGE_BUFFER, max_colors * sizeof(glm::fvec4), data.data(), GL_DYNAMIC_COPY);
         glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 2, spectrumBuffer);
         GLuint block_index = glGetProgramResourceIndex(shaderProgram, GL_SHADER_STORAGE_BLOCK, "spectrum");
         GLuint ssbo_binding_point_index = 2;
@@ -258,7 +232,7 @@ namespace vars {
     glm::dvec3 set_color = { 0., 0., 0. };
     int    degree = 2;
 
-    bool   ssaa = false;
+    bool   ssaa = true;
     int    ssaa_factor = 2;
 
     int    julia_size = 210;
@@ -552,11 +526,13 @@ int main() {
         return -1;
     }
 
+    int factor = (vars::ssaa ? vars::ssaa_factor : 1);
+
     glGenFramebuffers(1, &mandelbrotFrameBuffer);
     glBindFramebuffer(GL_FRAMEBUFFER, mandelbrotFrameBuffer);
     glGenTextures(1, &mandelbrotTexBuffer);
     glBindTexture(GL_TEXTURE_2D, mandelbrotTexBuffer);
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, vars::screenSize.x, vars::screenSize.y, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, vars::screenSize.x * factor, vars::screenSize.y * factor, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
     glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, mandelbrotTexBuffer, 0);
@@ -566,7 +542,7 @@ int main() {
     glBindFramebuffer(GL_FRAMEBUFFER, juliaFrameBuffer);
     glGenTextures(1, &juliaTexBuffer);
     glBindTexture(GL_TEXTURE_2D, juliaTexBuffer);
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, vars::julia_size, vars::julia_size, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, vars::julia_size * factor, vars::julia_size * factor, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
     glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, juliaTexBuffer, 0);
@@ -637,6 +613,16 @@ int main() {
     double lastUpdate = glfwGetTime();
     double fps = 0;
 
+    int32_t stateID = 10;
+    ImGradientHDRState state;
+    ImGradientHDRTemporaryState tempState;
+
+    for (const glm::vec4& c : spectrum::data) {
+        state.AddColorMarker(c.w, { c.r, c.g, c.b }, 1.0f);
+    }
+
+    bool open = false;
+
     do { // mainloop
         glfwPollEvents();
         ImGui_ImplOpenGL3_NewFrame();
@@ -650,75 +636,128 @@ int main() {
 
         ImGui::PushFont(font_title);
         ImGui::SetNextWindowPos({ 10, 10 });
-        ImGui::Begin("Settings", nullptr, 
+        if (ImGui::Begin("Settings", nullptr, 
             ImGuiWindowFlags_NoScrollbar |
             ImGuiWindowFlags_NoScrollWithMouse |
             ImGuiWindowFlags_AlwaysAutoResize |
             ImGuiWindowFlags_NoMove
-        );
-        double currentTime = glfwGetTime();
-        if (currentTime - lastUpdate > vars::fps_update_interval) {
-            fps = 1 / (currentTime - lastFrame);
-            lastUpdate = currentTime;
-        }
-        ImGui::Text("FPS: %.3g   Frametime: %.3g ms", fps, 1000.0 * (currentTime - lastFrame));
-        lastFrame = currentTime;
+        )) {
+            double currentTime = glfwGetTime();
+            if (currentTime - lastUpdate > vars::fps_update_interval) {
+                fps = 1 / (currentTime - lastFrame);
+                lastUpdate = currentTime;
+            }
+            ImGui::Text("FPS: %.3g   Frametime: %.3g ms", fps, 1000.0 * (currentTime - lastFrame));
+            lastFrame = currentTime;
         
-        ImGui::BeginGroup();
-        ImGui::SeparatorText("Computation configuration");
-        //ImGui::PushItemFlag(ImGuiItemFlags_Disabled, true);
-        if (ImGui::SliderFloat("Iteration coefficient", &vars::iter_co, 1.01, 1.1)) {
-            glUniform1i(glGetUniformLocation(shaderProgram, "max_iters"), utils::max_iters(vars::zoom, consts::zoom_co, vars::iter_co));
-            pending_flag = 2;
-        }
-        //ImGui::PushItemFlag(ImGuiItemFlags_Disabled, false);
-        if (ImGui::SliderFloat("Bailout radius", &vars::bailout_radius, 2.0, 25.0)) {
-            glUniform1d(glGetUniformLocation(shaderProgram, "bailout_radius"), pow(vars::bailout_radius, 2));
-            pending_flag = 2;
-        }
-        if (ImGui::SliderInt("Degree", &vars::degree, 2, 7)) {
-            glUniform1i(glGetUniformLocation(shaderProgram, "degree"), vars::degree);
-            pending_flag = 2;
-        }
-        ImGui::SeparatorText("Rendering settings");
-        if (ImGui::SliderInt("Iteration Multiplier", &vars::iter_multiplier, 1, 128, "x%d", ImGuiSliderFlags_Logarithmic | ImGuiSliderFlags_NoRoundToFormat)) {
-            glUniform1i(glGetUniformLocation(shaderProgram, "iter_multiplier"), vars::iter_multiplier);
-            pending_flag = 2;
-        }
-        if (ImGui::SliderInt("Spectrum Offset", &vars::spectrum_offset, 0, 256 * 7)) {
-            glUniform1i(glGetUniformLocation(shaderProgram, "spectrum_offset"), vars::spectrum_offset);
-            pending_flag = 2;
-        }
-        if (ImGui::Checkbox("SSAA (super sampling)", &vars::ssaa)) {
-            int factor = ((vars::ssaa) ? vars::ssaa_factor : 1);
-            glBindFramebuffer(GL_FRAMEBUFFER, mandelbrotFrameBuffer);
-            glBindTexture(GL_TEXTURE_2D, mandelbrotTexBuffer);
-            glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, vars::screenSize.x * factor, vars::screenSize.y * factor, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
+            ImGui::BeginGroup();
+            ImGui::SeparatorText("Computation configuration");
+            //ImGui::PushItemFlag(ImGuiItemFlags_Disabled, true);
+            if (ImGui::SliderFloat("Iteration coefficient", &vars::iter_co, 1.01, 1.1)) {
+                glUniform1i(glGetUniformLocation(shaderProgram, "max_iters"), utils::max_iters(vars::zoom, consts::zoom_co, vars::iter_co));
+                pending_flag = 2;
+            }
+            //ImGui::PushItemFlag(ImGuiItemFlags_Disabled, false);
+            if (ImGui::SliderFloat("Bailout radius", &vars::bailout_radius, 2.0, 25.0)) {
+                glUniform1d(glGetUniformLocation(shaderProgram, "bailout_radius"), pow(vars::bailout_radius, 2));
+                pending_flag = 2;
+            }
+            if (ImGui::SliderInt("Degree", &vars::degree, 2, 7)) {
+                glUniform1i(glGetUniformLocation(shaderProgram, "degree"), vars::degree);
+                pending_flag = 2;
+            }
+            ImGui::SeparatorText("Rendering settings");
+            if (ImGui::SliderInt("Iteration Multiplier", &vars::iter_multiplier, 1, 128, "x%d", ImGuiSliderFlags_Logarithmic | ImGuiSliderFlags_NoRoundToFormat)) {
+                glUniform1i(glGetUniformLocation(shaderProgram, "iter_multiplier"), vars::iter_multiplier);
+                pending_flag = 2;
+            }
+            if (ImGui::SliderInt("Spectrum Offset", &vars::spectrum_offset, 0, 256 * 7)) {
+                glUniform1i(glGetUniformLocation(shaderProgram, "spectrum_offset"), vars::spectrum_offset);
+                pending_flag = 2;
+            }
+            if (ImGui::Checkbox("SSAA (super sampling)", &vars::ssaa)) {
+                int factor = ((vars::ssaa) ? vars::ssaa_factor : 1);
+                glBindFramebuffer(GL_FRAMEBUFFER, mandelbrotFrameBuffer);
+                glBindTexture(GL_TEXTURE_2D, mandelbrotTexBuffer);
+                glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, vars::screenSize.x * factor, vars::screenSize.y * factor, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
 
-            glBindFramebuffer(GL_FRAMEBUFFER, juliaFrameBuffer);
-            glBindTexture(GL_TEXTURE_2D, juliaTexBuffer);
-            glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, vars::julia_size * factor, vars::julia_size * factor, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
+                glBindFramebuffer(GL_FRAMEBUFFER, juliaFrameBuffer);
+                glBindTexture(GL_TEXTURE_2D, juliaTexBuffer);
+                glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, vars::julia_size * factor, vars::julia_size * factor, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
 
-            pending_flag = 2;
+                pending_flag = 2;
+            }
+            if (vars::ssaa) ImGui::PushItemFlag(ImGuiItemFlags_Disabled, false);
+            else ImGui::PushItemFlag(ImGuiItemFlags_Disabled, true);
+            ImGui::SameLine();
+            ImGui::SetNextItemWidth(30);
+            if (ImGui::DragInt("Factor", &vars::ssaa_factor, 0.2f, 2, 8, "%dX")) {
+                glBindFramebuffer(GL_FRAMEBUFFER, mandelbrotFrameBuffer);
+                glBindTexture(GL_TEXTURE_2D, mandelbrotTexBuffer);
+                glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, vars::screenSize.x * vars::ssaa_factor, vars::screenSize.y * vars::ssaa_factor, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
+
+                glBindFramebuffer(GL_FRAMEBUFFER, juliaFrameBuffer);
+                glBindTexture(GL_TEXTURE_2D, juliaTexBuffer);
+                glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, vars::julia_size * vars::ssaa_factor, vars::julia_size * vars::ssaa_factor, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
+
+                pending_flag = 2;
+            }
+            ImGui::PushItemFlag(ImGuiItemFlags_Disabled, false);
+            toggleButton(&vars::continuous_coloring, "continuous_coloring", "Continuous coloring", glUniform1i);
+
+            bool isMarkerShown = true;
+            ImGradientHDR(stateID, state, tempState, isMarkerShown);
+
+            if (tempState.selectedMarkerType == ImGradientHDRMarkerType::Color) {
+                auto selectedColorMarker = state.GetColorMarker(tempState.selectedIndex);
+                if (selectedColorMarker != nullptr) {
+                    ImGui::ColorEdit3("", selectedColorMarker->Color.data(), ImGuiColorEditFlags_Float);
+                }
+            }
+
+            if (tempState.selectedMarkerType != ImGradientHDRMarkerType::Unknown) {
+                ImGui::SameLine();
+                if (tempState.selectedMarkerType == ImGradientHDRMarkerType::Color && (ImGui::Button("Delete") || glfwGetKey(window, GLFW_KEY_DELETE) == GLFW_PRESS)) {
+                    state.RemoveColorMarker(tempState.selectedIndex);
+                    tempState = ImGradientHDRTemporaryState{};
+                }
+            }
+
+            int size_diff = spectrum::data.size() - state.Colors.size();
+            bool d = 0;
+            for (int i = 0; i < std::min(state.Colors.size(), spectrum::data.size()) && !d; i++) {
+                for (int j = 0; j < 4; j++) {
+                    float v1 = (j < 3 ? state.Colors[i].Color[j] : state.Colors[i].Position);
+                    float v2 = spectrum::data[i][j];
+                    if (d |= v1 != v2) {
+                        spectrum::data[i][j] = v1;
+                    }
+                }
+            }
+            if (size_diff > 0) {
+                for (int i = 0; i < size_diff; i++) {
+                    spectrum::data.pop_back();
+                }
+            }
+            else if (size_diff < 0) {
+                for (int i = spectrum::data.size(); i < state.Colors.size(); i++) {
+                    glm::vec4 v{};
+                    v.r = state.Colors[i].Color[0];
+                    v.g = state.Colors[i].Color[1];
+                    v.b = state.Colors[i].Color[2];
+                    v.w = state.Colors[i].Position;
+                    spectrum::data.push_back(v);
+                }
+            }
+            if (d) {
+                std::cout << "changed" << std::endl;
+                glBindBuffer(GL_SHADER_STORAGE_BUFFER, spectrumBuffer);
+                memcpy(glMapBuffer(GL_SHADER_STORAGE_BUFFER, GL_WRITE_ONLY), spectrum::data.data(), spectrum::data.size() * sizeof(glm::vec4));
+                glUnmapBuffer(GL_SHADER_STORAGE_BUFFER);
+                pending_flag = 2;
+            }
+            ImGui::EndGroup();
         }
-        if (vars::ssaa) ImGui::PushItemFlag(ImGuiItemFlags_Disabled, false);
-        else ImGui::PushItemFlag(ImGuiItemFlags_Disabled, true);
-        ImGui::SameLine();
-        ImGui::SetNextItemWidth(30);
-        if (ImGui::DragInt("Factor", &vars::ssaa_factor, 0.2f, 2, 8, "%dX")) {
-            glBindFramebuffer(GL_FRAMEBUFFER, mandelbrotFrameBuffer);
-            glBindTexture(GL_TEXTURE_2D, mandelbrotTexBuffer);
-            glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, vars::screenSize.x * vars::ssaa_factor, vars::screenSize.y * vars::ssaa_factor, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
-
-            glBindFramebuffer(GL_FRAMEBUFFER, juliaFrameBuffer);
-            glBindTexture(GL_TEXTURE_2D, juliaTexBuffer);
-            glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, vars::julia_size * vars::ssaa_factor, vars::julia_size * vars::ssaa_factor, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
-
-            pending_flag = 2;
-        }
-        ImGui::PushItemFlag(ImGuiItemFlags_Disabled, false);
-        toggleButton(&vars::continuous_coloring, "continuous_coloring", "Continuous coloring", glUniform1i);
-        ImGui::EndGroup();
         ImGui::End();
 
         int factor = ((vars::ssaa) ? vars::ssaa_factor : 1);
