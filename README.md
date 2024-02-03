@@ -24,4 +24,4 @@ This is a project I started randomly while learning OpenGL for a completely diff
 ## A screenshot I took with this that I'm currently using as my wallpaper
 ![Screenshot 2024-02-03 211204](https://github.com/Yilmaz4/MV2/assets/77583632/b1e42990-d045-450c-8ff7-d4a6e00b47fc)
 
-* The image still looks somewhat aliased, this is because the supersampled texture is not blurred before downsampling. Implementing that requires me to greatly change the flow of my program, so that'll be delayed for a while... not like anybody cares anyway lol
+\* The image still looks somewhat aliased, this is because the supersampled texture is not blurred before downsampling. Implementing that requires me to greatly change the flow of my program, so that'll be delayed for a while... not like anybody cares anyway lol
