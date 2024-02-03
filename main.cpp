@@ -51,44 +51,28 @@ uniform ivec2  screenSize;
 uniform dvec2  offset;
 uniform double zoom;
 uniform int    max_iters;
-uniform int    spectrum_offset;
-uniform int    iter_multiplier;
+uniform float  spectrum_offset;
+uniform float  iter_multiplier;
 uniform double bailout_radius;
 uniform int    continuous_coloring;
 uniform dvec3  set_color;
 uniform int    degree;
 
 uniform sampler2D tex;
-uniform int use_tex;
+uniform int    use_tex;
 
 uniform dvec2  mouseCoord;
 uniform int    julia;
 uniform double julia_zoom;
 uniform int    julia_maxiters;
 
-layout(std430, binding = 1) readonly buffer spectrum
-{
+layout(std430, binding = 1) readonly buffer spectrum {
     vec4 spec[];
 };
 uniform int    span;
 
-vec4 blur13(sampler2D image, vec2 uv, vec2 resolution, vec2 direction) {
-    vec4 color = vec4(0.0);
-    vec2 off1 = vec2(1.411764705882353) * direction;
-    vec2 off2 = vec2(3.2941176470588234) * direction;
-    vec2 off3 = vec2(5.176470588235294) * direction;
-    color += texture2D(image, uv) * 0.1964825501511404;
-    color += texture2D(image, uv + (off1 / resolution)) * 0.2969069646728344;
-    color += texture2D(image, uv - (off1 / resolution)) * 0.2969069646728344;
-    color += texture2D(image, uv + (off2 / resolution)) * 0.09447039785044732;
-    color += texture2D(image, uv - (off2 / resolution)) * 0.09447039785044732;
-    color += texture2D(image, uv + (off3 / resolution)) * 0.010381362401148057;
-    color += texture2D(image, uv - (off3 / resolution)) * 0.010381362401148057;
-    return color;
-}
-
 vec3 color(float i) {
-    i = mod(i, span) / span;
+    i = mod(i + spectrum_offset, span) / span;
     for (int v = 0; v < spec.length(); v++) {
         if (spec[v].w >= i) {
             vec4 v1 = (v > 0 ? spec[v - 1] : spec[spec.length() - 1]);
@@ -224,10 +208,10 @@ namespace vars {
     glm::dvec2 offset = { -0.4, 0 };
     glm::ivec2 screenSize = { 760, 540 };
     double zoom = 5.0;
-    int    spectrum_offset = 0;
-    int    iter_multiplier = 10;
-    float  bailout_radius = 10.0;
-    float  iter_co = 1.060;
+    float  spectrum_offset = 0.f;
+    float  iter_multiplier = 10.f;
+    float  bailout_radius = 10.f;
+    float  iter_co = 1.045f;
     int    continuous_coloring = 1;
     glm::dvec3 set_color = { 0., 0., 0. };
     int    degree = 2;
@@ -596,10 +580,10 @@ int main() {
     spectrum::bind_ssbo();
 
     glUniform2d(glGetUniformLocation(shaderProgram, "offset"), vars::offset.x, vars::offset.y);
-    glUniform1i(glGetUniformLocation(shaderProgram, "iter_multiplier"), vars::iter_multiplier);
+    glUniform1f(glGetUniformLocation(shaderProgram, "iter_multiplier"), vars::iter_multiplier);
     glUniform1d(glGetUniformLocation(shaderProgram, "zoom"), vars::zoom);
     glUniform1i(glGetUniformLocation(shaderProgram, "max_iters"), utils::max_iters(vars::zoom, consts::zoom_co, vars::iter_co));
-    glUniform1i(glGetUniformLocation(shaderProgram, "spectrum_offset"), vars::spectrum_offset);
+    glUniform1f(glGetUniformLocation(shaderProgram, "spectrum_offset"), vars::spectrum_offset);
     glUniform1d(glGetUniformLocation(shaderProgram, "bailout_radius"), pow(vars::bailout_radius, 2));
     glUniform1i(glGetUniformLocation(shaderProgram, "continuous_coloring"), vars::continuous_coloring);
     glUniform3d(glGetUniformLocation(shaderProgram, "set_color"), vars::set_color.x, vars::set_color.y, vars::set_color.z);
@@ -667,12 +651,12 @@ int main() {
                 pending_flag = 2;
             }
             ImGui::SeparatorText("Rendering settings");
-            if (ImGui::SliderInt("Iteration Multiplier", &vars::iter_multiplier, 1, 128, "x%d", ImGuiSliderFlags_Logarithmic | ImGuiSliderFlags_NoRoundToFormat)) {
-                glUniform1i(glGetUniformLocation(shaderProgram, "iter_multiplier"), vars::iter_multiplier);
+            if (ImGui::SliderFloat("Iteration Multiplier", &vars::iter_multiplier, 1, 128, "x%.4g", ImGuiSliderFlags_Logarithmic | ImGuiSliderFlags_NoRoundToFormat)) {
+                glUniform1f(glGetUniformLocation(shaderProgram, "iter_multiplier"), vars::iter_multiplier);
                 pending_flag = 2;
             }
-            if (ImGui::SliderInt("Spectrum Offset", &vars::spectrum_offset, 0, 256 * 7)) {
-                glUniform1i(glGetUniformLocation(shaderProgram, "spectrum_offset"), vars::spectrum_offset);
+            if (ImGui::SliderFloat("Spectrum Offset", &vars::spectrum_offset, 0, spectrum::span)) {
+                glUniform1f(glGetUniformLocation(shaderProgram, "spectrum_offset"), vars::spectrum_offset);
                 pending_flag = 2;
             }
             if (ImGui::Checkbox("SSAA (super sampling)", &vars::ssaa)) {
