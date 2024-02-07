@@ -13,6 +13,10 @@
 #include <iostream>
 #include <vector>
 
+#define MV_COMPUTE  2
+#define MV_POSTPROC 1
+#define MV_RENDER   0
+
 float vertices[] = {
     -1.0f, -1.0f,
      1.0f, -1.0f,
@@ -159,8 +163,6 @@ void main() {
         if (degree != 2 || degree == 2 && (4.0 * p * (p + (z.x - 0.25)) > yy && (xx + yy + 2 * z.x + 1) > 0.0625)) {
             for (int i = 0; i < max_iters; i++) {
                 if (xx + yy >= bailout_radius) {
-                    float m = (i + 1 - log2(log2(float(length(z)))) / log2(degree));
-
                     float lo = log(float(xx + yy)) / 2.f;
                     dvec2 u = z * der * ((1 + lo) * cconj(der * der) - lo * cconj(z * der2));
                     u = u / length(u);
@@ -168,10 +170,7 @@ void main() {
                     t = t / (1 + h2);
                     if (t < 0) t = 0;
 
-                    //fragColor = vec4(color(m1), 1);
-                    //return;
-
-                    fragColor = vec4(m, float(i), 0.f, 0.f);
+                    fragColor = vec4(i + 1 - log2(log2(float(length(z)))) / log2(degree), i, 0.f, 0.f);
                     return;
                 }
                 dvec2 new_z = advance(z, c, xx, yy);
@@ -399,7 +398,7 @@ void toggleButton(T* v, const char* id, const char* name, PFNGLUNIFORM1IPROC uni
     if (ImGui::IsItemClicked()) {
         *v ^= 1;
         uniform(glGetUniformLocation(shaderProgram, id), *v);
-        pending_flag = 2;
+        pending_flag = 1;
     }
     ImGuiContext& gg = *GImGui;
     float ANIM_SPEED = 0.055f;
@@ -724,28 +723,16 @@ int main() {
                 glBindTexture(GL_TEXTURE_2D, mandelbrotTexBuffer);
                 glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA32F, vars::screenSize.x * factor, vars::screenSize.y * factor, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
 
+                glBindFramebuffer(GL_FRAMEBUFFER, postprocFrameBuffer);
+                glBindTexture(GL_TEXTURE_2D, postprocTexBuffer);
+                glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA32F, vars::screenSize.x * factor, vars::screenSize.y * factor, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
+
                 glBindFramebuffer(GL_FRAMEBUFFER, juliaFrameBuffer);
                 glBindTexture(GL_TEXTURE_2D, juliaTexBuffer);
                 glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA32F, vars::julia_size * factor, vars::julia_size * factor, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
 
                 pending_flag = 2;
             }
-            if (vars::ssaa) ImGui::PushItemFlag(ImGuiItemFlags_Disabled, false);
-            else ImGui::PushItemFlag(ImGuiItemFlags_Disabled, true);
-            ImGui::SameLine();
-            ImGui::SetNextItemWidth(30);
-            if (ImGui::DragInt("Factor", &vars::ssaa_factor, 0.2f, 2, 8, "%dX")) {
-                glBindFramebuffer(GL_FRAMEBUFFER, mandelbrotFrameBuffer);
-                glBindTexture(GL_TEXTURE_2D, mandelbrotTexBuffer);
-                glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA32F, vars::screenSize.x * vars::ssaa_factor, vars::screenSize.y * vars::ssaa_factor, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
-
-                glBindFramebuffer(GL_FRAMEBUFFER, juliaFrameBuffer);
-                glBindTexture(GL_TEXTURE_2D, juliaTexBuffer);
-                glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA32F, vars::julia_size * vars::ssaa_factor, vars::julia_size * vars::ssaa_factor, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
-
-                pending_flag = 2;
-            }
-            ImGui::PushItemFlag(ImGuiItemFlags_Disabled, false);
             toggleButton(&vars::continuous_coloring, "continuous_coloring", "Continuous coloring", glUniform1i);
 
             bool isMarkerShown = true;
@@ -873,27 +860,24 @@ int main() {
             ImGui::Image((void*)(intptr_t)juliaTexBuffer, ImVec2(vars::julia_size, vars::julia_size));
             ImGui::End();
         }
-
+        glViewport(0, 0, vars::screenSize.x * factor, vars::screenSize.y * factor);
+        glUniform2i(glGetUniformLocation(shaderProgram, "screenSize"), vars::screenSize.x * factor, vars::screenSize.y * factor);
         switch (pending_flag) {
-        case 2:
-            glViewport(0, 0, vars::screenSize.x * factor, vars::screenSize.y * factor);
+        case MV_COMPUTE:
             glBindTexture(GL_TEXTURE_2D, mandelbrotTexBuffer);
             glBindFramebuffer(GL_FRAMEBUFFER, mandelbrotFrameBuffer);
-            glUniform1i(glGetUniformLocation(shaderProgram, "protocol"), 2);
-            glUniform2i(glGetUniformLocation(shaderProgram, "screenSize"), vars::screenSize.x * factor, vars::screenSize.y * factor);
+            glUniform1i(glGetUniformLocation(shaderProgram, "protocol"), MV_COMPUTE);
             glDrawArrays(GL_TRIANGLES, 0, 6);
             [[fallthrough]];
-        case 1:
-            glViewport(0, 0, vars::screenSize.x * factor, vars::screenSize.y * factor);
+        case MV_POSTPROC:
             glBindTexture(GL_TEXTURE_2D, postprocTexBuffer);
             glBindFramebuffer(GL_FRAMEBUFFER, postprocFrameBuffer);
-            glUniform1i(glGetUniformLocation(shaderProgram, "protocol"), 1);
-            glUniform2i(glGetUniformLocation(shaderProgram, "screenSize"), vars::screenSize.x * factor, vars::screenSize.y * factor);
+            glUniform1i(glGetUniformLocation(shaderProgram, "protocol"), MV_POSTPROC);
             glDrawArrays(GL_TRIANGLES, 0, 6);
             [[fallthrough]];
-        case 0:
+        case MV_RENDER:
             glViewport(0, 0, vars::screenSize.x, vars::screenSize.y);
-            glUniform1i(glGetUniformLocation(shaderProgram, "protocol"), 0);
+            glUniform1i(glGetUniformLocation(shaderProgram, "protocol"), MV_RENDER);
             glUniform2i(glGetUniformLocation(shaderProgram, "screenSize"), vars::screenSize.x, vars::screenSize.y);
             glBindFramebuffer(GL_FRAMEBUFFER, 0);
             ImGui::Render();
