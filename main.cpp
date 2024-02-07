@@ -10,7 +10,6 @@
 #include <GLFW/glfw3.h>
 #include <glm/glm.hpp>
 
-
 #include <iostream>
 #include <vector>
 
@@ -55,16 +54,25 @@ uniform float  spectrum_offset;
 uniform float  iter_multiplier;
 uniform double bailout_radius;
 uniform int    continuous_coloring;
-uniform dvec3  set_color;
+uniform vec3   set_color;
 uniform int    degree;
+uniform dvec2  mousePos; // position in pixels
 
-uniform sampler2D tex;
-uniform int    use_tex;
+layout(binding=0) uniform sampler2D mandelbrotTex;
+layout(binding=1) uniform sampler2D postprocTex;
 
-uniform dvec2  mouseCoord;
-uniform int    julia;
+uniform int    protocol;
+
+uniform dvec2  mouseCoord; // position in the complex plane
 uniform double julia_zoom;
 uniform int    julia_maxiters;
+
+vec2 cexp(vec2 z) {
+    return exp(z.x) * vec2(cos(z.y), sin(z.y));
+}
+dvec2 cconj(dvec2 z) {
+	return dvec2(z.x, -z.y);
+}
 
 layout(std430, binding = 1) readonly buffer spectrum {
     vec4 spec[];
@@ -72,6 +80,7 @@ layout(std430, binding = 1) readonly buffer spectrum {
 uniform int    span;
 
 vec3 color(float i) {
+    if (i < 0.f) return set_color;
     i = mod(i + spectrum_offset, span) / span;
     for (int v = 0; v < spec.length(); v++) {
         if (spec[v].w >= i) {
@@ -113,7 +122,7 @@ dvec2 advance(dvec2 z, dvec2 c, double xx, double yy) {
 }
 
 void main() {
-    if (julia == 1) {
+    if (protocol == 3) {
         dvec2 c = (dvec2(gl_FragCoord.x / screenSize.x, (screenSize.y - gl_FragCoord.y) / screenSize.y) - dvec2(0.5, 0.5)) * dvec2(julia_zoom, julia_zoom);
         dvec2 z = c;
         
@@ -131,12 +140,17 @@ void main() {
         }
         fragColor = vec4(set_color, 1.0);
     }
-    else if (use_tex == 1) {
-        fragColor = texture(tex, vec2(gl_FragCoord.x / screenSize.x, gl_FragCoord.y / screenSize.y));
-    }
-    else {
+    
+    if (protocol == 2) {
+        float h2 = 1.5;
+        float angle = 45;
+        dvec2 v = dvec2(cexp(vec2(0.0f, angle * M_2PI / 360)));
+
         dvec2 c = (dvec2(gl_FragCoord.x / screenSize.x, (screenSize.y - gl_FragCoord.y) / screenSize.y) - dvec2(0.5, 0.5)) * dvec2(zoom, (screenSize.y * zoom) / screenSize.x) + offset;
         dvec2 z = c;
+
+        dvec2 der = dvec2(1.0, 0.0);
+        dvec2 der2 = dvec2(0.0, 0.0);
 
         double xx = z.x * z.x;
         double yy = z.y * z.y;
@@ -145,17 +159,39 @@ void main() {
         if (degree != 2 || degree == 2 && (4.0 * p * (p + (z.x - 0.25)) > yy && (xx + yy + 2 * z.x + 1) > 0.0625)) {
             for (int i = 0; i < max_iters; i++) {
                 if (xx + yy >= bailout_radius) {
-                    float m1 = iter_multiplier * (i + 1 - log2(log2(float(length(z)))) / log2(degree));
-                    float m2 = iter_multiplier * i;
-                    fragColor = vec4(color(continuous_coloring != 0 ? m1 : m2), 0);
+                    float m = (i + 1 - log2(log2(float(length(z)))) / log2(degree));
+
+                    float lo = log(float(xx + yy)) / 2.f;
+                    dvec2 u = z * der * ((1 + lo) * cconj(der * der) - lo * cconj(z * der2));
+                    u = u / length(u);
+                    float t = float(u.x * v.x + u.y * v.y) + h2;
+                    t = t / (1 + h2);
+                    if (t < 0) t = 0;
+
+                    //fragColor = vec4(color(m1), 1);
+                    //return;
+
+                    fragColor = vec4(m, float(i), 0.f, 0.f);
                     return;
                 }
-                z = advance(z, c, xx, yy);
+                dvec2 new_z = advance(z, c, xx, yy);
+                dvec2 new_der = der * 2.0 * z + 1.0;
+                dvec2 new_der2 = 2.0 * (der2 * z + der * der);
+                z = new_z;
+                der = new_der;
+                der2 = new_der2;
                 xx = z.x * z.x;
                 yy = z.y * z.y;
             }
         }
-        fragColor = vec4(set_color, 1.0);
+        fragColor = vec4(-1.f, -1.f, 0.f, 0.f);
+    }
+    if (protocol == 1) {
+        vec4 data = texture(mandelbrotTex, vec2(gl_FragCoord.x / screenSize.x, gl_FragCoord.y / screenSize.y));
+        fragColor = vec4(continuous_coloring == 0 ? color(data.y * iter_multiplier) : color(data.x * iter_multiplier), 1.f);
+    }
+    if (protocol == 0) {
+        fragColor = texture(postprocTex, vec2(gl_FragCoord.x / screenSize.x, gl_FragCoord.y / screenSize.y));
     }
 }
 )glsl";
@@ -164,9 +200,11 @@ void main() {
 GLuint shaderProgram = 0;
 
 GLuint mandelbrotFrameBuffer;
-GLuint mandelbrotTexBuffer;
-
+GLuint postprocFrameBuffer;
 GLuint juliaFrameBuffer;
+
+GLuint mandelbrotTexBuffer;
+GLuint postprocTexBuffer;
 GLuint juliaTexBuffer;
 
 GLuint spectrumBuffer;
@@ -180,7 +218,7 @@ namespace spectrum {
         {0.9294f, 1.f, 1.f, 0.42f},
         {1.f, 0.6666f, 0.f, 0.6425f},
         {0.f, 0.0078f, 0.f, 0.8575f},
-        {0.0f, 0.0274f, 0.3921f, 1.000000f}
+        {0.0f, 0.0274f, 0.3921f, 1.f}
     };
 
     int span = 1e+3;
@@ -235,6 +273,7 @@ namespace utils {
             glm::dvec2(vars::zoom, (vars::screenSize.y * vars::zoom) / vars::screenSize.x) + vars::offset;
     }
     static int max_iters(double zoom, double zoom_co, double iter_co, double initial_zoom = 5.0) {
+        //return sqrt(2 * sqrt(abs(1 - sqrt(5 * 1/zoom)))) * 66.5;
         return 100 * pow(iter_co, log2(zoom / initial_zoom) / log2(zoom_co));
     }
 }
@@ -252,9 +291,14 @@ namespace events {
         if (shaderProgram)
             glUniform2i(glGetUniformLocation(shaderProgram, "screenSize"), width, height);
         pending_flag = 2;
+        int factor = (vars::ssaa ? vars::ssaa_factor : 1);
+
         glBindFramebuffer(GL_FRAMEBUFFER, mandelbrotFrameBuffer);
         glBindTexture(GL_TEXTURE_2D, mandelbrotTexBuffer);
-        int factor = (vars::ssaa ? vars::ssaa_factor : 1);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA32F, vars::screenSize.x * factor, vars::screenSize.y * factor, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
+
+        glBindFramebuffer(GL_FRAMEBUFFER, postprocFrameBuffer);
+        glBindTexture(GL_TEXTURE_2D, postprocTexBuffer);
         glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, vars::screenSize.x * factor, vars::screenSize.y * factor, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
     }
 
@@ -297,6 +341,7 @@ namespace events {
     }
 
     static void on_cursorMove(GLFWwindow* window, double x, double y) {
+        glUniform2d(glGetUniformLocation(shaderProgram, "mousePos"), x / vars::screenSize.x, y / vars::screenSize.y);
         if (ImGui::GetIO().WantCaptureMouse)
             return;
         if (dragging) {
@@ -412,7 +457,6 @@ int main() {
 
     ImGui::StyleColorsDark();
 
-    // When viewports are enabled we tweak WindowRounding/WindowBg so platform windows can look identical to regular ones.
     ImVec4* colors = ImGui::GetStyle().Colors;
     colors[ImGuiCol_Text] = ImVec4(1.00f, 1.00f, 1.00f, 1.00f);
     colors[ImGuiCol_TextDisabled] = ImVec4(0.50f, 0.50f, 0.50f, 1.00f);
@@ -498,7 +542,6 @@ int main() {
         style.Colors[ImGuiCol_WindowBg].w = 1.0f;
     }
 
-    // Setup Platform/Renderer backends
     ImGui_ImplGlfw_InitForOpenGL(window, true);
 #ifdef __EMSCRIPTEN__
     ImGui_ImplGlfw_InstallEmscriptenCanvasResizeCallback("#canvas");
@@ -512,23 +555,39 @@ int main() {
 
     int factor = (vars::ssaa ? vars::ssaa_factor : 1);
 
-    glGenFramebuffers(1, &mandelbrotFrameBuffer);
-    glBindFramebuffer(GL_FRAMEBUFFER, mandelbrotFrameBuffer);
     glGenTextures(1, &mandelbrotTexBuffer);
+    glActiveTexture(GL_TEXTURE0);
     glBindTexture(GL_TEXTURE_2D, mandelbrotTexBuffer);
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, vars::screenSize.x * factor, vars::screenSize.y * factor, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
+    glUniform1i(glGetUniformLocation(shaderProgram, "mandelbrotTex"), 0);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA32F, vars::screenSize.x * factor, vars::screenSize.y * factor, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+
+    glGenTextures(1, &postprocTexBuffer);
+    glActiveTexture(GL_TEXTURE1);
+    glBindTexture(GL_TEXTURE_2D, postprocTexBuffer);
+    glUniform1i(glGetUniformLocation(shaderProgram, "postprocTex"), 1);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA32F, vars::screenSize.x * factor, vars::screenSize.y * factor, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+
+    glGenTextures(1, &juliaTexBuffer);
+    glBindTexture(GL_TEXTURE_2D, juliaTexBuffer);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA32F, vars::julia_size * factor, vars::julia_size * factor, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+
+
+    glGenFramebuffers(1, &mandelbrotFrameBuffer);
+    glBindFramebuffer(GL_FRAMEBUFFER, mandelbrotFrameBuffer);
     glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, mandelbrotTexBuffer, 0);
 
+    glGenFramebuffers(1, &postprocFrameBuffer);
+    glBindFramebuffer(GL_FRAMEBUFFER, postprocFrameBuffer);
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, postprocTexBuffer, 0);
 
     glGenFramebuffers(1, &juliaFrameBuffer);
     glBindFramebuffer(GL_FRAMEBUFFER, juliaFrameBuffer);
-    glGenTextures(1, &juliaTexBuffer);
-    glBindTexture(GL_TEXTURE_2D, juliaTexBuffer);
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, vars::julia_size * factor, vars::julia_size * factor, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
     glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, juliaTexBuffer, 0);
 
     
@@ -653,21 +712,21 @@ int main() {
             ImGui::SeparatorText("Rendering settings");
             if (ImGui::SliderFloat("Iteration Multiplier", &vars::iter_multiplier, 1, 128, "x%.4g", ImGuiSliderFlags_Logarithmic | ImGuiSliderFlags_NoRoundToFormat)) {
                 glUniform1f(glGetUniformLocation(shaderProgram, "iter_multiplier"), vars::iter_multiplier);
-                pending_flag = 2;
+                pending_flag = 1;
             }
             if (ImGui::SliderFloat("Spectrum Offset", &vars::spectrum_offset, 0, spectrum::span)) {
                 glUniform1f(glGetUniformLocation(shaderProgram, "spectrum_offset"), vars::spectrum_offset);
-                pending_flag = 2;
+                pending_flag = 1;
             }
             if (ImGui::Checkbox("SSAA (super sampling)", &vars::ssaa)) {
                 int factor = ((vars::ssaa) ? vars::ssaa_factor : 1);
                 glBindFramebuffer(GL_FRAMEBUFFER, mandelbrotFrameBuffer);
                 glBindTexture(GL_TEXTURE_2D, mandelbrotTexBuffer);
-                glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, vars::screenSize.x * factor, vars::screenSize.y * factor, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
+                glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA32F, vars::screenSize.x * factor, vars::screenSize.y * factor, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
 
                 glBindFramebuffer(GL_FRAMEBUFFER, juliaFrameBuffer);
                 glBindTexture(GL_TEXTURE_2D, juliaTexBuffer);
-                glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, vars::julia_size * factor, vars::julia_size * factor, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
+                glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA32F, vars::julia_size * factor, vars::julia_size * factor, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
 
                 pending_flag = 2;
             }
@@ -678,11 +737,11 @@ int main() {
             if (ImGui::DragInt("Factor", &vars::ssaa_factor, 0.2f, 2, 8, "%dX")) {
                 glBindFramebuffer(GL_FRAMEBUFFER, mandelbrotFrameBuffer);
                 glBindTexture(GL_TEXTURE_2D, mandelbrotTexBuffer);
-                glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, vars::screenSize.x * vars::ssaa_factor, vars::screenSize.y * vars::ssaa_factor, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
+                glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA32F, vars::screenSize.x * vars::ssaa_factor, vars::screenSize.y * vars::ssaa_factor, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
 
                 glBindFramebuffer(GL_FRAMEBUFFER, juliaFrameBuffer);
                 glBindTexture(GL_TEXTURE_2D, juliaTexBuffer);
-                glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, vars::julia_size * vars::ssaa_factor, vars::julia_size * vars::ssaa_factor, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
+                glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA32F, vars::julia_size * vars::ssaa_factor, vars::julia_size * vars::ssaa_factor, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
 
                 pending_flag = 2;
             }
@@ -806,8 +865,7 @@ int main() {
                 ImGui::Text("Re: %.17g\nIm: %.17g\nPoint is in set", c.x, c.y);
             glViewport(0, 0, vars::julia_size * factor, vars::julia_size * factor);
             glBindFramebuffer(GL_FRAMEBUFFER, juliaFrameBuffer);
-            glUniform1i(glGetUniformLocation(shaderProgram, "use_tex"), 0);
-            glUniform1i(glGetUniformLocation(shaderProgram, "julia"), 1);
+            glUniform1i(glGetUniformLocation(shaderProgram, "protocol"), 3);
             glUniform2d(glGetUniformLocation(shaderProgram, "mouseCoord"), c.x, c.y);
             glUniform2i(glGetUniformLocation(shaderProgram, "screenSize"), vars::julia_size * factor, vars::julia_size * factor);
             glDrawArrays(GL_TRIANGLES, 0, 6);
@@ -816,34 +874,33 @@ int main() {
             ImGui::End();
         }
 
-        if (pending_flag) {
+        switch (pending_flag) {
+        case 2:
             glViewport(0, 0, vars::screenSize.x * factor, vars::screenSize.y * factor);
             glBindTexture(GL_TEXTURE_2D, mandelbrotTexBuffer);
             glBindFramebuffer(GL_FRAMEBUFFER, mandelbrotFrameBuffer);
-            glUniform1i(glGetUniformLocation(shaderProgram, "julia"), 0);
+            glUniform1i(glGetUniformLocation(shaderProgram, "protocol"), 2);
             glUniform2i(glGetUniformLocation(shaderProgram, "screenSize"), vars::screenSize.x * factor, vars::screenSize.y * factor);
-            glUniform1i(glGetUniformLocation(shaderProgram, "use_tex"), 0);
-            pending_flag -= 1;
             glDrawArrays(GL_TRIANGLES, 0, 6);
-            
-            glUniform2i(glGetUniformLocation(shaderProgram, "screenSize"), vars::screenSize.x, vars::screenSize.y);
-            glBindFramebuffer(GL_FRAMEBUFFER, 0);
-            glUniform1i(glGetUniformLocation(shaderProgram, "use_tex"), 1);
-            ImGui::Render();
+            [[fallthrough]];
+        case 1:
+            glViewport(0, 0, vars::screenSize.x * factor, vars::screenSize.y * factor);
+            glBindTexture(GL_TEXTURE_2D, postprocTexBuffer);
+            glBindFramebuffer(GL_FRAMEBUFFER, postprocFrameBuffer);
+            glUniform1i(glGetUniformLocation(shaderProgram, "protocol"), 1);
+            glUniform2i(glGetUniformLocation(shaderProgram, "screenSize"), vars::screenSize.x * factor, vars::screenSize.y * factor);
             glDrawArrays(GL_TRIANGLES, 0, 6);
-            ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
-            glfwSwapBuffers(window);
-        }
-        else {
+            [[fallthrough]];
+        case 0:
             glViewport(0, 0, vars::screenSize.x, vars::screenSize.y);
-            glUniform1i(glGetUniformLocation(shaderProgram, "julia"), 0);
+            glUniform1i(glGetUniformLocation(shaderProgram, "protocol"), 0);
             glUniform2i(glGetUniformLocation(shaderProgram, "screenSize"), vars::screenSize.x, vars::screenSize.y);
             glBindFramebuffer(GL_FRAMEBUFFER, 0);
-            glUniform1i(glGetUniformLocation(shaderProgram, "use_tex"), 1);
             ImGui::Render();
             glDrawArrays(GL_TRIANGLES, 0, 6);
             ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
             glfwSwapBuffers(window);
+            pending_flag = 0;
         }
         
     } while (!glfwWindowShouldClose(window));
