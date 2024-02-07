@@ -208,7 +208,7 @@ GLuint juliaTexBuffer;
 
 GLuint spectrumBuffer;
 
-int pending_flag = 1;
+int protocol = MV_COMPUTE;
 
 namespace spectrum {
     std::vector<glm::vec4> data = {
@@ -289,7 +289,7 @@ namespace events {
         vars::screenSize = { width, height };
         if (shaderProgram)
             glUniform2i(glGetUniformLocation(shaderProgram, "screenSize"), width, height);
-        pending_flag = 2;
+        protocol = MV_COMPUTE;
         int factor = (vars::ssaa ? vars::ssaa_factor : 1);
 
         glBindFramebuffer(GL_FRAMEBUFFER, mandelbrotFrameBuffer);
@@ -319,7 +319,7 @@ namespace events {
                 vars::offset += pos - center;
                 glUniform2d(glGetUniformLocation(shaderProgram, "offset"), vars::offset.x, vars::offset.y);
                 dragging = false;
-                pending_flag = 2;
+                protocol = MV_COMPUTE;
             }
             else {
                 dragging = false;
@@ -349,7 +349,7 @@ namespace events {
             vars::offset.y -= ((y - oldPos.y) * ((vars::zoom * vars::screenSize.y) / vars::screenSize.x)) / vars::screenSize.y;
             glUniform2d(glGetUniformLocation(shaderProgram, "offset"), vars::offset.x, vars::offset.y);
             oldPos = { x, y };
-            pending_flag = 2;
+            protocol = MV_COMPUTE;
         }
     }
 
@@ -363,7 +363,7 @@ namespace events {
             vars::zoom *= pow(consts::zoom_co, y);
             glUniform1d(glGetUniformLocation(shaderProgram, "zoom"), vars::zoom);
             glUniform1i(glGetUniformLocation(shaderProgram, "max_iters"), utils::max_iters(vars::zoom, consts::zoom_co, vars::iter_co));
-            pending_flag = 2;
+            protocol = MV_COMPUTE;
         }
     }
 }
@@ -398,7 +398,7 @@ void toggleButton(T* v, const char* id, const char* name, PFNGLUNIFORM1IPROC uni
     if (ImGui::IsItemClicked()) {
         *v ^= 1;
         uniform(glGetUniformLocation(shaderProgram, id), *v);
-        pending_flag = 1;
+        protocol = MV_POSTPROC;
     }
     ImGuiContext& gg = *GImGui;
     float ANIM_SPEED = 0.055f;
@@ -697,25 +697,25 @@ int main() {
             //ImGui::PushItemFlag(ImGuiItemFlags_Disabled, true);
             if (ImGui::SliderFloat("Iteration coefficient", &vars::iter_co, 1.01, 1.1)) {
                 glUniform1i(glGetUniformLocation(shaderProgram, "max_iters"), utils::max_iters(vars::zoom, consts::zoom_co, vars::iter_co));
-                pending_flag = 2;
+                protocol = MV_COMPUTE;
             }
             //ImGui::PushItemFlag(ImGuiItemFlags_Disabled, false);
             if (ImGui::SliderFloat("Bailout radius", &vars::bailout_radius, 2.0, 25.0)) {
                 glUniform1d(glGetUniformLocation(shaderProgram, "bailout_radius"), pow(vars::bailout_radius, 2));
-                pending_flag = 2;
+                protocol = MV_COMPUTE;
             }
             if (ImGui::SliderInt("Degree", &vars::degree, 2, 7)) {
                 glUniform1i(glGetUniformLocation(shaderProgram, "degree"), vars::degree);
-                pending_flag = 2;
+                protocol = MV_COMPUTE;
             }
             ImGui::SeparatorText("Rendering settings");
             if (ImGui::SliderFloat("Iteration Multiplier", &vars::iter_multiplier, 1, 128, "x%.4g", ImGuiSliderFlags_Logarithmic | ImGuiSliderFlags_NoRoundToFormat)) {
                 glUniform1f(glGetUniformLocation(shaderProgram, "iter_multiplier"), vars::iter_multiplier);
-                pending_flag = 1;
+                protocol = MV_POSTPROC;
             }
             if (ImGui::SliderFloat("Spectrum Offset", &vars::spectrum_offset, 0, spectrum::span)) {
                 glUniform1f(glGetUniformLocation(shaderProgram, "spectrum_offset"), vars::spectrum_offset);
-                pending_flag = 1;
+                protocol = MV_POSTPROC;
             }
             if (ImGui::Checkbox("SSAA (super sampling)", &vars::ssaa)) {
                 int factor = ((vars::ssaa) ? vars::ssaa_factor : 1);
@@ -731,7 +731,7 @@ int main() {
                 glBindTexture(GL_TEXTURE_2D, juliaTexBuffer);
                 glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA32F, vars::julia_size * factor, vars::julia_size * factor, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
 
-                pending_flag = 2;
+                protocol = MV_COMPUTE;
             }
             toggleButton(&vars::continuous_coloring, "continuous_coloring", "Continuous coloring", glUniform1i);
 
@@ -784,7 +784,7 @@ int main() {
                 glBindBuffer(GL_SHADER_STORAGE_BUFFER, spectrumBuffer);
                 memcpy(glMapBuffer(GL_SHADER_STORAGE_BUFFER, GL_WRITE_ONLY), spectrum::data.data(), spectrum::data.size() * sizeof(glm::vec4));
                 glUnmapBuffer(GL_SHADER_STORAGE_BUFFER);
-                pending_flag = 2;
+                protocol = MV_COMPUTE;
             }
             ImGui::EndGroup();
         }
@@ -862,7 +862,7 @@ int main() {
         }
         glViewport(0, 0, vars::screenSize.x * factor, vars::screenSize.y * factor);
         glUniform2i(glGetUniformLocation(shaderProgram, "screenSize"), vars::screenSize.x * factor, vars::screenSize.y * factor);
-        switch (pending_flag) {
+        switch (protocol) {
         case MV_COMPUTE:
             glBindTexture(GL_TEXTURE_2D, mandelbrotTexBuffer);
             glBindFramebuffer(GL_FRAMEBUFFER, mandelbrotFrameBuffer);
@@ -884,7 +884,7 @@ int main() {
             glDrawArrays(GL_TRIANGLES, 0, 6);
             ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
             glfwSwapBuffers(window);
-            pending_flag = 0;
+            protocol = MV_RENDER;
         }
         
     } while (!glfwWindowShouldClose(window));
