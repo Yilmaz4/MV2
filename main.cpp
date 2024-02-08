@@ -83,6 +83,45 @@ layout(std430, binding = 1) readonly buffer spectrum {
 };
 uniform int    span;
 
+double log(double x) {
+	double
+		Ln2Hi = 6.93147180369123816490e-01LF, /* 3fe62e42 fee00000 */
+		Ln2Lo = 1.90821492927058770002e-10LF, /* 3dea39ef 35793c76 */
+        L0    = 7.0710678118654752440e-01LF,  /* 1/sqrt(2) */
+		L1    = 6.666666666666735130e-01LF,   /* 3FE55555 55555593 */
+		L2    = 3.999999999940941908e-01LF,   /* 3FD99999 9997FA04 */
+		L3    = 2.857142874366239149e-01LF,   /* 3FD24924 94229359 */
+		L4    = 2.222219843214978396e-01LF,   /* 3FCC71C5 1D8E78AF */
+		L5    = 1.818357216161805012e-01LF,   /* 3FC74664 96CB03DE */
+		L6    = 1.531383769920937332e-01LF,   /* 3FC39A09 D078C69F */
+		L7    = 1.479819860511658591e-01LF;   /* 3FC2F112 DF3E5244 */
+	if( isinf(x) )
+        return 1.0/0.0; /* return +inf */
+	if( isnan(x) || x < 0 )
+        return -0.0; /* nan */
+	if( x == 0 )
+        return -1.0/0.0; /* return -inf */
+    int ki;
+    double f1 = frexp(x, ki);
+    
+    if (f1 < L0) {
+		f1 *= 2.0;
+		ki--;
+	}
+	
+	double f = f1 - 1.0;
+	double k = double(ki);
+	double s = f / (2.0 + f);
+	double s2 = s * s;
+	double s4 = s2 * s2;
+	double t1 = s2 * (L1 + s4 * (L3 + s4 * (L5 + s4 * L7)));
+	double t2 = s4 * (L2 + s4 * (L4 + s4 * L6));
+	double R = t1 + t2;
+	double hfsq = 0.5 * f * f;
+    
+    return k*Ln2Hi - ((hfsq - (s*(hfsq+R) + k*Ln2Lo)) - f);
+}
+
 vec3 color(float i) {
     if (i < 0.f) return set_color;
     i = mod(i + spectrum_offset, span) / span;
@@ -146,14 +185,15 @@ void main() {
     }
     
     if (protocol == 2) {
-        float h2 = 1.5;
-        float angle = 45;
+        double h2 = 1;
+        vec2 dir = vec2(mousePos) - vec2(screenSize) / 2.f;
+        float angle = atan(dir.y, dir.x);
         dvec2 v = dvec2(cexp(vec2(0.0f, angle * M_2PI / 360)));
 
         dvec2 c = (dvec2(gl_FragCoord.x / screenSize.x, (screenSize.y - gl_FragCoord.y) / screenSize.y) - dvec2(0.5, 0.5)) * dvec2(zoom, (screenSize.y * zoom) / screenSize.x) + offset;
         dvec2 z = c;
 
-        dvec2 der = dvec2(1.0, 0.0);
+        dvec2 der1 = dvec2(1.0, 0.0);
         dvec2 der2 = dvec2(0.0, 0.0);
 
         double xx = z.x * z.x;
@@ -162,22 +202,22 @@ void main() {
         double p = xx - z.x / 2.0 + 0.0625 + yy;
         if (degree != 2 || degree == 2 && (4.0 * p * (p + (z.x - 0.25)) > yy && (xx + yy + 2 * z.x + 1) > 0.0625)) {
             for (int i = 0; i < max_iters; i++) {
-                if (xx + yy >= bailout_radius) {
-                    float lo = log(float(xx + yy)) / 2.f;
-                    dvec2 u = z * der * ((1 + lo) * cconj(der * der) - lo * cconj(z * der2));
-                    u = u / length(u);
-                    float t = float(u.x * v.x + u.y * v.y) + h2;
-                    t = t / (1 + h2);
-                    if (t < 0) t = 0;
+                if (xx + yy >= 10000000) {
+                    double lo = 0.5 * log(float(xx + yy));
+                    dvec2 u = z * der1 * ((1 + lo) * cconj(der1 * der1) - lo * cconj(z * der2));
+                    u /= length(u);
+                    double t = dot(u, v) + h2;
+                    t /= h2 + 1.0;
+                    if (t < 0) t = 0.2;
 
-                    fragColor = vec4(i + 1 - log2(log2(float(length(z)))) / log2(degree), i, 0.f, 0.f);
+                    fragColor = vec4(i + 1 - log2(log2(float(length(z)))) / log2(degree), i, t, 0.f);
                     return;
                 }
                 dvec2 new_z = advance(z, c, xx, yy);
-                dvec2 new_der = der * 2.0 * z + 1.0;
-                dvec2 new_der2 = 2.0 * (der2 * z + der * der);
+                dvec2 new_der1 = der1 * 2.0 * z + 1.0;
+                dvec2 new_der2 = 2 * (der2 * z + der1 * der1);
                 z = new_z;
-                der = new_der;
+                der1 = new_der1;
                 der2 = new_der2;
                 xx = z.x * z.x;
                 yy = z.y * z.y;
@@ -187,7 +227,7 @@ void main() {
     }
     if (protocol == 1) {
         vec4 data = texture(mandelbrotTex, vec2(gl_FragCoord.x / screenSize.x, gl_FragCoord.y / screenSize.y));
-        fragColor = vec4(continuous_coloring == 0 ? color(data.y * iter_multiplier) : color(data.x * iter_multiplier), 1.f);
+        fragColor = vec4(mix(continuous_coloring == 0 ? color(data.y * iter_multiplier) : color(data.x * iter_multiplier), vec3(0.f), 0), 1.f);
     }
     if (protocol == 0) {
         fragColor = texture(postprocTex, vec2(gl_FragCoord.x / screenSize.x, gl_FragCoord.y / screenSize.y));
