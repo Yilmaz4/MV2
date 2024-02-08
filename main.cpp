@@ -61,15 +61,15 @@ uniform int    continuous_coloring;
 uniform vec3   set_color;
 uniform int    degree;
 uniform dvec2  mousePos; // position in pixels
+uniform dvec2  mouseCoord; // position in the complex plane
+uniform double julia_zoom;
+uniform int    julia_maxiters;
+uniform int    blur;
 
 layout(binding=0) uniform sampler2D mandelbrotTex;
 layout(binding=1) uniform sampler2D postprocTex;
 
 uniform int    protocol;
-
-uniform dvec2  mouseCoord; // position in the complex plane
-uniform double julia_zoom;
-uniform int    julia_maxiters;
 
 vec2 cexp(vec2 z) {
     return exp(z.x) * vec2(cos(z.y), sin(z.y));
@@ -237,9 +237,10 @@ void main() {
     }
     if (protocol == 1) {
         vec4 data = texture(mandelbrotTex, vec2(gl_FragCoord.x / screenSize.x, gl_FragCoord.y / screenSize.y));
-
-        float sigma = (2 - 1.0) / 2.0;
-
+        if (blur == 1) {
+            fragColor = vec4(color(data.x * iter_multiplier), 1.f);
+            return;
+        }
         vec3 blurredColor = vec3(0.0);
         for (int i = -1; i <= 1; i++) {
             for (int j = -1; j <= 1; j++) {
@@ -708,6 +709,7 @@ int main() {
     glUniform1i(glGetUniformLocation(shaderProgram, "degree"), vars::degree);
     glUniform1d(glGetUniformLocation(shaderProgram, "julia_zoom"), vars::julia_zoom);
     glUniform1i(glGetUniformLocation(shaderProgram, "julia_maxiters"), utils::max_iters(vars::julia_zoom, consts::zoom_co, vars::iter_co, 3.0));
+    glUniform1i(glGetUniformLocation(shaderProgram, "blur"), vars::ssaa_factor);
 
     events::on_windowResize(window, vars::screenSize.x, vars::screenSize.y);
 
@@ -790,6 +792,8 @@ int main() {
                 glBindFramebuffer(GL_FRAMEBUFFER, juliaFrameBuffer);
                 glBindTexture(GL_TEXTURE_2D, juliaTexBuffer);
                 glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA32F, vars::julia_size * factor, vars::julia_size * factor, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
+
+                glUniform1i(glGetUniformLocation(shaderProgram, "blur"), factor);
 
                 protocol = MV_COMPUTE;
             }
