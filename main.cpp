@@ -77,6 +77,11 @@ vec2 cexp(vec2 z) {
 dvec2 cconj(dvec2 z) {
 	return dvec2(z.x, -z.y);
 }
+uniform mat3 weight = mat3(
+    0.0751136, 0.123841, 0.0751136,
+    0.123841, 0.20418, 0.123841,
+    0.0751136, 0.123841, 0.0751136
+);
 
 layout(std430, binding = 1) readonly buffer spectrum {
     vec4 spec[];
@@ -127,8 +132,13 @@ vec3 color(float i) {
     i = mod(i + spectrum_offset, span) / span;
     for (int v = 0; v < spec.length(); v++) {
         if (spec[v].w >= i) {
-            vec4 v1 = (v > 0 ? spec[v - 1] : spec[spec.length() - 1]);
             vec4 v2 = spec[v];
+            vec4 v1;
+            if (v > 0) v1 = spec[v - 1];
+            else {
+                v1 = spec[spec.length() - 1];
+                v2.w += 1.f;
+            }
             vec4 dv = v2 - v1;
             return v1.rgb + (dv.rgb * (i - v1.w)) / dv.w;
         }
@@ -227,7 +237,17 @@ void main() {
     }
     if (protocol == 1) {
         vec4 data = texture(mandelbrotTex, vec2(gl_FragCoord.x / screenSize.x, gl_FragCoord.y / screenSize.y));
-        fragColor = vec4(mix(continuous_coloring == 0 ? color(data.y * iter_multiplier) : color(data.x * iter_multiplier), vec3(0.f), 0), 1.f);
+
+        float sigma = (2 - 1.0) / 2.0;
+
+        vec3 blurredColor = vec3(0.0);
+        for (int i = -1; i <= 1; i++) {
+            for (int j = -1; j <= 1; j++) {
+                vec3 s = color(texture(mandelbrotTex, vec2((gl_FragCoord.x + float(i)) / screenSize.x, (gl_FragCoord.y + float(j)) / screenSize.y)).x * iter_multiplier);
+                blurredColor += s * weight[i + 1][j + 1];
+            }
+        }
+        fragColor = vec4(blurredColor, 1.f);
     }
     if (protocol == 0) {
         fragColor = texture(postprocTex, vec2(gl_FragCoord.x / screenSize.x, gl_FragCoord.y / screenSize.y));
