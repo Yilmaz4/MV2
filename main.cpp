@@ -9,6 +9,9 @@
 #include <glad/glad.h>
 #include <GLFW/glfw3.h>
 #include <glm/glm.hpp>
+#define STB_IMAGE_WRITE_IMPLEMENTATION
+#include <stb/stb_image_write.h>
+#include <tinyfiledialogs/tinyfiledialogs.h>
 
 #include <iostream>
 #include <vector>
@@ -180,10 +183,7 @@ void main() {
             double xx = z.x * z.x;
             double yy = z.y * z.y;
             if (xx + yy >= bailout_radius) {
-                float mu = iter_multiplier * (i + 1 - log2(log2(float(length(z)))) / log2(degree));
-                float mv = iter_multiplier * i;
-                vec3 co = color(continuous_coloring == 0 ? mv : mu);
-                fragColor = vec4(co, 1);
+                fragColor = vec4(color(iter_multiplier * (i + 1 - log2(log2(float(length(z)))) / log2(degree))), 1.f);
                 return;
             }
             z = advance(z, mouseCoord, xx, yy);
@@ -308,7 +308,7 @@ namespace vars {
     float  bailout_radius = 10.f;
     float  iter_co = 1.045f;
     int    continuous_coloring = 1;
-    glm::dvec3 set_color = { 0., 0., 0. };
+    glm::fvec3 set_color = { 0.f, 0.f, 0.f };
     int    degree = 2;
 
     bool   ssaa = true;
@@ -332,6 +332,23 @@ namespace utils {
     static int max_iters(double zoom, double zoom_co, double iter_co, double initial_zoom = 5.0) {
         //return sqrt(2 * sqrt(abs(1 - sqrt(5 * 1/zoom)))) * 66.5;
         return 100 * pow(iter_co, log2(zoom / initial_zoom) / log2(zoom_co));
+    }
+
+    static void screenshot(const char* filepath, GLFWwindow* window) { // https://lencerf.github.io/post/2019-09-21-save-the-opengl-rendering-to-image-file/
+        int factor = (vars::ssaa ? vars::ssaa_factor : 1);
+        int w = vars::screenSize.x * factor, h = vars::screenSize.y * factor;
+        GLsizei nrChannels = 3;
+        GLsizei stride = nrChannels * w;
+        stride += (stride % 4) ? (4 - stride % 4) : 0;
+        GLsizei bufferSize = stride * h;
+        std::vector<char> buffer(bufferSize);
+        glPixelStorei(GL_PACK_ALIGNMENT, 4);
+        glBindFramebuffer(GL_FRAMEBUFFER, postprocFrameBuffer);
+        glReadBuffer(GL_FRONT);
+        glReadPixels(0, 0, w, h, GL_RGB, GL_UNSIGNED_BYTE, buffer.data());
+        stbi_flip_vertically_on_write(true);
+        stbi_write_png(filepath, w, h, nrChannels, buffer.data(), stride);
+        std::cout << "written" << std::endl;
     }
 }
 
@@ -702,7 +719,7 @@ int main() {
     glUniform1f(glGetUniformLocation(shaderProgram, "spectrum_offset"), vars::spectrum_offset);
     glUniform1d(glGetUniformLocation(shaderProgram, "bailout_radius"), pow(vars::bailout_radius, 2));
     glUniform1i(glGetUniformLocation(shaderProgram, "continuous_coloring"), vars::continuous_coloring);
-    glUniform3d(glGetUniformLocation(shaderProgram, "set_color"), vars::set_color.x, vars::set_color.y, vars::set_color.z);
+    glUniform3f(glGetUniformLocation(shaderProgram, "set_color"), vars::set_color.x, vars::set_color.y, vars::set_color.z);
     glUniform1i(glGetUniformLocation(shaderProgram, "degree"), vars::degree);
     glUniform1d(glGetUniformLocation(shaderProgram, "julia_zoom"), vars::julia_zoom);
     glUniform1i(glGetUniformLocation(shaderProgram, "julia_maxiters"), utils::max_iters(vars::julia_zoom, consts::zoom_co, vars::iter_co, 3.0));
@@ -751,7 +768,12 @@ int main() {
             ImGui::Text("FPS: %.3g   Frametime: %.3g ms", fps, 1000.0 * (currentTime - lastFrame));
             lastFrame = currentTime;
 
-            ImGui::Button("Take screenshot"); ImGui::SameLine();
+            if (ImGui::Button("Take screenshot")) {
+                char const* lFilterPatterns[2] = { "*.jpg", "*.png" };
+                char const* path = tinyfd_saveFileDialog("Save screenshot", "screenshot.png", 1, lFilterPatterns, "Image files (*.png, *.jpg)");
+                if (path) utils::screenshot(path, window);
+            }
+            ImGui::SameLine();
             ImGui::Button("Create video"); ImGui::SameLine();
             ImGui::Button("Reset all");
         
@@ -790,6 +812,10 @@ int main() {
                 protocol = MV_COMPUTE;
             }
             ImGui::SeparatorText("Coloring");
+            if (ImGui::ColorEdit3("In-set color", &vars::set_color.x)) {
+                glUniform3f(glGetUniformLocation(shaderProgram, "set_color"), vars::set_color.r, vars::set_color.g, vars::set_color.b);
+                protocol = MV_POSTPROC;
+            }
             if (ImGui::SliderFloat("Iteration Multiplier", &vars::iter_multiplier, 1, 128, "x%.4g", ImGuiSliderFlags_Logarithmic | ImGuiSliderFlags_NoRoundToFormat)) {
                 glUniform1f(glGetUniformLocation(shaderProgram, "iter_multiplier"), vars::iter_multiplier);
                 protocol = MV_POSTPROC;
@@ -800,6 +826,8 @@ int main() {
             }
             ImGui::Dummy(ImVec2(0.0f, 3.0f));
             bool isMarkerShown = true;
+            ImGui::SetCursorPosX(15.f);
+            ImGui::BeginGroup();
             ImGradientHDR(stateID, state, tempState, isMarkerShown);
 
             if (tempState.selectedMarkerType == ImGradientHDRMarkerType::Color) {
@@ -850,6 +878,10 @@ int main() {
                 glUnmapBuffer(GL_SHADER_STORAGE_BUFFER);
                 protocol = MV_COMPUTE;
             }
+            ImGui::EndGroup();
+            ImGui::Button("Save", ImVec2(80.f, 0.f)); ImGui::SameLine();
+            ImGui::Button("Load", ImVec2(80.f, 0.f)); ImGui::SameLine();
+            ImGui::Button("Reset", ImVec2(80.f, 0.f));
             ImGui::EndGroup();
         }
         ImGui::End();
@@ -949,6 +981,7 @@ int main() {
             ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
             glfwSwapBuffers(window);
             protocol = MV_RENDER;
+            
         }
         
     } while (!glfwWindowShouldClose(window));
