@@ -134,11 +134,8 @@ vec3 color(float i) {
         if (spec[v].w >= i) {
             vec4 v2 = spec[v];
             vec4 v1;
-            if (v > 0) v1 = spec[v - 1];
-            else {
-                v1 = spec[spec.length() - 1];
-                v2.w += 1.f;
-            }
+            if (v > 0.f) v1 = spec[v - 1];
+            else v2 = v1;
             vec4 dv = v2 - v1;
             return v1.rgb + (dv.rgb * (i - v1.w)) / dv.w;
         }
@@ -179,7 +176,7 @@ void main() {
         dvec2 c = (dvec2(gl_FragCoord.x / screenSize.x, (screenSize.y - gl_FragCoord.y) / screenSize.y) - dvec2(0.5, 0.5)) * dvec2(julia_zoom, julia_zoom);
         dvec2 z = c;
         
-        for (int i = 0; i < julia_maxiters; i++) {
+        for (int i = 1; i < julia_maxiters; i++) {
             double xx = z.x * z.x;
             double yy = z.y * z.y;
             if (xx + yy >= bailout_radius) {
@@ -212,7 +209,7 @@ void main() {
         double p = xx - z.x / 2.0 + 0.0625 + yy;
         if (degree != 2 || degree == 2 && (4.0 * p * (p + (z.x - 0.25)) > yy && (xx + yy + 2 * z.x + 1) > 0.0625)) {
             for (int i = 0; i < max_iters; i++) {
-                if (xx + yy >= 10000000) {
+                if (xx + yy > bailout_radius) {
                     double lo = 0.5 * log(float(xx + yy));
                     dvec2 u = z * der1 * ((1 + lo) * cconj(der1 * der1) - lo * cconj(z * der2));
                     u /= length(u);
@@ -220,7 +217,7 @@ void main() {
                     t /= h2 + 1.0;
                     if (t < 0) t = 0.2;
 
-                    fragColor = vec4(i + 1 - log2(log2(float(length(z)))) / log2(degree), i, t, 0.f);
+                    fragColor = vec4(i + 2 - log2(log2(float(length(z)))) / log2(degree), i, t, 0.f);
                     return;
                 }
                 dvec2 new_z = advance(z, c, xx, yy);
@@ -281,7 +278,7 @@ namespace spectrum {
         {0.0f, 0.0274f, 0.3921f, 1.f}
     };
 
-    int span = 1e+3;
+    int span = 1000;
     constexpr int max_colors = 8;
 
     void bind_ssbo(void) {
@@ -303,8 +300,8 @@ namespace consts {
 }
 
 namespace vars {
-    glm::dvec2 offset = { -0.4, 0 };
-    glm::ivec2 screenSize = { 760, 540 };
+    glm::dvec2 offset = { -1.7, 0 };
+    glm::ivec2 screenSize = { 840, 540 };
     double zoom = 5.0;
     float  spectrum_offset = 0.f;
     float  iter_multiplier = 10.f;
@@ -539,9 +536,9 @@ int main() {
     colors[ImGuiCol_CheckMark] = ImVec4(0.33f, 0.67f, 0.86f, 1.00f);
     colors[ImGuiCol_SliderGrab] = ImVec4(0.34f, 0.34f, 0.34f, 0.54f);
     colors[ImGuiCol_SliderGrabActive] = ImVec4(0.56f, 0.56f, 0.56f, 0.54f);
-    colors[ImGuiCol_Button] = ImVec4(0.05f, 0.05f, 0.05f, 0.54f);
-    colors[ImGuiCol_ButtonHovered] = ImVec4(0.19f, 0.19f, 0.19f, 0.54f);
-    colors[ImGuiCol_ButtonActive] = ImVec4(0.20f, 0.22f, 0.23f, 1.00f);
+    colors[ImGuiCol_Button] = ImVec4(0.25f, 0.25f, 0.25f, 0.54f);
+    colors[ImGuiCol_ButtonHovered] = ImVec4(0.39f, 0.39f, 0.39f, 0.54f);
+    colors[ImGuiCol_ButtonActive] = ImVec4(0.30f, 0.32f, 0.33f, 1.00f);
     colors[ImGuiCol_Header] = ImVec4(0.00f, 0.00f, 0.00f, 0.52f);
     colors[ImGuiCol_HeaderHovered] = ImVec4(0.00f, 0.00f, 0.00f, 0.36f);
     colors[ImGuiCol_HeaderActive] = ImVec4(0.20f, 0.22f, 0.23f, 0.33f);
@@ -753,9 +750,13 @@ int main() {
             }
             ImGui::Text("FPS: %.3g   Frametime: %.3g ms", fps, 1000.0 * (currentTime - lastFrame));
             lastFrame = currentTime;
+
+            ImGui::Button("Take screenshot"); ImGui::SameLine();
+            ImGui::Button("Create video"); ImGui::SameLine();
+            ImGui::Button("Reset all");
         
             ImGui::BeginGroup();
-            ImGui::SeparatorText("Computation configuration");
+            ImGui::SeparatorText("Computation");
             //ImGui::PushItemFlag(ImGuiItemFlags_Disabled, true);
             if (ImGui::SliderFloat("Iteration coefficient", &vars::iter_co, 1.01, 1.1)) {
                 glUniform1i(glGetUniformLocation(shaderProgram, "max_iters"), utils::max_iters(vars::zoom, consts::zoom_co, vars::iter_co));
@@ -770,16 +771,7 @@ int main() {
                 glUniform1i(glGetUniformLocation(shaderProgram, "degree"), vars::degree);
                 protocol = MV_COMPUTE;
             }
-            ImGui::SeparatorText("Rendering settings");
-            if (ImGui::SliderFloat("Iteration Multiplier", &vars::iter_multiplier, 1, 128, "x%.4g", ImGuiSliderFlags_Logarithmic | ImGuiSliderFlags_NoRoundToFormat)) {
-                glUniform1f(glGetUniformLocation(shaderProgram, "iter_multiplier"), vars::iter_multiplier);
-                protocol = MV_POSTPROC;
-            }
-            if (ImGui::SliderFloat("Spectrum Offset", &vars::spectrum_offset, 0, spectrum::span)) {
-                glUniform1f(glGetUniformLocation(shaderProgram, "spectrum_offset"), vars::spectrum_offset);
-                protocol = MV_POSTPROC;
-            }
-            if (ImGui::Checkbox("SSAA (super sampling)", &vars::ssaa)) {
+            if (ImGui::Checkbox("Super Sampling AA", &vars::ssaa)) {
                 int factor = ((vars::ssaa) ? vars::ssaa_factor : 1);
                 glBindFramebuffer(GL_FRAMEBUFFER, mandelbrotFrameBuffer);
                 glBindTexture(GL_TEXTURE_2D, mandelbrotTexBuffer);
@@ -797,8 +789,16 @@ int main() {
 
                 protocol = MV_COMPUTE;
             }
-            toggleButton(&vars::continuous_coloring, "continuous_coloring", "Continuous coloring", glUniform1i);
-
+            ImGui::SeparatorText("Coloring");
+            if (ImGui::SliderFloat("Iteration Multiplier", &vars::iter_multiplier, 1, 128, "x%.4g", ImGuiSliderFlags_Logarithmic | ImGuiSliderFlags_NoRoundToFormat)) {
+                glUniform1f(glGetUniformLocation(shaderProgram, "iter_multiplier"), vars::iter_multiplier);
+                protocol = MV_POSTPROC;
+            }
+            if (ImGui::SliderFloat("Spectrum Offset", &vars::spectrum_offset, 0, spectrum::span)) {
+                glUniform1f(glGetUniformLocation(shaderProgram, "spectrum_offset"), vars::spectrum_offset);
+                protocol = MV_POSTPROC;
+            }
+            ImGui::Dummy(ImVec2(0.0f, 3.0f));
             bool isMarkerShown = true;
             ImGradientHDR(stateID, state, tempState, isMarkerShown);
 
@@ -844,7 +844,7 @@ int main() {
                 }
             }
             if (d) {
-                std::cout << "changed" << std::endl;
+                std::cout << "changed" << d << std::endl;
                 glBindBuffer(GL_SHADER_STORAGE_BUFFER, spectrumBuffer);
                 memcpy(glMapBuffer(GL_SHADER_STORAGE_BUFFER, GL_WRITE_ONLY), spectrum::data.data(), spectrum::data.size() * sizeof(glm::vec4));
                 glUnmapBuffer(GL_SHADER_STORAGE_BUFFER);
@@ -878,10 +878,10 @@ int main() {
             glm::dvec2 c = utils::pixel_to_complex({x, y});
             glm::dvec2 z = c;
             int i;
-            for (i = 0; i < utils::max_iters(vars::zoom, consts::zoom_co, vars::iter_co); i++) {
+            for (i = 1; i < utils::max_iters(vars::zoom, consts::zoom_co, vars::iter_co); i++) {
                 double xx = z.x * z.x;
                 double yy = z.y * z.y;
-                if (xx + yy > vars::bailout_radius)
+                if (xx + yy > pow(vars::bailout_radius, 2))
                     goto display;
                 switch (vars::degree) {
                 case 2:
