@@ -197,7 +197,7 @@ void main() {
         float angle = atan(dir.y, dir.x);
         dvec2 v = dvec2(cexp(vec2(0.0f, angle * M_2PI / 360)));
 
-        dvec2 c = (dvec2(gl_FragCoord.x / screenSize.x, (screenSize.y - gl_FragCoord.y) / screenSize.y) - dvec2(0.5, 0.5)) * dvec2(zoom, (screenSize.y * zoom) / screenSize.x) + offset;
+        dvec2 c = (dvec2(gl_FragCoord.x / screenSize.x, (gl_FragCoord.y) / screenSize.y) - dvec2(0.5, 0.5)) * dvec2(zoom, (screenSize.y * zoom) / screenSize.x) + offset;
         dvec2 z = c;
 
         dvec2 der1 = dvec2(1.0, 0.0);
@@ -300,11 +300,11 @@ namespace consts {
 }
 
 namespace vars {
-    glm::dvec2 offset = { -1.7, 0 };
+    glm::dvec2 offset = { -0.4, 0 };
     glm::ivec2 screenSize = { 840, 540 };
     double zoom = 5.0;
-    float  spectrum_offset = 0.f;
-    float  iter_multiplier = 10.f;
+    float  spectrum_offset = 850.f;
+    float  iter_multiplier = 18.f;
     float  bailout_radius = 10.f;
     float  iter_co = 1.045f;
     int    continuous_coloring = 1;
@@ -322,11 +322,11 @@ namespace vars {
 
 namespace utils {
     static glm::dvec2 pixel_to_complex(glm::dvec2 pixelCoord, glm::ivec2 screenSize, double zoom, glm::dvec2 offset) {
-        return ((glm::dvec2(pixelCoord.x / screenSize.x, pixelCoord.y / screenSize.y)) - glm::dvec2(0.5, 0.5)) *
+        return ((glm::dvec2(pixelCoord.x / screenSize.x, (screenSize.y - pixelCoord.y) / screenSize.y)) - glm::dvec2(0.5, 0.5)) *
             glm::dvec2(zoom, (screenSize.y * zoom) / screenSize.x) + offset;
     }
     static glm::dvec2 pixel_to_complex(glm::dvec2 pixelCoord) {
-        return ((glm::dvec2(pixelCoord.x / vars::screenSize.x, pixelCoord.y / vars::screenSize.y)) - glm::dvec2(0.5, 0.5)) *
+        return ((glm::dvec2(pixelCoord.x / vars::screenSize.x, (vars::screenSize.y - pixelCoord.y) / vars::screenSize.y)) - glm::dvec2(0.5, 0.5)) *
             glm::dvec2(vars::zoom, (vars::screenSize.y * vars::zoom) / vars::screenSize.x) + vars::offset;
     }
     static int max_iters(double zoom, double zoom_co, double iter_co, double initial_zoom = 5.0) {
@@ -421,7 +421,7 @@ namespace events {
         if (dragging) {
             lastPresses = { -consts::doubleClick_interval, 0 }; // reset to prevent accidental centering while rapidly dragging
             vars::offset.x -= ((x - oldPos.x) * vars::zoom) / vars::screenSize.x;
-            vars::offset.y -= ((y - oldPos.y) * ((vars::zoom * vars::screenSize.y) / vars::screenSize.x)) / vars::screenSize.y;
+            vars::offset.y -= ((oldPos.y - y) * ((vars::zoom * vars::screenSize.y) / vars::screenSize.x)) / vars::screenSize.y;
             glUniform2d(glGetUniformLocation(shaderProgram, "offset"), vars::offset.x, vars::offset.y);
             oldPos = { x, y };
             protocol = MV_COMPUTE;
@@ -430,12 +430,13 @@ namespace events {
 
     static void on_mouseScroll(GLFWwindow* window, double x, double y) { // y is usually either 1 or -1 depending on direction, x is always 0
         if (rightClickHold) {
-            vars::julia_zoom *= pow(consts::zoom_co, y);
+            vars::julia_zoom *= pow(consts::zoom_co, y * 1.5);
             glUniform1d(glGetUniformLocation(shaderProgram, "julia_zoom"), vars::julia_zoom);
             glUniform1i(glGetUniformLocation(shaderProgram, "julia_maxiters"), utils::max_iters(vars::julia_zoom, consts::zoom_co, vars::iter_co, 3.0));
         }
         else {
-            vars::zoom *= pow(consts::zoom_co, y);
+            std::cout << y << std::endl;
+            vars::zoom *= pow(consts::zoom_co, y * 1.5);
             glUniform1d(glGetUniformLocation(shaderProgram, "zoom"), vars::zoom);
             glUniform1i(glGetUniformLocation(shaderProgram, "max_iters"), utils::max_iters(vars::zoom, consts::zoom_co, vars::iter_co));
             protocol = MV_COMPUTE;
@@ -754,6 +755,7 @@ int main() {
 
         ImGui::PushFont(font_title);
         ImGui::SetNextWindowPos({ 10, 10 });
+        ImGui::SetNextWindowCollapsed(true, 1 << 1);
         if (ImGui::Begin("Settings", nullptr, 
             ImGuiWindowFlags_NoScrollbar |
             ImGuiWindowFlags_NoScrollWithMouse |
@@ -776,7 +778,23 @@ int main() {
             ImGui::SameLine();
             ImGui::Button("Create video"); ImGui::SameLine();
             ImGui::Button("Reset all");
-        
+
+            ImGui::SeparatorText("Parameters");
+            bool update = false;
+            ImGui::Text("Re");   ImGui::SetNextItemWidth(320); ImGui::SameLine(); ImGui::SetCursorPosY(ImGui::GetCursorPosY() - 3.f);
+            update |= ImGui::InputDouble("##re", &vars::offset.x, 0.0, 0.0, "%.17g");
+            ImGui::Text("Im");   ImGui::SetNextItemWidth(320); ImGui::SameLine(); ImGui::SetCursorPosY(ImGui::GetCursorPosY() - 3.f);
+            update |= ImGui::InputDouble("##im", &vars::offset.y, 0.0, 0.0, "%.17g");
+            if (update) {
+                glUniform2d(glGetUniformLocation(shaderProgram, "offset"), vars::offset.x, vars::offset.y);
+                protocol = MV_COMPUTE;
+            }
+            ImGui::Text("Zoom"); ImGui::SetNextItemWidth(320); ImGui::SameLine(); ImGui::SetCursorPosY(ImGui::GetCursorPosY() - 3.f);
+            if (ImGui::InputDouble("##zoom", &vars::zoom, 0.0, 0.0, "%.17g")) {
+                glUniform1d(glGetUniformLocation(shaderProgram, "zoom"), vars::zoom);
+                protocol = MV_COMPUTE;
+            }
+
             ImGui::BeginGroup();
             ImGui::SeparatorText("Computation");
             //ImGui::PushItemFlag(ImGuiItemFlags_Disabled, true);
