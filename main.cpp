@@ -329,8 +329,9 @@ namespace utils {
             glm::dvec2(zoom, (screenSize.y * zoom) / screenSize.x) + offset;
     }
     static glm::dvec2 pixel_to_complex(glm::dvec2 pixelCoord) {
-        return ((glm::dvec2(pixelCoord.x / vars::screenSize.x, (vars::screenSize.y - pixelCoord.y) / vars::screenSize.y)) - glm::dvec2(0.5, 0.5)) *
-            glm::dvec2(vars::zoom, (vars::screenSize.y * vars::zoom) / vars::screenSize.x) + vars::offset;
+        glm::ivec2 ss = (vars::fullscreen ? consts::monitorSize : vars::screenSize);
+        return ((glm::dvec2(pixelCoord.x / ss.x, (ss.y - pixelCoord.y) / ss.y)) - glm::dvec2(0.5, 0.5)) *
+            glm::dvec2(vars::zoom, (ss.y * vars::zoom) / ss.x) + vars::offset;
     }
     static int max_iters(double zoom, double zoom_co, double iter_co, double initial_zoom = 5.0) {
         //return sqrt(2 * sqrt(abs(1 - sqrt(5 * 1/zoom)))) * 66.5;
@@ -472,8 +473,6 @@ namespace events {
     }
 }
 
-
-
 static void HelpMarker(const char* desc) { // code from imgui demo
     ImGui::TextDisabled("[?]");
     if (ImGui::BeginItemTooltip()) {
@@ -485,7 +484,7 @@ static void HelpMarker(const char* desc) { // code from imgui demo
 }
 
 template <typename T> requires std::integral<T>
-void toggleButton(T* v, const char* id, const char* name, PFNGLUNIFORM1IPROC uniform) {
+void toggleButton(T* v, const char* id, const char* name, PFNGLUNIFORM1IPROC uniformType) {
     ImVec2 p = ImGui::GetCursorScreenPos();
     ImDrawList* draw_list = ImGui::GetWindowDrawList();
 
@@ -497,7 +496,7 @@ void toggleButton(T* v, const char* id, const char* name, PFNGLUNIFORM1IPROC uni
     ImGui::InvisibleButton(id, ImVec2(width, height));
     if (ImGui::IsItemClicked()) {
         *v ^= 1;
-        uniform(glGetUniformLocation(shaderProgram, id), *v);
+        uniformType(glGetUniformLocation(shaderProgram, id), *v);
         protocol = MV_POSTPROC;
     }
     ImGuiContext& gg = *GImGui;
@@ -928,6 +927,9 @@ int main() {
             ImGui::Button("Save", ImVec2(80.f, 0.f)); ImGui::SameLine();
             ImGui::Button("Load", ImVec2(80.f, 0.f)); ImGui::SameLine();
             ImGui::Button("Reset", ImVec2(80.f, 0.f));
+            ImGui::PushStyleColor(ImGuiCol_Text, IM_COL32(80, 80, 80, 255));
+            ImGui::Text("(c) 2017-2024 Yilmaz Alpaslan");
+            ImGui::PopStyleColor();
             ImGui::EndGroup();
         }
         ImGui::End();
