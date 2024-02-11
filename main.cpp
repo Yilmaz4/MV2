@@ -297,11 +297,14 @@ namespace consts {
     constexpr double zoom_co = 0.85;
 
     constexpr double doubleClick_interval = 0.2; // seconds
+    glm::ivec2 monitorSize;
 }
 
 namespace vars {
     glm::dvec2 offset = { -0.4, 0 };
     glm::ivec2 screenSize = { 840, 540 };
+    glm::ivec2 screenPos;
+    bool   fullscreen = false;
     double zoom = 5.0;
     float  spectrum_offset = 850.f;
     float  iter_multiplier = 18.f;
@@ -361,7 +364,8 @@ namespace events {
     static void on_windowResize(GLFWwindow* window, int width, int height) {
         glViewport(0, 0, width, height);
 
-        vars::screenSize = { width, height };
+        if (!vars::fullscreen)
+            vars::screenSize = { width, height };
         if (shaderProgram)
             glUniform2i(glGetUniformLocation(shaderProgram, "screenSize"), width, height);
         protocol = MV_COMPUTE;
@@ -369,14 +373,15 @@ namespace events {
 
         glBindFramebuffer(GL_FRAMEBUFFER, mandelbrotFrameBuffer);
         glBindTexture(GL_TEXTURE_2D, mandelbrotTexBuffer);
-        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA32F, vars::screenSize.x * factor, vars::screenSize.y * factor, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA32F, width * factor, height * factor, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
 
         glBindFramebuffer(GL_FRAMEBUFFER, postprocFrameBuffer);
         glBindTexture(GL_TEXTURE_2D, postprocTexBuffer);
-        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, vars::screenSize.x * factor, vars::screenSize.y * factor, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, width * factor, height * factor, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
     }
 
     static void on_mouseButton(GLFWwindow* window, int button, int action, int mod) {
+        glm::ivec2 ss = (vars::fullscreen ? consts::monitorSize : vars::screenSize);
         if (ImGui::GetIO().WantCaptureMouse) return;
         switch (button) {
         case GLFW_MOUSE_BUTTON_LEFT:
@@ -390,7 +395,7 @@ namespace events {
             else if (lastPresses.y - lastPresses.x < consts::doubleClick_interval) { // button released, check if interval between last two presses is less than the max interval
                 glfwGetCursorPos(window, &events::oldPos.x, &events::oldPos.y);
                 glm::dvec2 pos = utils::pixel_to_complex(events::oldPos);
-                glm::dvec2 center = utils::pixel_to_complex(static_cast<glm::dvec2>(vars::screenSize) / 2.0);
+                glm::dvec2 center = utils::pixel_to_complex(static_cast<glm::dvec2>(ss) / 2.0);
                 vars::offset += pos - center;
                 glUniform2d(glGetUniformLocation(shaderProgram, "offset"), vars::offset.x, vars::offset.y);
                 dragging = false;
@@ -415,13 +420,14 @@ namespace events {
     }
 
     static void on_cursorMove(GLFWwindow* window, double x, double y) {
-        glUniform2d(glGetUniformLocation(shaderProgram, "mousePos"), x / vars::screenSize.x, y / vars::screenSize.y);
+        glm::ivec2 ss = (vars::fullscreen ? consts::monitorSize : vars::screenSize);
+        glUniform2d(glGetUniformLocation(shaderProgram, "mousePos"), x / ss.x, y / ss.y);
         if (ImGui::GetIO().WantCaptureMouse)
             return;
         if (dragging) {
             lastPresses = { -consts::doubleClick_interval, 0 }; // reset to prevent accidental centering while rapidly dragging
-            vars::offset.x -= ((x - oldPos.x) * vars::zoom) / vars::screenSize.x;
-            vars::offset.y -= ((oldPos.y - y) * ((vars::zoom * vars::screenSize.y) / vars::screenSize.x)) / vars::screenSize.y;
+            vars::offset.x -= ((x - oldPos.x) * vars::zoom) / ss.x;
+            vars::offset.y -= ((oldPos.y - y) * ((vars::zoom * ss.y) / ss.x)) / ss.y;
             glUniform2d(glGetUniformLocation(shaderProgram, "offset"), vars::offset.x, vars::offset.y);
             oldPos = { x, y };
             protocol = MV_COMPUTE;
@@ -442,13 +448,31 @@ namespace events {
             protocol = MV_COMPUTE;
         }
     }
-}
 
-static void processInput(GLFWwindow* window) {
-    if (glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS) {
-        glfwSetWindowShouldClose(window, true);
+    static void on_keyPress(GLFWwindow* window, int key, int scancode, int action, int mods) {
+        if (action != GLFW_PRESS) return;
+        switch (key) {
+        case GLFW_KEY_ESCAPE:
+            glfwSetWindowShouldClose(window, true);
+            break;
+        case GLFW_KEY_F11:
+            if (glfwGetWindowMonitor(window) == nullptr) {
+                vars::fullscreen = true;
+                GLFWmonitor* monitor = glfwGetPrimaryMonitor();
+                const GLFWvidmode* mode = glfwGetVideoMode(monitor);
+                glfwGetWindowPos(window, &vars::screenPos.x, &vars::screenPos.y);
+                glfwSetWindowMonitor(window, monitor, 0, 0, mode->width, mode->height, mode->refreshRate);
+                std::cout << mode->width << " and " << mode->height << std::endl;
+            }
+            else {
+                glfwSetWindowMonitor(window, nullptr, vars::screenPos.x, vars::screenPos.y, vars::screenSize.x, vars::screenSize.y, 0);
+                vars::fullscreen = false;
+            }
+        }
     }
 }
+
+
 
 static void HelpMarker(const char* desc) { // code from imgui demo
     ImGui::TextDisabled("[?]");
@@ -505,6 +529,8 @@ int main() {
     glfwWindowHint(GLFW_GREEN_BITS, mode->greenBits);
     glfwWindowHint(GLFW_BLUE_BITS, mode->blueBits);
     glfwWindowHint(GLFW_REFRESH_RATE, mode->refreshRate);
+    consts::monitorSize.x = mode->width;
+    consts::monitorSize.y = mode->height;
 
     GLFWwindow* window = glfwCreateWindow(vars::screenSize.x, vars::screenSize.y, "Mandelbrot Voyage II", NULL, NULL);
     if (window == nullptr) {
@@ -518,6 +544,7 @@ int main() {
     glfwSetCursorPosCallback(window, events::on_cursorMove);
     glfwSetMouseButtonCallback(window, events::on_mouseButton);
     glfwSetScrollCallback(window, events::on_mouseScroll);
+    glfwSetKeyCallback(window, events::on_keyPress);
 
     glfwSwapInterval(1);
 
@@ -752,6 +779,7 @@ int main() {
 
         static float f = 0.0f;
         static int counter = 0;
+        glm::ivec2 ss = (vars::fullscreen ? consts::monitorSize : vars::screenSize);
 
         ImGui::PushFont(font_title);
         ImGui::SetNextWindowPos({ 10, 10 });
@@ -789,8 +817,8 @@ int main() {
                 glUniform2d(glGetUniformLocation(shaderProgram, "offset"), vars::offset.x, vars::offset.y);
                 protocol = MV_COMPUTE;
             }
-            ImGui::Text("Zoom"); ImGui::SetNextItemWidth(320); ImGui::SameLine(); ImGui::SetCursorPosY(ImGui::GetCursorPosY() - 3.f);
-            if (ImGui::InputDouble("##zoom", &vars::zoom, 0.0, 0.0, "%.17g")) {
+            ImGui::Text("Zoom"); ImGui::SetNextItemWidth(80); ImGui::SameLine(); ImGui::SetCursorPosY(ImGui::GetCursorPosY() - 3.f);
+            if (ImGui::InputDouble("##zoom", &vars::zoom, 0.0, 0.0, "%.2e")) {
                 glUniform1d(glGetUniformLocation(shaderProgram, "zoom"), vars::zoom);
                 protocol = MV_COMPUTE;
             }
@@ -815,11 +843,11 @@ int main() {
                 int factor = ((vars::ssaa) ? vars::ssaa_factor : 1);
                 glBindFramebuffer(GL_FRAMEBUFFER, mandelbrotFrameBuffer);
                 glBindTexture(GL_TEXTURE_2D, mandelbrotTexBuffer);
-                glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA32F, vars::screenSize.x * factor, vars::screenSize.y * factor, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
+                glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA32F, ss.x * factor, ss.y * factor, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
 
                 glBindFramebuffer(GL_FRAMEBUFFER, postprocFrameBuffer);
                 glBindTexture(GL_TEXTURE_2D, postprocTexBuffer);
-                glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA32F, vars::screenSize.x * factor, vars::screenSize.y * factor, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
+                glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA32F, ss.x * factor, ss.y * factor, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
 
                 glBindFramebuffer(GL_FRAMEBUFFER, juliaFrameBuffer);
                 glBindTexture(GL_TEXTURE_2D, juliaTexBuffer);
@@ -918,10 +946,10 @@ int main() {
                 ImGuiWindowFlags_NoTitleBar);
             ImVec2 size = ImGui::GetWindowSize();
             ImVec2 pos = { (float)x + 10.0f, (float)y };
-            if (size.x > vars::screenSize.x - pos.x - 5)
-                pos.x = vars::screenSize.x - size.x - 5;
-            if (size.y > vars::screenSize.y - pos.y - 5)
-                pos.y = vars::screenSize.y - size.y - 5;
+            if (size.x > ss.x - pos.x - 5)
+                pos.x = ss.x - size.x - 5;
+            if (size.y > ss.y - pos.y - 5)
+                pos.y = ss.y - size.y - 5;
             if (pos.x < 5) pos.x = 5;
             if (pos.y < 5) pos.y = 5;
             ImGui::SetWindowPos(pos);
@@ -974,8 +1002,8 @@ int main() {
             ImGui::Image((void*)(intptr_t)juliaTexBuffer, ImVec2(vars::julia_size, vars::julia_size));
             ImGui::End();
         }
-        glViewport(0, 0, vars::screenSize.x * factor, vars::screenSize.y * factor);
-        glUniform2i(glGetUniformLocation(shaderProgram, "screenSize"), vars::screenSize.x * factor, vars::screenSize.y * factor);
+        glViewport(0, 0, ss.x * factor, ss.y * factor);
+        glUniform2i(glGetUniformLocation(shaderProgram, "screenSize"), ss.x * factor, ss.y * factor);
         switch (protocol) {
         case MV_COMPUTE:
             glBindTexture(GL_TEXTURE_2D, mandelbrotTexBuffer);
@@ -990,18 +1018,16 @@ int main() {
             glDrawArrays(GL_TRIANGLES, 0, 6);
             [[fallthrough]];
         case MV_RENDER:
-            glViewport(0, 0, vars::screenSize.x, vars::screenSize.y);
-            glUniform1i(glGetUniformLocation(shaderProgram, "protocol"), MV_RENDER);
-            glUniform2i(glGetUniformLocation(shaderProgram, "screenSize"), vars::screenSize.x, vars::screenSize.y);
             glBindFramebuffer(GL_FRAMEBUFFER, 0);
+            glViewport(0, 0, ss.x, ss.y);
+            glUniform1i(glGetUniformLocation(shaderProgram, "protocol"), MV_RENDER);
+            glUniform2i(glGetUniformLocation(shaderProgram, "screenSize"), ss.x, ss.y);
             ImGui::Render();
             glDrawArrays(GL_TRIANGLES, 0, 6);
             ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
             glfwSwapBuffers(window);
             protocol = MV_RENDER;
-            
         }
-        
     } while (!glfwWindowShouldClose(window));
 
     glfwDestroyWindow(window);
