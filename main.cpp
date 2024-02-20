@@ -352,7 +352,6 @@ namespace utils {
         glReadPixels(0, 0, w, h, GL_RGB, GL_UNSIGNED_BYTE, buffer.data());
         stbi_flip_vertically_on_write(true);
         stbi_write_png(filepath, w, h, nrChannels, buffer.data(), stride);
-        std::cout << "written" << std::endl;
     }
 }
 
@@ -442,7 +441,6 @@ namespace events {
             glUniform1i(glGetUniformLocation(shaderProgram, "julia_maxiters"), utils::max_iters(vars::julia_zoom, consts::zoom_co, vars::iter_co, 3.0));
         }
         else {
-            std::cout << y << std::endl;
             vars::zoom *= pow(consts::zoom_co, y * 1.5);
             glUniform1d(glGetUniformLocation(shaderProgram, "zoom"), vars::zoom);
             glUniform1i(glGetUniformLocation(shaderProgram, "max_iters"), utils::max_iters(vars::zoom, consts::zoom_co, vars::iter_co));
@@ -463,7 +461,6 @@ namespace events {
                 const GLFWvidmode* mode = glfwGetVideoMode(monitor);
                 glfwGetWindowPos(window, &vars::screenPos.x, &vars::screenPos.y);
                 glfwSetWindowMonitor(window, monitor, 0, 0, mode->width, mode->height, mode->refreshRate);
-                std::cout << mode->width << " and " << mode->height << std::endl;
             }
             else {
                 glfwSetWindowMonitor(window, nullptr, vars::screenPos.x, vars::screenPos.y, vars::screenSize.x, vars::screenSize.y, 0);
@@ -638,16 +635,9 @@ int main() {
     style.GrabRounding = 3;
     style.LogSliderDeadzone = 4;
     style.TabRounding = 4;
-    if (io.ConfigFlags & ImGuiConfigFlags_ViewportsEnable) {
-        style.WindowRounding = 6.f;
-        style.Colors[ImGuiCol_WindowBg].w = 1.0f;
-    }
 
     ImGui_ImplGlfw_InitForOpenGL(window, true);
-#ifdef __EMSCRIPTEN__
-    ImGui_ImplGlfw_InstallEmscriptenCanvasResizeCallback("#canvas");
-#endif
-    ImGui_ImplOpenGL3_Init("#version 400");
+    ImGui_ImplOpenGL3_Init("#version 430");
 
     if (!gladLoadGLLoader((GLADloadproc)glfwGetProcAddress)) {
         std::cout << "Failed to create OpenGL window" << std::endl;
@@ -917,7 +907,6 @@ int main() {
                 }
             }
             if (d) {
-                std::cout << "changed" << d << std::endl;
                 glBindBuffer(GL_SHADER_STORAGE_BUFFER, spectrumBuffer);
                 memcpy(glMapBuffer(GL_SHADER_STORAGE_BUFFER, GL_WRITE_ONLY), spectrum::data.data(), spectrum::data.size() * sizeof(glm::vec4));
                 glUnmapBuffer(GL_SHADER_STORAGE_BUFFER);
@@ -1032,7 +1021,6 @@ int main() {
         }
     } while (!glfwWindowShouldClose(window));
 
-    glfwDestroyWindow(window);
-    glfwTerminate();
+    
     return 0;
 }

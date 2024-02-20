@@ -71,19 +71,19 @@
   </ImportGroup>
   <PropertyGroup Label="UserMacros" />
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
-    <IncludePath>libs\include;$(IncludePath)</IncludePath>
+    <IncludePath>libs\include</IncludePath>
     <LibraryPath>libs\lib;$(LibraryPath)</LibraryPath>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
-    <IncludePath>imgui;libs\lib;libs\include;libs;$(IncludePath)</IncludePath>
+    <IncludePath>libs\include</IncludePath>
     <LibraryPath>libs\lib;$(LibraryPath)</LibraryPath>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
-    <IncludePath>libs\include;$(IncludePath)</IncludePath>
+    <IncludePath>libs\include</IncludePath>
     <LibraryPath>libs\lib;$(LibraryPath)</LibraryPath>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
-    <IncludePath>libs\include\imgui_gradient;libs\include\imgui_gradient\src;imgui;libs\lib;libs\include;libs;$(IncludePath)</IncludePath>
+    <IncludePath>libs\include</IncludePath>
     <LibraryPath>libs\lib;$(LibraryPath)</LibraryPath>
   </PropertyGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
