@@ -61,3 +61,8 @@
 #*.PDF   diff=astextplain
 #*.rtf   diff=astextplain
 #*.RTF   diff=astextplain
+
+
+imgui/** linguist-vendored
+libs/** linguist-vendored
+glad.c linguist-vendored
