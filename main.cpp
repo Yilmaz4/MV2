@@ -548,7 +548,7 @@ int main() {
     ImGui::CreateContext();
     ImGuiIO& io = ImGui::GetIO(); (void)io;
     io.Fonts->AddFontDefault();
-    ImFont* font_title = io.Fonts->AddFontFromFileTTF("C:\\Windows\\Fonts\\consola.ttf", 12.f);
+    ImFont* font_title = io.Fonts->AddFontFromFileTTF("C:\\Windows\\Fonts\\consola.ttf", 11.f);
     IM_ASSERT(font_title != NULL);
     io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;     // Enable Keyboard Controls
     io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;         // Enable Docking
@@ -792,9 +792,9 @@ int main() {
                 char const* path = tinyfd_saveFileDialog("Save screenshot", "screenshot.png", 1, lFilterPatterns, "Image files (*.png, *.jpg)");
                 if (path) utils::screenshot(path, window);
             }
-            ImGui::SameLine();
-            ImGui::Button("Create video"); ImGui::SameLine();
-            ImGui::Button("Reset all");
+            //ImGui::SameLine();
+            //ImGui::Button("Create video"); ImGui::SameLine();
+            //ImGui::Button("Reset all");
 
             ImGui::SeparatorText("Parameters");
             bool update = false;
@@ -913,9 +913,9 @@ int main() {
                 protocol = MV_COMPUTE;
             }
             ImGui::EndGroup();
-            ImGui::Button("Save", ImVec2(80.f, 0.f)); ImGui::SameLine();
-            ImGui::Button("Load", ImVec2(80.f, 0.f)); ImGui::SameLine();
-            ImGui::Button("Reset", ImVec2(80.f, 0.f));
+            //ImGui::Button("Save", ImVec2(80.f, 0.f)); ImGui::SameLine();
+            //ImGui::Button("Load", ImVec2(80.f, 0.f)); ImGui::SameLine();
+            //ImGui::Button("Reset", ImVec2(80.f, 0.f));
             ImGui::PushStyleColor(ImGuiCol_Text, IM_COL32(80, 80, 80, 255));
             ImGui::Text("(c) 2017-2024 Yilmaz Alpaslan");
             ImGui::PopStyleColor();
@@ -929,7 +929,8 @@ int main() {
             double x, y;
             glfwGetCursorPos(window, &x, &y);
             
-            ImGui::Begin("info", nullptr, ImGuiWindowFlags_NoCollapse |
+            ImGui::Begin("info", nullptr,
+                ImGuiWindowFlags_NoCollapse |
                 ImGuiWindowFlags_NoScrollbar |
                 ImGuiWindowFlags_NoScrollWithMouse |
                 ImGuiWindowFlags_AlwaysAutoResize |
