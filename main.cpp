@@ -15,6 +15,10 @@
 
 #include <iostream>
 #include <vector>
+#include <iomanip>
+#include <ctime>
+#include <string>
+#include <sstream>
 
 #define MV_COMPUTE  2
 #define MV_POSTPROC 1
@@ -760,8 +764,11 @@ int main() {
             lastFrame = currentTime;
 
             if (ImGui::Button("Take screenshot")) {
-                char const* lFilterPatterns[2] = { "*.jpg", "*.png" };
-                char const* path = tinyfd_saveFileDialog("Save screenshot", "screenshot.png", 1, lFilterPatterns, "Image files (*.png, *.jpg)");
+                auto t = std::time(nullptr);
+                auto tm = *std::localtime(&t);
+                std::ostringstream oss;
+                oss << std::put_time(&tm, "MV2 %d-%m-%Y %H-%M-%S");
+                char const* path = tinyfd_saveFileDialog("Save screenshot", oss.str().c_str(), 1, reinterpret_cast<const char* const*>("*.png\0"), "PNG (*.png)");
                 if (path) utils::screenshot(path, window);
             }
             //ImGui::SameLine();
@@ -770,9 +777,9 @@ int main() {
 
             ImGui::SeparatorText("Parameters");
             bool update = false;
-            ImGui::Text("Re");   ImGui::SetNextItemWidth(270); ImGui::SameLine(); ImGui::SetCursorPosY(ImGui::GetCursorPosY() - 3.f);
+            ImGui::Text("Re"); ImGui::SetNextItemWidth(270); ImGui::SameLine(); ImGui::SetCursorPosY(ImGui::GetCursorPosY() - 3.f);
             update |= ImGui::InputDouble("##re", &vars::offset.x, 0.0, 0.0, "%.17g");
-            ImGui::Text("Im");   ImGui::SetNextItemWidth(270); ImGui::SameLine(); ImGui::SetCursorPosY(ImGui::GetCursorPosY() - 3.f);
+            ImGui::Text("Im"); ImGui::SetNextItemWidth(270); ImGui::SameLine(); ImGui::SetCursorPosY(ImGui::GetCursorPosY() - 3.f);
             update |= ImGui::InputDouble("##im", &vars::offset.y, 0.0, 0.0, "%.17g");
             if (update) {
                 glUniform2d(glGetUniformLocation(shaderProgram, "offset"), vars::offset.x, vars::offset.y);
