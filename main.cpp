@@ -764,11 +764,12 @@ int main() {
             lastFrame = currentTime;
 
             if (ImGui::Button("Take screenshot")) {
+                char const* lFilterPatterns[1] = { "*.png" };
                 auto t = std::time(nullptr);
                 auto tm = *std::localtime(&t);
                 std::ostringstream oss;
                 oss << std::put_time(&tm, "MV2 %d-%m-%Y %H-%M-%S");
-                char const* path = tinyfd_saveFileDialog("Save screenshot", oss.str().c_str(), 1, reinterpret_cast<const char* const*>("*.png\0"), "PNG (*.png)");
+                char const* path = tinyfd_saveFileDialog("Save screenshot", oss.str().c_str(), 1, lFilterPatterns, "PNG (*.png)");
                 if (path) utils::screenshot(path, window);
             }
             //ImGui::SameLine();
