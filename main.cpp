@@ -217,7 +217,11 @@ void main() {
                     t /= h2 + 1.0;
                     if (t < 0) t = 0.2;
 
-                    fragColor = vec4(i + 2 - log2(log2(float(length(z)))) / log2(degree), i, t, 0.f);
+                    if (continuous_coloring == 1) {
+                        fragColor = vec4(i + 2 - log2(log2(float(length(z)))) / log2(degree), i, t, 0.f);
+                    } else {
+                        fragColor = vec4(i, i, t, 0.f);
+                    }
                     return;
                 }
                 dvec2 new_z = advance(z, c, xx, yy);
@@ -320,7 +324,7 @@ namespace vars {
     int    julia_size = 210;
     double julia_zoom = 3;
 
-    double fps_update_interval = 0.1;
+    double fps_update_interval = 0.03;
 }
 
 namespace utils {
@@ -478,38 +482,6 @@ static void HelpMarker(const char* desc) { // code from imgui demo
         ImGui::PopTextWrapPos();
         ImGui::EndTooltip();
     }
-}
-
-template <typename T> requires std::integral<T>
-void toggleButton(T* v, const char* id, const char* name, PFNGLUNIFORM1IPROC uniformType) {
-    ImVec2 p = ImGui::GetCursorScreenPos();
-    ImDrawList* draw_list = ImGui::GetWindowDrawList();
-
-    float height = ImGui::GetFrameHeight();
-    float width = height * 1.8f;
-    float radius = height * 0.50f;
-    float rounding = 0.4f;
-
-    ImGui::InvisibleButton(id, ImVec2(width, height));
-    if (ImGui::IsItemClicked()) {
-        *v ^= 1;
-        uniformType(glGetUniformLocation(shaderProgram, id), *v);
-        protocol = MV_POSTPROC;
-    }
-    ImGuiContext& gg = *GImGui;
-    float ANIM_SPEED = 0.055f;
-    if (gg.LastActiveId == gg.CurrentWindow->GetID(id))
-        float t_anim = ImSaturate(gg.LastActiveIdTimer / ANIM_SPEED);
-    if (ImGui::IsItemHovered())
-        draw_list->AddRectFilled(p, ImVec2(p.x + width, p.y + height), ImGui::GetColorU32(ImVec4(0.2196f, 0.2196f, 0.2196f, 1.0f)), height * rounding);
-    else
-        draw_list->AddRectFilled(p, ImVec2(p.x + width, p.y + height), ImGui::GetColorU32(vars::continuous_coloring ? ImVec4(0.2196f, 0.2196f, 0.2196f, 1.0f) : ImVec4(0.08f, 0.08f, 0.08f, 1.0f)), height * rounding);
-    ImVec2 center = ImVec2(radius + (vars::continuous_coloring ? 1 : 0) * (width - radius * 2.0f), radius);
-    draw_list->AddRectFilled(ImVec2((p.x + center.x) - 9.0f, p.y + 1.5f),
-        ImVec2((p.x + (width / 2) + center.x) - 9.0f, p.y + height - 1.5f), IM_COL32(255, 255, 255, 255), height * rounding);
-    ImGui::SameLine(35.f);
-    ImGui::SetCursorPosY(ImGui::GetCursorPosY() + 3.f);
-    ImGui::Text(name);
 }
 
 int main() {
@@ -798,9 +770,9 @@ int main() {
 
             ImGui::SeparatorText("Parameters");
             bool update = false;
-            ImGui::Text("Re");   ImGui::SetNextItemWidth(320); ImGui::SameLine(); ImGui::SetCursorPosY(ImGui::GetCursorPosY() - 3.f);
+            ImGui::Text("Re");   ImGui::SetNextItemWidth(270); ImGui::SameLine(); ImGui::SetCursorPosY(ImGui::GetCursorPosY() - 3.f);
             update |= ImGui::InputDouble("##re", &vars::offset.x, 0.0, 0.0, "%.17g");
-            ImGui::Text("Im");   ImGui::SetNextItemWidth(320); ImGui::SameLine(); ImGui::SetCursorPosY(ImGui::GetCursorPosY() - 3.f);
+            ImGui::Text("Im");   ImGui::SetNextItemWidth(270); ImGui::SameLine(); ImGui::SetCursorPosY(ImGui::GetCursorPosY() - 3.f);
             update |= ImGui::InputDouble("##im", &vars::offset.y, 0.0, 0.0, "%.17g");
             if (update) {
                 glUniform2d(glGetUniformLocation(shaderProgram, "offset"), vars::offset.x, vars::offset.y);
@@ -814,21 +786,19 @@ int main() {
 
             ImGui::BeginGroup();
             ImGui::SeparatorText("Computation");
-            //ImGui::PushItemFlag(ImGuiItemFlags_Disabled, true);
-            if (ImGui::SliderFloat("Iteration coefficient", &vars::iter_co, 1.01, 1.1)) {
+            if (ImGui::SliderFloat("Iteration coeff.", &vars::iter_co, 1.01, 1.1)) {
                 glUniform1i(glGetUniformLocation(shaderProgram, "max_iters"), utils::max_iters(vars::zoom, consts::zoom_co, vars::iter_co));
                 protocol = MV_COMPUTE;
             }
-            //ImGui::PushItemFlag(ImGuiItemFlags_Disabled, false);
             if (ImGui::SliderFloat("Bailout radius", &vars::bailout_radius, 2.0, 25.0)) {
                 glUniform1d(glGetUniformLocation(shaderProgram, "bailout_radius"), pow(vars::bailout_radius, 2));
                 protocol = MV_COMPUTE;
             }
-            if (ImGui::SliderInt("Degree", &vars::degree, 2, 7)) {
+            if (ImGui::SliderInt("Order", &vars::degree, 2, 7)) {
                 glUniform1i(glGetUniformLocation(shaderProgram, "degree"), vars::degree);
                 protocol = MV_COMPUTE;
             }
-            if (ImGui::Checkbox("Super Sampling AA", &vars::ssaa)) {
+            if (ImGui::Checkbox("SSAA", &vars::ssaa)) {
                 int factor = ((vars::ssaa) ? vars::ssaa_factor : 1);
                 glBindFramebuffer(GL_FRAMEBUFFER, mandelbrotFrameBuffer);
                 glBindTexture(GL_TEXTURE_2D, mandelbrotTexBuffer);
@@ -846,16 +816,21 @@ int main() {
 
                 protocol = MV_COMPUTE;
             }
+            ImGui::SameLine();
+            if (ImGui::Checkbox("Continuous Coloring", reinterpret_cast<bool*>(&vars::continuous_coloring))) {
+                glUniform1i(glGetUniformLocation(shaderProgram, "continuous_coloring"), vars::continuous_coloring);
+                protocol = MV_COMPUTE;
+            }
             ImGui::SeparatorText("Coloring");
-            if (ImGui::ColorEdit3("In-set color", &vars::set_color.x)) {
+            if (ImGui::ColorEdit3("Set color", &vars::set_color.x)) {
                 glUniform3f(glGetUniformLocation(shaderProgram, "set_color"), vars::set_color.r, vars::set_color.g, vars::set_color.b);
                 protocol = MV_POSTPROC;
             }
-            if (ImGui::SliderFloat("Iteration Multiplier", &vars::iter_multiplier, 1, 128, "x%.4g", ImGuiSliderFlags_Logarithmic | ImGuiSliderFlags_NoRoundToFormat)) {
+            if (ImGui::SliderFloat("Multiplier", &vars::iter_multiplier, 1, 128, "x%.4g", ImGuiSliderFlags_Logarithmic | ImGuiSliderFlags_NoRoundToFormat)) {
                 glUniform1f(glGetUniformLocation(shaderProgram, "iter_multiplier"), vars::iter_multiplier);
                 protocol = MV_POSTPROC;
             }
-            if (ImGui::SliderFloat("Spectrum Offset", &vars::spectrum_offset, 0, spectrum::span)) {
+            if (ImGui::SliderFloat("Offset", &vars::spectrum_offset, 0, spectrum::span)) {
                 glUniform1f(glGetUniformLocation(shaderProgram, "spectrum_offset"), vars::spectrum_offset);
                 protocol = MV_POSTPROC;
             }
@@ -910,7 +885,7 @@ int main() {
                 glBindBuffer(GL_SHADER_STORAGE_BUFFER, spectrumBuffer);
                 memcpy(glMapBuffer(GL_SHADER_STORAGE_BUFFER, GL_WRITE_ONLY), spectrum::data.data(), spectrum::data.size() * sizeof(glm::vec4));
                 glUnmapBuffer(GL_SHADER_STORAGE_BUFFER);
-                protocol = MV_COMPUTE;
+                protocol = MV_POSTPROC;
             }
             ImGui::EndGroup();
             //ImGui::Button("Save", ImVec2(80.f, 0.f)); ImGui::SameLine();
