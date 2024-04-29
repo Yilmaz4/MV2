@@ -346,20 +346,23 @@ namespace utils {
         return 100 * pow(iter_co, log2(zoom / initial_zoom) / log2(zoom_co));
     }
 
-    static void screenshot(const char* filepath, GLFWwindow* window) { // https://lencerf.github.io/post/2019-09-21-save-the-opengl-rendering-to-image-file/
+    static void screenshot(const char* filepath, GLFWwindow* window) {
         int factor = (vars::ssaa ? vars::ssaa_factor : 1);
-        int w = vars::screenSize.x * factor, h = vars::screenSize.y * factor;
-        GLsizei nrChannels = 3;
-        GLsizei stride = nrChannels * w;
-        stride += (stride % 4) ? (4 - stride % 4) : 0;
-        GLsizei bufferSize = stride * h;
-        std::vector<char> buffer(bufferSize);
-        glPixelStorei(GL_PACK_ALIGNMENT, 4);
-        glBindFramebuffer(GL_FRAMEBUFFER, postprocFrameBuffer);
-        glReadBuffer(GL_FRONT);
-        glReadPixels(0, 0, w, h, GL_RGB, GL_UNSIGNED_BYTE, buffer.data());
+        int w, h;
+        if (vars::fullscreen) {
+            GLFWmonitor* monitor = glfwGetPrimaryMonitor();
+            const GLFWvidmode* mode = glfwGetVideoMode(monitor);
+            w = mode->width * factor, h = mode->height * factor;
+        } else {
+            w = vars::screenSize.x * factor, h = vars::screenSize.y * factor;
+        }
+        unsigned char* buffer = new unsigned char[4 * w * h];
+        glActiveTexture(GL_TEXTURE1);
+        glBindTexture(GL_TEXTURE_2D, postprocTexBuffer);
+        glGetTexImage(GL_TEXTURE_2D, 0, GL_RGBA, GL_UNSIGNED_BYTE, buffer);
         stbi_flip_vertically_on_write(true);
-        stbi_write_png(filepath, w, h, nrChannels, buffer.data(), stride);
+        stbi_write_png(filepath, w, h, 4, buffer, 4 * w);
+        delete[] buffer;
     }
 }
 
@@ -400,7 +403,7 @@ namespace events {
                 lastPresses.y = glfwGetTime();
                 glfwGetCursorPos(window, &events::oldPos.x, &events::oldPos.y);
             }
-            else if (lastPresses.y - lastPresses.x < consts::doubleClick_interval) { // button released, check if interval between last two presses is less than the max interval
+            else if (lastPresses.y - lastPresses.x < consts::doubleClick_interval) {
                 glfwGetCursorPos(window, &events::oldPos.x, &events::oldPos.y);
                 glm::dvec2 pos = utils::pixel_to_complex(events::oldPos);
                 glm::dvec2 center = utils::pixel_to_complex(static_cast<glm::dvec2>(ss) / 2.0);
@@ -419,7 +422,8 @@ namespace events {
                 rightClickHold = true;
                 vars::julia_zoom = 3.0;
                 glUniform1d(glGetUniformLocation(shaderProgram, "julia_zoom"), vars::julia_zoom);
-                glUniform1i(glGetUniformLocation(shaderProgram, "julia_maxiters"), utils::max_iters(vars::julia_zoom, consts::zoom_co, vars::iter_co, 3.0));
+                glUniform1i(glGetUniformLocation(shaderProgram, "julia_maxiters"),
+                    utils::max_iters(vars::julia_zoom, consts::zoom_co, vars::iter_co, 3.0));
                 break;
             case GLFW_RELEASE:
                 rightClickHold = false;
@@ -433,7 +437,7 @@ namespace events {
         if (ImGui::GetIO().WantCaptureMouse)
             return;
         if (dragging) {
-            lastPresses = { -consts::doubleClick_interval, 0 }; // reset to prevent accidental centering while rapidly dragging
+            lastPresses = { -consts::doubleClick_interval, 0 };
             vars::offset.x -= ((x - oldPos.x) * vars::zoom) / ss.x;
             vars::offset.y -= ((oldPos.y - y) * ((vars::zoom * ss.y) / ss.x)) / ss.y;
             glUniform2d(glGetUniformLocation(shaderProgram, "offset"), vars::offset.x, vars::offset.y);
@@ -442,16 +446,18 @@ namespace events {
         }
     }
 
-    static void on_mouseScroll(GLFWwindow* window, double x, double y) { // y is usually either 1 or -1 depending on direction, x is always 0
+    static void on_mouseScroll(GLFWwindow* window, double x, double y) {
         if (rightClickHold) {
             vars::julia_zoom *= pow(consts::zoom_co, y * 1.5);
             glUniform1d(glGetUniformLocation(shaderProgram, "julia_zoom"), vars::julia_zoom);
-            glUniform1i(glGetUniformLocation(shaderProgram, "julia_maxiters"), utils::max_iters(vars::julia_zoom, consts::zoom_co, vars::iter_co, 3.0));
+            glUniform1i(glGetUniformLocation(shaderProgram, "julia_maxiters"),
+                utils::max_iters(vars::julia_zoom, consts::zoom_co, vars::iter_co, 3.0));
         }
         else {
             vars::zoom *= pow(consts::zoom_co, y * 1.5);
             glUniform1d(glGetUniformLocation(shaderProgram, "zoom"), vars::zoom);
-            glUniform1i(glGetUniformLocation(shaderProgram, "max_iters"), utils::max_iters(vars::zoom, consts::zoom_co, vars::iter_co));
+            glUniform1i(glGetUniformLocation(shaderProgram, "max_iters"),
+                utils::max_iters(vars::zoom, consts::zoom_co, vars::iter_co));
             protocol = MV_COMPUTE;
         }
     }
@@ -471,7 +477,8 @@ namespace events {
                 glfwSetWindowMonitor(window, monitor, 0, 0, mode->width, mode->height, mode->refreshRate);
             }
             else {
-                glfwSetWindowMonitor(window, nullptr, vars::screenPos.x, vars::screenPos.y, vars::screenSize.x, vars::screenSize.y, 0);
+                glfwSetWindowMonitor(window, nullptr, vars::screenPos.x,
+                    vars::screenPos.y, vars::screenSize.x, vars::screenSize.y, 0);
                 vars::fullscreen = false;
             }
         }
@@ -527,7 +534,6 @@ int main() {
     ImFont* font_title = io.Fonts->AddFontFromFileTTF("C:\\Windows\\Fonts\\consola.ttf", 11.f);
     IM_ASSERT(font_title != NULL);
     io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;     // Enable Keyboard Controls
-    io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;         // Enable Docking
 
     ImGui::StyleColorsDark();
 
@@ -626,7 +632,8 @@ int main() {
     glActiveTexture(GL_TEXTURE0);
     glBindTexture(GL_TEXTURE_2D, mandelbrotTexBuffer);
     glUniform1i(glGetUniformLocation(shaderProgram, "mandelbrotTex"), 0);
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA32F, vars::screenSize.x * factor, vars::screenSize.y * factor, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA32F, vars::screenSize.x * factor,
+        vars::screenSize.y * factor, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
 
@@ -634,16 +641,17 @@ int main() {
     glActiveTexture(GL_TEXTURE1);
     glBindTexture(GL_TEXTURE_2D, postprocTexBuffer);
     glUniform1i(glGetUniformLocation(shaderProgram, "postprocTex"), 1);
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA32F, vars::screenSize.x * factor, vars::screenSize.y * factor, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA32F, vars::screenSize.x * factor,
+        vars::screenSize.y * factor, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
 
     glGenTextures(1, &juliaTexBuffer);
     glBindTexture(GL_TEXTURE_2D, juliaTexBuffer);
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA32F, vars::julia_size * factor, vars::julia_size * factor, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA32F, vars::julia_size * factor,
+        vars::julia_size * factor, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-
 
     glGenFramebuffers(1, &mandelbrotFrameBuffer);
     glBindFramebuffer(GL_FRAMEBUFFER, mandelbrotFrameBuffer);
@@ -657,7 +665,6 @@ int main() {
     glBindFramebuffer(GL_FRAMEBUFFER, juliaFrameBuffer);
     glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, juliaTexBuffer, 0);
 
-    
     unsigned int vertexShader;
     vertexShader = glCreateShader(GL_VERTEX_SHADER);
     glShaderSource(vertexShader, 1, &vertexShaderSource, NULL);
@@ -708,21 +715,19 @@ int main() {
     glUniform2d(glGetUniformLocation(shaderProgram, "offset"), vars::offset.x, vars::offset.y);
     glUniform1f(glGetUniformLocation(shaderProgram, "iter_multiplier"), vars::iter_multiplier);
     glUniform1d(glGetUniformLocation(shaderProgram, "zoom"), vars::zoom);
-    glUniform1i(glGetUniformLocation(shaderProgram, "max_iters"), utils::max_iters(vars::zoom, consts::zoom_co, vars::iter_co));
+    glUniform1i(glGetUniformLocation(shaderProgram, "max_iters"),
+        utils::max_iters(vars::zoom, consts::zoom_co, vars::iter_co));
     glUniform1f(glGetUniformLocation(shaderProgram, "spectrum_offset"), vars::spectrum_offset);
     glUniform1d(glGetUniformLocation(shaderProgram, "bailout_radius"), pow(vars::bailout_radius, 2));
     glUniform1i(glGetUniformLocation(shaderProgram, "continuous_coloring"), vars::continuous_coloring);
     glUniform3f(glGetUniformLocation(shaderProgram, "set_color"), vars::set_color.x, vars::set_color.y, vars::set_color.z);
     glUniform1i(glGetUniformLocation(shaderProgram, "degree"), vars::degree);
     glUniform1d(glGetUniformLocation(shaderProgram, "julia_zoom"), vars::julia_zoom);
-    glUniform1i(glGetUniformLocation(shaderProgram, "julia_maxiters"), utils::max_iters(vars::julia_zoom, consts::zoom_co, vars::iter_co, 3.0));
+    glUniform1i(glGetUniformLocation(shaderProgram, "julia_maxiters"),
+        utils::max_iters(vars::julia_zoom, consts::zoom_co, vars::iter_co, 3.0));
     glUniform1i(glGetUniformLocation(shaderProgram, "blur"), vars::ssaa_factor);
 
     events::on_windowResize(window, vars::screenSize.x, vars::screenSize.y);
-
-    double lastFrame = glfwGetTime();
-    double lastUpdate = glfwGetTime();
-    double fps = 0;
 
     int32_t stateID = 10;
     ImGradientHDRState state;
@@ -742,8 +747,6 @@ int main() {
 
         ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 6);
 
-        static float f = 0.0f;
-        static int counter = 0;
         glm::ivec2 ss = (vars::fullscreen ? consts::monitorSize : vars::screenSize);
 
         ImGui::PushFont(font_title);
@@ -755,14 +758,6 @@ int main() {
             ImGuiWindowFlags_AlwaysAutoResize |
             ImGuiWindowFlags_NoMove
         )) {
-            double currentTime = glfwGetTime();
-            if (currentTime - lastUpdate > vars::fps_update_interval) {
-                fps = 1 / (currentTime - lastFrame);
-                lastUpdate = currentTime;
-            }
-            ImGui::Text("FPS: %.3g   Frametime: %.3g ms", fps, 1000.0 * (currentTime - lastFrame));
-            lastFrame = currentTime;
-
             if (ImGui::Button("Take screenshot")) {
                 char const* lFilterPatterns[1] = { "*.png" };
                 auto t = std::time(nullptr);
@@ -770,23 +765,30 @@ int main() {
                 std::ostringstream oss;
                 oss << std::put_time(&tm, "MV2 %d-%m-%Y %H-%M-%S");
                 char const* path = tinyfd_saveFileDialog("Save screenshot", oss.str().c_str(), 1, lFilterPatterns, "PNG (*.png)");
+                if (glfwGetWindowMonitor(window) == nullptr)
+                    glfwShowWindow(window);
+                else glfwRestoreWindow(window);
                 if (path) utils::screenshot(path, window);
             }
-            //ImGui::SameLine();
-            //ImGui::Button("Create video"); ImGui::SameLine();
-            //ImGui::Button("Reset all");
+            ImGui::SameLine();
+            if (ImGui::Button("Create zoom sequence")) {
+                
+            }
 
             ImGui::SeparatorText("Parameters");
             bool update = false;
-            ImGui::Text("Re"); ImGui::SetNextItemWidth(270); ImGui::SameLine(); ImGui::SetCursorPosY(ImGui::GetCursorPosY() - 3.f);
+            ImGui::Text("Re"); ImGui::SetNextItemWidth(270); ImGui::SameLine();
+            ImGui::SetCursorPosY(ImGui::GetCursorPosY() - 3.f);
             update |= ImGui::InputDouble("##re", &vars::offset.x, 0.0, 0.0, "%.17g");
-            ImGui::Text("Im"); ImGui::SetNextItemWidth(270); ImGui::SameLine(); ImGui::SetCursorPosY(ImGui::GetCursorPosY() - 3.f);
+            ImGui::Text("Im"); ImGui::SetNextItemWidth(270); ImGui::SameLine();
+            ImGui::SetCursorPosY(ImGui::GetCursorPosY() - 3.f);
             update |= ImGui::InputDouble("##im", &vars::offset.y, 0.0, 0.0, "%.17g");
             if (update) {
                 glUniform2d(glGetUniformLocation(shaderProgram, "offset"), vars::offset.x, vars::offset.y);
                 protocol = MV_COMPUTE;
             }
-            ImGui::Text("Zoom"); ImGui::SetNextItemWidth(80); ImGui::SameLine(); ImGui::SetCursorPosY(ImGui::GetCursorPosY() - 3.f);
+            ImGui::Text("Zoom"); ImGui::SetNextItemWidth(80); ImGui::SameLine();
+            ImGui::SetCursorPosY(ImGui::GetCursorPosY() - 3.f);
             if (ImGui::InputDouble("##zoom", &vars::zoom, 0.0, 0.0, "%.2e")) {
                 glUniform1d(glGetUniformLocation(shaderProgram, "zoom"), vars::zoom);
                 protocol = MV_COMPUTE;
@@ -795,7 +797,8 @@ int main() {
             ImGui::BeginGroup();
             ImGui::SeparatorText("Computation");
             if (ImGui::SliderFloat("Iteration coeff.", &vars::iter_co, 1.01, 1.1)) {
-                glUniform1i(glGetUniformLocation(shaderProgram, "max_iters"), utils::max_iters(vars::zoom, consts::zoom_co, vars::iter_co));
+                glUniform1i(glGetUniformLocation(shaderProgram, "max_iters"),
+                    utils::max_iters(vars::zoom, consts::zoom_co, vars::iter_co));
                 protocol = MV_COMPUTE;
             }
             if (ImGui::SliderFloat("Bailout radius", &vars::bailout_radius, 2.0, 25.0)) {
@@ -810,15 +813,18 @@ int main() {
                 int factor = ((vars::ssaa) ? vars::ssaa_factor : 1);
                 glBindFramebuffer(GL_FRAMEBUFFER, mandelbrotFrameBuffer);
                 glBindTexture(GL_TEXTURE_2D, mandelbrotTexBuffer);
-                glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA32F, ss.x * factor, ss.y * factor, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
+                glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA32F, ss.x * factor,
+                    ss.y * factor, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
 
                 glBindFramebuffer(GL_FRAMEBUFFER, postprocFrameBuffer);
                 glBindTexture(GL_TEXTURE_2D, postprocTexBuffer);
-                glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA32F, ss.x * factor, ss.y * factor, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
+                glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA32F, ss.x * factor,
+                    ss.y * factor, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
 
                 glBindFramebuffer(GL_FRAMEBUFFER, juliaFrameBuffer);
                 glBindTexture(GL_TEXTURE_2D, juliaTexBuffer);
-                glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA32F, vars::julia_size * factor, vars::julia_size * factor, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
+                glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA32F, vars::julia_size * factor,
+                    vars::julia_size * factor, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
 
                 glUniform1i(glGetUniformLocation(shaderProgram, "blur"), factor);
 
@@ -857,7 +863,8 @@ int main() {
 
             if (tempState.selectedMarkerType != ImGradientHDRMarkerType::Unknown) {
                 ImGui::SameLine();
-                if (tempState.selectedMarkerType == ImGradientHDRMarkerType::Color && (ImGui::Button("Delete") || glfwGetKey(window, GLFW_KEY_DELETE) == GLFW_PRESS)) {
+                if (tempState.selectedMarkerType == ImGradientHDRMarkerType::Color
+                    && (ImGui::Button("Delete") || glfwGetKey(window, GLFW_KEY_DELETE) == GLFW_PRESS)) {
                     state.RemoveColorMarker(tempState.selectedIndex);
                     tempState = ImGradientHDRTemporaryState{};
                 }
@@ -891,14 +898,15 @@ int main() {
             }
             if (d) {
                 glBindBuffer(GL_SHADER_STORAGE_BUFFER, spectrumBuffer);
-                memcpy(glMapBuffer(GL_SHADER_STORAGE_BUFFER, GL_WRITE_ONLY), spectrum::data.data(), spectrum::data.size() * sizeof(glm::vec4));
+                memcpy(glMapBuffer(GL_SHADER_STORAGE_BUFFER, GL_WRITE_ONLY),
+                    spectrum::data.data(), spectrum::data.size() * sizeof(glm::vec4));
                 glUnmapBuffer(GL_SHADER_STORAGE_BUFFER);
                 protocol = MV_POSTPROC;
             }
             ImGui::EndGroup();
-            //ImGui::Button("Save", ImVec2(80.f, 0.f)); ImGui::SameLine();
-            //ImGui::Button("Load", ImVec2(80.f, 0.f)); ImGui::SameLine();
-            //ImGui::Button("Reset", ImVec2(80.f, 0.f));
+            ImGui::Button("Save", ImVec2(80.f, 0.f)); ImGui::SameLine();
+            ImGui::Button("Load", ImVec2(80.f, 0.f)); ImGui::SameLine();
+            ImGui::Button("Reset", ImVec2(80.f, 0.f));
             ImGui::PushStyleColor(ImGuiCol_Text, IM_COL32(80, 80, 80, 255));
             ImGui::Text("(c) 2017-2024 Yilmaz Alpaslan");
             ImGui::PopStyleColor();
@@ -971,7 +979,8 @@ int main() {
             glBindFramebuffer(GL_FRAMEBUFFER, juliaFrameBuffer);
             glUniform1i(glGetUniformLocation(shaderProgram, "protocol"), 3);
             glUniform2d(glGetUniformLocation(shaderProgram, "mouseCoord"), c.x, c.y);
-            glUniform2i(glGetUniformLocation(shaderProgram, "screenSize"), vars::julia_size * factor, vars::julia_size * factor);
+            glUniform2i(glGetUniformLocation(shaderProgram, "screenSize"),
+                vars::julia_size * factor, vars::julia_size * factor);
             glDrawArrays(GL_TRIANGLES, 0, 6);
             ImGui::SeparatorText("Julia Set");
             ImGui::Image((void*)(intptr_t)juliaTexBuffer, ImVec2(vars::julia_size, vars::julia_size));
