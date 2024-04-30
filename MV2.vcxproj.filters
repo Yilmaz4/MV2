@@ -57,6 +57,9 @@
     <ClCompile Include="glad.c">
       <Filter>Source Files\glad</Filter>
     </ClCompile>
+    <ClCompile Include="imgui\imgui_theme.h">
+      <Filter>Header Files</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="imgui\imstb_truetype.h">
