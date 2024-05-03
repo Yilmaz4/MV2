@@ -3,7 +3,7 @@
 #include <array>
 #include <stdint.h>
 
-const int32_t MarkerMax = 8;
+const int32_t MarkerMax = 16;
 
 struct ImGradientHDRState
 {
