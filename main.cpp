@@ -1,4 +1,8 @@
-﻿#define IMGUI_DEFINE_MATH_OPERATORS
+﻿#ifndef _DEBUG
+#pragma comment(linker, "/SUBSYSTEM:windows /ENTRY:mainCRTStartup")
+#endif
+
+#define IMGUI_DEFINE_MATH_OPERATORS
 #define STB_IMAGE_WRITE_IMPLEMENTATION
 
 #include <imgui.h>
@@ -76,6 +80,9 @@ uniform double julia_zoom;
 uniform int    julia_maxiters;
 uniform int    blur;
 
+//experimental
+uniform double constant_coeff = 1.0;
+
 layout(binding=0) uniform sampler2D mandelbrotTex;
 layout(binding=1) uniform sampler2D postprocTex;
 
@@ -89,7 +96,7 @@ dvec2 cconj(dvec2 z) {
 }
 uniform mat3 weight = mat3(
     0.0751136, 0.123841, 0.0751136,
-    0.123841, 0.20418, 0.123841,
+    0.1238410, 0.204180, 0.1238410,
     0.0751136, 0.123841, 0.0751136
 );
 
@@ -117,26 +124,22 @@ vec3 color(float i) {
 dvec2 advance(dvec2 z, dvec2 c, double xx, double yy) {
     switch (degree) {
     case 2:
-        z = dvec2(xx - yy, 2.0f * z.x * z.y) + c;
+        z = dvec2(xx - yy, 2 * z.x * z.y) + constant_coeff * c;
         break;
     case 3:
-        z = dvec2(xx * z.x - 3 * z.x * yy, 3 * xx * z.y - yy * z.y) + c;
+        z = dvec2(xx * z.x - 3 * z.x * yy, 3 * xx * z.y - yy * z.y) + constant_coeff * c;
         break;
     case 4:
         z = dvec2(xx * xx + yy * yy - 6 * xx * yy,
-            4 * xx * z.x * z.y - 4 * z.x * yy * z.y) + c;
+            4 * xx * z.x * z.y - 4 * z.x * yy * z.y) + constant_coeff * c;
         break;
     case 5:
         z = dvec2(xx * xx * z.x + 5 * z.x * yy * yy - 10 * xx * z.x * yy,
-            5 * xx * xx * z.y + yy * yy * z.y - 10 * xx * yy * z.y) + c;
+            5 * xx * xx * z.y + yy * yy * z.y - 10 * xx * yy * z.y) + constant_coeff * c;
         break;
     case 6:
         z = dvec2(xx * xx * xx - 15 * xx * xx * yy + 15 * xx * yy * yy - yy * yy * yy,
-            6 * xx * xx * z.x * z.y - 20 * xx * z.x * yy * z.y + 6 * z.x * yy * yy * z.y) + c;
-        break;
-    case 7:
-        z = dvec2(xx * xx * xx * z.x - 21 * xx * xx * z.x * yy + 35 * xx * z.x * yy * yy - 7 * z.x * yy * yy * yy,
-            7 * xx * xx * xx * z.y - 35 * xx * xx * yy * z.y + 21 * xx * yy * yy * z.y - yy * yy * yy * z.y) + c;
+            6 * xx * xx * z.x * z.y - 20 * xx * z.x * yy * z.y + 6 * z.x * yy * yy * z.y) + constant_coeff * c;
         break;
     }
     return z;
@@ -311,6 +314,7 @@ struct Config {
     int    degree = 2;
     bool   ssaa = true;
     int    ssaa_factor = 2;
+    float  constant_coeff = 1.f;
 };
 
 struct ZoomSequenceConfig {
@@ -335,7 +339,7 @@ class MV2 {
     int span = 1000;
     const int max_colors = 8;
 
-    glm::ivec2 screenPos;
+    glm::ivec2 screenPos = { 0, 0 };
     bool   fullscreen = false;
     Config config;
     ZoomSequenceConfig zsc;
@@ -347,6 +351,7 @@ class MV2 {
     glm::dvec2 lastPresses = { -doubleClick_interval, 0 };
     bool   dragging = false;
     bool   rightClickHold = false;
+    char*  sspath = nullptr;
 
     bool   rendering = false;
     bool   paused = false;
@@ -407,7 +412,7 @@ public:
         io.Fonts->AddFontDefault();
         font_title = io.Fonts->AddFontFromFileTTF("C:\\Windows\\Fonts\\consola.ttf", 11.f);
         IM_ASSERT(font_title != NULL);
-        io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;     // Enable Keyboard Controls
+        io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
 
         ImGui::StyleColorsDark();
         ImGui::LoadTheme();
@@ -670,8 +675,6 @@ public:
             ImGui_ImplGlfw_NewFrame();
             ImGui::NewFrame();
 
-            ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 6);
-
             glm::ivec2 ss = (fullscreen ? monitorSize : config.screenSize);
 
             ImGui::PushFont(font_title);
@@ -683,34 +686,35 @@ public:
                 ImGuiWindowFlags_AlwaysAutoResize |
                 ImGuiWindowFlags_NoMove
             )) {
+                if (sspath) {
+                    int factor = (config.ssaa ? config.ssaa_factor : 1);
+                    int w, h;
+                    if (fullscreen) {
+                        GLFWmonitor* monitor = glfwGetPrimaryMonitor();
+                        const GLFWvidmode* mode = glfwGetVideoMode(monitor);
+                        w = mode->width * factor, h = mode->height * factor;
+                    }
+                    else {
+                        w = config.screenSize.x * factor, h = config.screenSize.y * factor;
+                    }
+                    unsigned char* buffer = new unsigned char[4 * w * h];
+                    glActiveTexture(GL_TEXTURE1);
+                    glBindTexture(GL_TEXTURE_2D, postprocTexBuffer);
+                    glGetTexImage(GL_TEXTURE_2D, 0, GL_RGBA, GL_UNSIGNED_BYTE, buffer);
+                    stbi_flip_vertically_on_write(true);
+                    stbi_write_png(sspath, w, h, 4, buffer, 4 * w);
+                    delete[] buffer;
+                    sspath = nullptr;
+                }
                 if (ImGui::Button("Take screenshot")) {
                     char const* lFilterPatterns[1] = { "*.png" };
                     auto t = std::time(nullptr);
                     auto tm = *std::localtime(&t);
                     std::ostringstream oss;
                     oss << std::put_time(&tm, "MV2 %d-%m-%Y %H-%M-%S");
-                    char const* path = tinyfd_saveFileDialog("Save screenshot", oss.str().c_str(), 1, lFilterPatterns, "PNG (*.png)");
+                    sspath = tinyfd_saveFileDialog("Save screenshot", oss.str().c_str(), 1, lFilterPatterns, "PNG (*.png)");
                     if (glfwGetWindowMonitor(window) != nullptr) glfwRestoreWindow(window);
                     glfwShowWindow(window);
-                    if (path) {
-                        int factor = (config.ssaa ? config.ssaa_factor : 1);
-                        int w, h;
-                        if (fullscreen) {
-                            GLFWmonitor* monitor = glfwGetPrimaryMonitor();
-                            const GLFWvidmode* mode = glfwGetVideoMode(monitor);
-                            w = mode->width * factor, h = mode->height * factor;
-                        }
-                        else {
-                            w = config.screenSize.x * factor, h = config.screenSize.y * factor;
-                        }
-                        unsigned char* buffer = new unsigned char[4 * w * h];
-                        glActiveTexture(GL_TEXTURE1);
-                        glBindTexture(GL_TEXTURE_2D, postprocTexBuffer);
-                        glGetTexImage(GL_TEXTURE_2D, 0, GL_RGBA, GL_UNSIGNED_BYTE, buffer);
-                        stbi_flip_vertically_on_write(true);
-                        stbi_write_png(path, w, h, 4, buffer, 4 * w);
-                        delete[] buffer;
-                    }
                 }
                 ImGui::SameLine();
                 if (ImGui::BeginPopupModal("Zoom sequence creator", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
@@ -811,9 +815,16 @@ public:
                     glUniform1d(glGetUniformLocation(shaderProgram, "bailout_radius"), pow(config.bailout_radius, 2));
                     protocol = MV_COMPUTE;
                 }
-                if (ImGui::SliderInt("Order", &config.degree, 2, 7)) {
-                    glUniform1i(glGetUniformLocation(shaderProgram, "degree"), config.degree);
-                    protocol = MV_COMPUTE;
+                if (ImGui::TreeNode("Experimental")) {
+                    if (ImGui::DragFloat("Coeff. of c", &config.constant_coeff, std::max(1e-4f, abs(1 - config.constant_coeff) / 40.f), 0.f, 0.f, "%.3f", ImGuiSliderFlags_NoRoundToFormat)) {
+                        glUniform1d(glGetUniformLocation(shaderProgram, "constant_coeff"), static_cast<double>(config.constant_coeff));
+                        protocol = MV_COMPUTE;
+                    }
+                    if (ImGui::SliderInt("Order", &config.degree, 2, 6)) {
+                        glUniform1i(glGetUniformLocation(shaderProgram, "degree"), config.degree);
+                        protocol = MV_COMPUTE;
+                    }
+                    ImGui::TreePop();
                 }
                 if (ImGui::Checkbox("SSAA", &config.ssaa)) {
                     int factor = (config.ssaa ? config.ssaa_factor : 1);
@@ -866,7 +877,6 @@ public:
                         ImGui::ColorEdit3("", selectedColorMarker->Color.data(), ImGuiColorEditFlags_Float);
                     }
                 }
-
                 if (tempState.selectedMarkerType != ImGradientHDRMarkerType::Unknown) {
                     ImGui::SameLine();
                     if (tempState.selectedMarkerType == ImGradientHDRMarkerType::Color
@@ -875,40 +885,56 @@ public:
                         tempState = ImGradientHDRTemporaryState{};
                     }
                 }
-
-                int size_diff = paletteData.size() - state.Colors.size();
-                update = false;
-                for (int i = 0; i < std::min(state.Colors.size(), paletteData.size()) && !update; i++) {
-                    for (int j = 0; j < 4; j++) {
-                        float v1 = (j < 3 ? state.Colors[i].Color[j] : state.Colors[i].Position);
-                        float v2 = paletteData[i][j];
-                        if (update |= v1 != v2) {
-                            paletteData[i][j] = v1;
-                        }
-                    }
-                }
-                if (size_diff > 0) {
-                    for (int i = 0; i < size_diff; i++) {
-                        paletteData.pop_back();
-                    }
-                }
-                else if (size_diff < 0) {
-                    for (int i = paletteData.size(); i < state.Colors.size(); i++) {
-                        glm::vec4 v{};
-                        v.r = state.Colors[i].Color[0];
-                        v.g = state.Colors[i].Color[1];
-                        v.b = state.Colors[i].Color[2];
-                        v.w = state.Colors[i].Position;
-                        paletteData.push_back(v);
-                    }
-                }
                 ImGui::EndGroup();
+                bool resync = false;
+                paletteData.resize(state.ColorCount);
+                for (int i = 0; i < paletteData.size(); i++) {
+                    auto co = glm::vec4(glm::make_vec3(state.Colors[i].Color.data()), state.Colors[i].Position);
+                    if (update |= paletteData.at(i) != co) {
+                        paletteData[i] = co;
+                    }
+                }
                 if (ImGui::Button("Save", ImVec2(90.f, 0.f))) {
-
+                    const char* lFilterPatterns[1] = { "*.mvcp" };
+                    auto t = std::time(nullptr);
+                    auto tm = *std::localtime(&t);
+                    std::ostringstream oss;
+                    oss << std::put_time(&tm, "MV2 %d-%m-%Y %H-%M-%S");
+                    const char* buf = tinyfd_saveFileDialog("Save color palette", oss.str().c_str(),
+                        1, lFilterPatterns, "MV2 Color Palette File (*.mvcp)");
+                    if (glfwGetWindowMonitor(window) != nullptr) glfwRestoreWindow(window);
+                    glfwShowWindow(window);
+                    if (buf != nullptr) {
+                        std::ofstream fout;
+                        fout.open(buf, std::ios::binary | std::ios::out | std::ofstream::trunc);
+                        for (const glm::vec4& c : paletteData) {
+                            fout.write(reinterpret_cast<const char*>(glm::value_ptr(c)), sizeof(float) * 4);
+                        }
+                        fout.close();
+                    }
                 }
                 ImGui::SameLine();
                 if (ImGui::Button("Load", ImVec2(90.f, 0.f))) {
-
+                    const char* lFilterPatterns[1] = { "*.mvcp" };
+                    char* buf = tinyfd_openFileDialog("Open color palette", nullptr,
+                        1, lFilterPatterns, "MV2 Color Palette File (*.mvcp)", false);
+                    if (glfwGetWindowMonitor(window) != nullptr) glfwRestoreWindow(window);
+                    glfwShowWindow(window);
+                    if (buf != nullptr) {
+                        std::ifstream fin;
+                        fin.open(buf, std::ios::binary | std::ios::in | std::ios::ate);
+                        int size = static_cast<int>(fin.tellg());
+                        if (size % 4 != 0 || (size /= 16) > 16) {
+                            throw Error("Palette file invalid");
+                        }
+                        paletteData.resize(size);
+                        fin.seekg(0);
+                        for (int i = 0; i < size; i++) {
+                            fin.read(reinterpret_cast<char*>(glm::value_ptr(paletteData[i])), 16);
+                        }
+                        fin.close();
+                        resync = update = true;
+                    }
                 }
                 ImGui::SameLine();
                 if (ImGui::Button("Reset", ImVec2(90.f, 0.f))) {
@@ -920,12 +946,14 @@ public:
                         { 0.0000f, 0.0078f, 0.0000f, 0.8575f },
                         { 0.0000f, 0.0274f, 0.3921f, 1.0000f }
                     };
+                    resync = update = true;
+                }
+                if (resync) {
                     state.ColorCount = paletteData.size();
                     for (int i = 0; i < state.ColorCount; i++) {
-                        state.Colors[i].Color = *reinterpret_cast<std::array<float, 3>*>(glm::value_ptr(paletteData[i]));
+                        state.Colors[i].Color = *reinterpret_cast<std::array<float,3>*>(glm::value_ptr(paletteData[i]));
                         state.Colors[i].Position = paletteData[i][3];
                     }
-                    update = true;
                 }
                 if (update) {
                     glBindBuffer(GL_SHADER_STORAGE_BUFFER, paletteBuffer);
@@ -966,6 +994,7 @@ public:
                 glm::dvec2 c = pixel_to_complex(this, { x, y });
                 glm::dvec2 z = c;
                 int i;
+                glm::dvec2 mc = static_cast<double>(config.constant_coeff) * c;
                 for (i = 1; i < max_iters(config.zoom, zoom_co, config.iter_co); i++) {
                     double xx = z.x * z.x;
                     double yy = z.y * z.y;
@@ -973,26 +1002,22 @@ public:
                         goto display;
                     switch (config.degree) {
                     case 2:
-                        z = glm::dvec2(xx - yy, 2.0f * z.x * z.y) + c;
+                        z = glm::dvec2(xx - yy, 2.0f * z.x * z.y) + mc;
                         break;
                     case 3:
-                        z = glm::dvec2(xx * z.x - 3 * z.x * yy, 3 * xx * z.y - yy * z.y) + c;
+                        z = glm::dvec2(xx * z.x - 3 * z.x * yy, 3 * xx * z.y - yy * z.y) + mc;
                         break;
                     case 4:
                         z = glm::dvec2(xx * xx + yy * yy - 6 * xx * yy,
-                            4 * xx * z.x * z.y - 4 * z.x * yy * z.y) + c;
+                            4 * xx * z.x * z.y - 4 * z.x * yy * z.y) + mc;
                         break;
                     case 5:
                         z = glm::dvec2(xx * xx * z.x + 5 * z.x * yy * yy - 10 * xx * z.x * yy,
-                            5 * xx * xx * z.y + yy * yy * z.y - 10 * xx * yy * z.y) + c;
+                            5 * xx * xx * z.y + yy * yy * z.y - 10 * xx * yy * z.y) + mc;
                         break;
                     case 6:
                         z = glm::dvec2(xx * xx * xx - 15 * xx * xx * yy + 15 * xx * yy * yy - yy * yy * yy,
-                            6 * xx * xx * z.x * z.y - 20 * xx * z.x * yy * z.y + 6 * z.x * yy * yy * z.y) + c;
-                        break;
-                    case 7:
-                        z = glm::dvec2(xx * xx * xx * z.x - 21 * xx * xx * z.x * yy + 35 * xx * z.x * yy * yy - 7 * z.x * yy * yy * yy,
-                            7 * xx * xx * xx * z.y - 35 * xx * xx * yy * z.y + 21 * xx * yy * yy * z.y - yy * yy * yy * z.y) + c;
+                            6 * xx * xx * z.x * z.y - 20 * xx * z.x * yy * z.y + 6 * z.x * yy * yy * z.y) + mc;
                         break;
                     }
                 }
@@ -1006,13 +1031,13 @@ public:
                 glBindFramebuffer(GL_FRAMEBUFFER, juliaFrameBuffer);
                 glUniform1i(glGetUniformLocation(shaderProgram, "protocol"), 3);
                 glUniform2d(glGetUniformLocation(shaderProgram, "mouseCoord"), c.x, c.y);
-                glUniform2i(glGetUniformLocation(shaderProgram, "screenSize"),
-                    julia_size * factor, julia_size * factor);
+                glUniform2i(glGetUniformLocation(shaderProgram, "screenSize"), julia_size * factor, julia_size * factor);
                 glDrawArrays(GL_TRIANGLES, 0, 6);
                 ImGui::SeparatorText("Julia Set");
                 ImGui::Image((void*)(intptr_t)juliaTexBuffer, ImVec2(julia_size, julia_size));
                 ImGui::End();
             }
+            ImGui::PopFont();
             glViewport(0, 0, ss.x * factor, ss.y * factor);
             glUniform2i(glGetUniformLocation(shaderProgram, "screenSize"), ss.x* factor, ss.y* factor);
             switch (protocol) {
