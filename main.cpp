@@ -1,24 +1,27 @@
 ﻿#define IMGUI_DEFINE_MATH_OPERATORS
+#define STB_IMAGE_WRITE_IMPLEMENTATION
+
 #include <imgui.h>
 #include <imgui_impl_glfw.h>
 #include <imgui_impl_opengl3.h>
 #include <imgui_internal.h>
+#include <imgui_theme.h>
 
 #include <ImGradientHDR.h>
-
 #include <glad/glad.h>
 #include <GLFW/glfw3.h>
 #include <glm/glm.hpp>
-#define STB_IMAGE_WRITE_IMPLEMENTATION
+#include <glm/gtc/type_ptr.hpp>
 #include <stb/stb_image_write.h>
 #include <tinyfiledialogs/tinyfiledialogs.h>
 
 #include <iostream>
+#include <fstream>
+#include <sstream>
 #include <vector>
 #include <iomanip>
 #include <ctime>
 #include <string>
-#include <sstream>
 
 #define MV_COMPUTE  2
 #define MV_POSTPROC 1
@@ -93,46 +96,7 @@ uniform mat3 weight = mat3(
 layout(std430, binding = 1) readonly buffer spectrum {
     vec4 spec[];
 };
-uniform int    span;
-
-double log(double x) {
-	double
-		Ln2Hi = 6.93147180369123816490e-01LF, /* 3fe62e42 fee00000 */
-		Ln2Lo = 1.90821492927058770002e-10LF, /* 3dea39ef 35793c76 */
-        L0    = 7.0710678118654752440e-01LF,  /* 1/sqrt(2) */
-		L1    = 6.666666666666735130e-01LF,   /* 3FE55555 55555593 */
-		L2    = 3.999999999940941908e-01LF,   /* 3FD99999 9997FA04 */
-		L3    = 2.857142874366239149e-01LF,   /* 3FD24924 94229359 */
-		L4    = 2.222219843214978396e-01LF,   /* 3FCC71C5 1D8E78AF */
-		L5    = 1.818357216161805012e-01LF,   /* 3FC74664 96CB03DE */
-		L6    = 1.531383769920937332e-01LF,   /* 3FC39A09 D078C69F */
-		L7    = 1.479819860511658591e-01LF;   /* 3FC2F112 DF3E5244 */
-	if( isinf(x) )
-        return 1.0/0.0; /* return +inf */
-	if( isnan(x) || x < 0 )
-        return -0.0; /* nan */
-	if( x == 0 )
-        return -1.0/0.0; /* return -inf */
-    int ki;
-    double f1 = frexp(x, ki);
-    
-    if (f1 < L0) {
-		f1 *= 2.0;
-		ki--;
-	}
-	
-	double f = f1 - 1.0;
-	double k = double(ki);
-	double s = f / (2.0 + f);
-	double s2 = s * s;
-	double s4 = s2 * s2;
-	double t1 = s2 * (L1 + s4 * (L3 + s4 * (L5 + s4 * L7)));
-	double t2 = s4 * (L2 + s4 * (L4 + s4 * L6));
-	double R = t1 + t2;
-	double hfsq = 0.5 * f * f;
-    
-    return k*Ln2Hi - ((hfsq - (s*(hfsq+R) + k*Ln2Lo)) - f);
-}
+uniform int span;
 
 vec3 color(float i) {
     if (i < 0.f) return set_color;
@@ -284,10 +248,10 @@ namespace ImGui {
         float ANIM_SPEED = 0.055f;
         if (gg.LastActiveId == gg.CurrentWindow->GetID(name))
             float t_anim = ImSaturate(gg.LastActiveIdTimer / ANIM_SPEED);
-        if (ImGui::IsItemHovered())
-            draw_list->AddRectFilled(p, ImVec2(p.x + width, p.y + height), ImGui::GetColorU32(ImVec4(0.2196f, 0.2196f, 0.2196f, 1.0f)), height * rounding);
-        else
-            draw_list->AddRectFilled(p, ImVec2(p.x + width, p.y + height), ImGui::GetColorU32(*v ? ImVec4(0.2196f, 0.2196f, 0.2196f, 1.0f) : ImVec4(0.08f, 0.08f, 0.08f, 1.0f)), height * rounding);
+        if (ImGui::IsItemHovered()) draw_list->AddRectFilled(p, ImVec2(p.x + width, p.y + height),
+            ImGui::GetColorU32(ImVec4(0.2196f, 0.2196f, 0.2196f, 1.0f)), height * rounding);
+        else draw_list->AddRectFilled(p, ImVec2(p.x + width, p.y + height),
+            ImGui::GetColorU32(*v ? ImVec4(0.2196f, 0.2196f, 0.2196f, 1.0f) : ImVec4(0.08f, 0.08f, 0.08f, 1.0f)), height * rounding);
         ImVec2 center = ImVec2(radius + (*v ? 1 : 0) * (width - radius * 2.0f), radius);
         draw_list->AddRectFilled(ImVec2((p.x + center.x) - 9.0f, p.y + 1.5f),
             ImVec2((p.x + (width / 2) + center.x) - 9.0f, p.y + height - 1.5f), IM_COL32(255, 255, 255, 255), height * rounding);
@@ -306,91 +270,6 @@ namespace ImGui {
             ImGui::EndTooltip();
         }
     }
-
-    inline static void LoadTheme() {
-        ImGui::StyleColorsDark();
-
-        ImVec4* colors = ImGui::GetStyle().Colors;
-        colors[ImGuiCol_Text] = ImVec4(1.00f, 1.00f, 1.00f, 1.00f);
-        colors[ImGuiCol_TextDisabled] = ImVec4(0.50f, 0.50f, 0.50f, 1.00f);
-        colors[ImGuiCol_WindowBg] = ImVec4(0.10f, 0.10f, 0.10f, 1.00f);
-        colors[ImGuiCol_ChildBg] = ImVec4(0.00f, 0.00f, 0.00f, 0.00f);
-        colors[ImGuiCol_PopupBg] = ImVec4(0.19f, 0.19f, 0.19f, 0.92f);
-        colors[ImGuiCol_Border] = ImVec4(0.19f, 0.19f, 0.19f, 0.29f);
-        colors[ImGuiCol_BorderShadow] = ImVec4(0.00f, 0.00f, 0.00f, 0.24f);
-        colors[ImGuiCol_FrameBg] = ImVec4(0.05f, 0.05f, 0.05f, 0.54f);
-        colors[ImGuiCol_FrameBgHovered] = ImVec4(0.19f, 0.19f, 0.19f, 0.54f);
-        colors[ImGuiCol_FrameBgActive] = ImVec4(0.20f, 0.22f, 0.23f, 1.00f);
-        colors[ImGuiCol_TitleBg] = ImVec4(0.00f, 0.00f, 0.00f, 1.00f);
-        colors[ImGuiCol_TitleBgActive] = ImVec4(0.06f, 0.06f, 0.06f, 1.00f);
-        colors[ImGuiCol_TitleBgCollapsed] = ImVec4(0.00f, 0.00f, 0.00f, 1.00f);
-        colors[ImGuiCol_MenuBarBg] = ImVec4(0.14f, 0.14f, 0.14f, 1.00f);
-        colors[ImGuiCol_ScrollbarBg] = ImVec4(0.05f, 0.05f, 0.05f, 0.54f);
-        colors[ImGuiCol_ScrollbarGrab] = ImVec4(0.34f, 0.34f, 0.34f, 0.54f);
-        colors[ImGuiCol_ScrollbarGrabHovered] = ImVec4(0.40f, 0.40f, 0.40f, 0.54f);
-        colors[ImGuiCol_ScrollbarGrabActive] = ImVec4(0.56f, 0.56f, 0.56f, 0.54f);
-        colors[ImGuiCol_CheckMark] = ImVec4(0.33f, 0.67f, 0.86f, 1.00f);
-        colors[ImGuiCol_SliderGrab] = ImVec4(0.34f, 0.34f, 0.34f, 0.54f);
-        colors[ImGuiCol_SliderGrabActive] = ImVec4(0.56f, 0.56f, 0.56f, 0.54f);
-        colors[ImGuiCol_Button] = ImVec4(0.25f, 0.25f, 0.25f, 0.54f);
-        colors[ImGuiCol_ButtonHovered] = ImVec4(0.39f, 0.39f, 0.39f, 0.54f);
-        colors[ImGuiCol_ButtonActive] = ImVec4(0.30f, 0.32f, 0.33f, 1.00f);
-        colors[ImGuiCol_Header] = ImVec4(0.00f, 0.00f, 0.00f, 0.52f);
-        colors[ImGuiCol_HeaderHovered] = ImVec4(0.00f, 0.00f, 0.00f, 0.36f);
-        colors[ImGuiCol_HeaderActive] = ImVec4(0.20f, 0.22f, 0.23f, 0.33f);
-        colors[ImGuiCol_Separator] = ImVec4(0.28f, 0.28f, 0.28f, 0.29f);
-        colors[ImGuiCol_SeparatorHovered] = ImVec4(0.44f, 0.44f, 0.44f, 0.29f);
-        colors[ImGuiCol_SeparatorActive] = ImVec4(0.40f, 0.44f, 0.47f, 1.00f);
-        colors[ImGuiCol_ResizeGrip] = ImVec4(0.28f, 0.28f, 0.28f, 0.29f);
-        colors[ImGuiCol_ResizeGripHovered] = ImVec4(0.44f, 0.44f, 0.44f, 0.29f);
-        colors[ImGuiCol_ResizeGripActive] = ImVec4(0.40f, 0.44f, 0.47f, 1.00f);
-        colors[ImGuiCol_Tab] = ImVec4(0.00f, 0.00f, 0.00f, 0.52f);
-        colors[ImGuiCol_TabHovered] = ImVec4(0.14f, 0.14f, 0.14f, 1.00f);
-        colors[ImGuiCol_TabActive] = ImVec4(0.20f, 0.20f, 0.20f, 0.36f);
-        colors[ImGuiCol_TabUnfocused] = ImVec4(0.00f, 0.00f, 0.00f, 0.52f);
-        colors[ImGuiCol_TabUnfocusedActive] = ImVec4(0.14f, 0.14f, 0.14f, 1.00f);
-        colors[ImGuiCol_DockingPreview] = ImVec4(0.33f, 0.67f, 0.86f, 1.00f);
-        colors[ImGuiCol_DockingEmptyBg] = ImVec4(1.00f, 0.00f, 0.00f, 1.00f);
-        colors[ImGuiCol_PlotLines] = ImVec4(1.00f, 0.00f, 0.00f, 1.00f);
-        colors[ImGuiCol_PlotLinesHovered] = ImVec4(1.00f, 0.00f, 0.00f, 1.00f);
-        colors[ImGuiCol_PlotHistogram] = ImVec4(1.00f, 0.00f, 0.00f, 1.00f);
-        colors[ImGuiCol_PlotHistogramHovered] = ImVec4(1.00f, 0.00f, 0.00f, 1.00f);
-        colors[ImGuiCol_TableHeaderBg] = ImVec4(0.00f, 0.00f, 0.00f, 0.52f);
-        colors[ImGuiCol_TableBorderStrong] = ImVec4(0.00f, 0.00f, 0.00f, 0.52f);
-        colors[ImGuiCol_TableBorderLight] = ImVec4(0.28f, 0.28f, 0.28f, 0.29f);
-        colors[ImGuiCol_TableRowBg] = ImVec4(0.00f, 0.00f, 0.00f, 0.00f);
-        colors[ImGuiCol_TableRowBgAlt] = ImVec4(1.00f, 1.00f, 1.00f, 0.06f);
-        colors[ImGuiCol_TextSelectedBg] = ImVec4(0.20f, 0.22f, 0.23f, 1.00f);
-        colors[ImGuiCol_DragDropTarget] = ImVec4(0.33f, 0.67f, 0.86f, 1.00f);
-        colors[ImGuiCol_NavHighlight] = ImVec4(1.00f, 0.00f, 0.00f, 1.00f);
-        colors[ImGuiCol_NavWindowingHighlight] = ImVec4(1.00f, 0.00f, 0.00f, 0.70f);
-        colors[ImGuiCol_NavWindowingDimBg] = ImVec4(1.00f, 0.00f, 0.00f, 0.20f);
-        colors[ImGuiCol_ModalWindowDimBg] = ImVec4(0.00f, 0.00f, 0.00f, 0.70f);
-
-        ImGuiStyle& style = ImGui::GetStyle();
-        style.WindowPadding = ImVec2(8.00f, 8.00f);
-        style.FramePadding = ImVec2(5.00f, 2.00f);
-        style.CellPadding = ImVec2(6.00f, 6.00f);
-        style.ItemSpacing = ImVec2(6.00f, 6.00f);
-        style.ItemInnerSpacing = ImVec2(6.00f, 6.00f);
-        style.TouchExtraPadding = ImVec2(0.00f, 0.00f);
-        style.IndentSpacing = 25;
-        style.ScrollbarSize = 15;
-        style.GrabMinSize = 10;
-        style.WindowBorderSize = 1;
-        style.ChildBorderSize = 1;
-        style.PopupBorderSize = 1;
-        style.FrameBorderSize = 1;
-        style.TabBorderSize = 1;
-        style.WindowRounding = 7;
-        style.ChildRounding = 4;
-        style.FrameRounding = 3;
-        style.PopupRounding = 4;
-        style.ScrollbarRounding = 9;
-        style.GrabRounding = 3;
-        style.LogSliderDeadzone = 4;
-        style.TabRounding = 4;
-    }
 }
 
 class Error : public std::exception {
@@ -405,11 +284,9 @@ public:
     }
 };
 
-namespace consts {
-    constexpr double zoom_co = 0.85;
-    constexpr double doubleClick_interval = 0.2;
-    glm::ivec2 monitorSize;
-}
+constexpr double zoom_co = 0.85;
+constexpr double doubleClick_interval = 0.2;
+glm::ivec2 monitorSize;
 
 static void HelpMarker(const char* desc) { // code from imgui demo
     ImGui::TextDisabled("[?]");
@@ -421,25 +298,9 @@ static void HelpMarker(const char* desc) { // code from imgui demo
     }
 }
 
-class MV2 {
-    GLFWwindow* window;
-    ImFont* font_title;
-
-    std::vector<glm::vec4> paletteData = {
-        {0.0f, 0.0274f, 0.3921f, 0.f},
-        {0.1254f, 0.4196f, 0.7960f, 0.16f},
-        {0.9294f, 1.f, 1.f, 0.42f},
-        {1.f, 0.6666f, 0.f, 0.6425f},
-        {0.f, 0.0078f, 0.f, 0.8575f},
-        {0.0f, 0.0274f, 0.3921f, 1.f}
-    };
-    int span = 1000;
-    const int max_colors = 8;
-
+struct Config {
     glm::dvec2 offset = { -0.4, 0 };
     glm::ivec2 screenSize = { 840, 540 };
-    glm::ivec2 screenPos;
-    bool   fullscreen = false;
     double zoom = 5.0;
     float  spectrum_offset = 850.f;
     float  iter_multiplier = 18.f;
@@ -450,26 +311,58 @@ class MV2 {
     int    degree = 2;
     bool   ssaa = true;
     int    ssaa_factor = 2;
+};
+
+struct ZoomSequenceConfig {
+    Config tcfg;
+    int fps = 30;
+    int duration = 30;
+    char path[256]{};
+};
+
+class MV2 {
+    GLFWwindow* window = nullptr;
+    ImFont* font_title = nullptr;
+
+    std::vector<glm::vec4> paletteData = {
+        {0.0000f, 0.0274f, 0.3921f, 0.0000f},
+        {0.1254f, 0.4196f, 0.7960f, 0.1600f},
+        {0.9294f, 1.0000f, 1.0000f, 0.4200f},
+        {1.0000f, 0.6666f, 0.0000f, 0.6425f},
+        {0.0000f, 0.0078f, 0.0000f, 0.8575f},
+        {0.0000f, 0.0274f, 0.3921f, 1.0000f}
+    };
+    int span = 1000;
+    const int max_colors = 8;
+
+    glm::ivec2 screenPos;
+    bool   fullscreen = false;
+    Config config;
+    ZoomSequenceConfig zsc;
     int    julia_size = 210;
     double julia_zoom = 3;
     double fps_update_interval = 0.03;
 
     glm::dvec2 oldPos = { 0, 0 };
-    glm::dvec2 lastPresses = { -consts::doubleClick_interval, 0 };
+    glm::dvec2 lastPresses = { -doubleClick_interval, 0 };
     bool   dragging = false;
     bool   rightClickHold = false;
 
+    bool   rendering = false;
+    bool   paused = false;
+    float  progress = 0.f;
+
     GLuint shaderProgram = 0;
 
-    GLuint mandelbrotFrameBuffer;
-    GLuint postprocFrameBuffer;
-    GLuint juliaFrameBuffer;
+    GLuint mandelbrotFrameBuffer = NULL;
+    GLuint postprocFrameBuffer = NULL;
+    GLuint juliaFrameBuffer = NULL;
 
-    GLuint mandelbrotTexBuffer;
-    GLuint postprocTexBuffer;
-    GLuint juliaTexBuffer;
+    GLuint mandelbrotTexBuffer = NULL;
+    GLuint postprocTexBuffer = NULL;
+    GLuint juliaTexBuffer = NULL;
 
-    GLuint paletteBuffer;
+    GLuint paletteBuffer = NULL;
 
     int32_t stateID = 10;
     ImGradientHDRState state;
@@ -490,10 +383,10 @@ public:
         glfwWindowHint(GLFW_GREEN_BITS, mode->greenBits);
         glfwWindowHint(GLFW_BLUE_BITS, mode->blueBits);
         glfwWindowHint(GLFW_REFRESH_RATE, mode->refreshRate);
-        consts::monitorSize.x = mode->width;
-        consts::monitorSize.y = mode->height;
+        monitorSize.x = mode->width;
+        monitorSize.y = mode->height;
 
-        window = glfwCreateWindow(screenSize.x, screenSize.y, "Mandelbrot Voyage II", NULL, NULL);
+        window = glfwCreateWindow(config.screenSize.x, config.screenSize.y, "Mandelbrot Voyage II", NULL, NULL);
         if (window == nullptr) {
             std::cout << "Failed to create OpenGL window" << std::endl;
             return;
@@ -527,14 +420,14 @@ public:
             return;
         }
 
-        int factor = (ssaa ? ssaa_factor : 1);
+        int factor = (config.ssaa ? config.ssaa_factor : 1);
 
         glGenTextures(1, &mandelbrotTexBuffer);
         glActiveTexture(GL_TEXTURE0);
         glBindTexture(GL_TEXTURE_2D, mandelbrotTexBuffer);
         glUniform1i(glGetUniformLocation(shaderProgram, "mandelbrotTex"), 0);
-        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA32F, screenSize.x * factor,
-            screenSize.y * factor, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA32F, config.screenSize.x * factor,
+            config.screenSize.y * factor, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
 
@@ -542,8 +435,8 @@ public:
         glActiveTexture(GL_TEXTURE1);
         glBindTexture(GL_TEXTURE_2D, postprocTexBuffer);
         glUniform1i(glGetUniformLocation(shaderProgram, "postprocTex"), 1);
-        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA32F, screenSize.x * factor,
-            screenSize.y * factor, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA32F, config.screenSize.x * factor,
+            config.screenSize.y * factor, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
 
@@ -620,22 +513,22 @@ public:
         glShaderStorageBlockBinding(shaderProgram, block_index, ssbo_binding_point_index);
         glUniform1i(glGetUniformLocation(shaderProgram, "span"), span);
 
-        glUniform2d(glGetUniformLocation(shaderProgram, "offset"), offset.x, offset.y);
-        glUniform1f(glGetUniformLocation(shaderProgram, "iter_multiplier"), iter_multiplier);
-        glUniform1d(glGetUniformLocation(shaderProgram, "zoom"), zoom);
+        glUniform2d(glGetUniformLocation(shaderProgram, "offset"), config.offset.x, config.offset.y);
+        glUniform1f(glGetUniformLocation(shaderProgram, "iter_multiplier"), config.iter_multiplier);
+        glUniform1d(glGetUniformLocation(shaderProgram, "zoom"), config.zoom);
         glUniform1i(glGetUniformLocation(shaderProgram, "max_iters"),
-            max_iters(zoom, consts::zoom_co, iter_co));
-        glUniform1f(glGetUniformLocation(shaderProgram, "spectrum_offset"), spectrum_offset);
-        glUniform1d(glGetUniformLocation(shaderProgram, "bailout_radius"), pow(bailout_radius, 2));
-        glUniform1i(glGetUniformLocation(shaderProgram, "continuous_coloring"), continuous_coloring);
-        glUniform3f(glGetUniformLocation(shaderProgram, "set_color"), set_color.x, set_color.y, set_color.z);
-        glUniform1i(glGetUniformLocation(shaderProgram, "degree"), degree);
+            max_iters(config.zoom, zoom_co, config.iter_co));
+        glUniform1f(glGetUniformLocation(shaderProgram, "spectrum_offset"), config.spectrum_offset);
+        glUniform1d(glGetUniformLocation(shaderProgram, "bailout_radius"), pow(config.bailout_radius, 2));
+        glUniform1i(glGetUniformLocation(shaderProgram, "continuous_coloring"), config.continuous_coloring);
+        glUniform3f(glGetUniformLocation(shaderProgram, "set_color"), config.set_color.x, config.set_color.y, config.set_color.z);
+        glUniform1i(glGetUniformLocation(shaderProgram, "degree"), config.degree);
         glUniform1d(glGetUniformLocation(shaderProgram, "julia_zoom"), julia_zoom);
         glUniform1i(glGetUniformLocation(shaderProgram, "julia_maxiters"),
-            max_iters(julia_zoom, consts::zoom_co, iter_co, 3.0));
-        glUniform1i(glGetUniformLocation(shaderProgram, "blur"), ssaa_factor);
+            max_iters(julia_zoom, zoom_co, config.iter_co, 3.0));
+        glUniform1i(glGetUniformLocation(shaderProgram, "blur"), config.ssaa_factor);
 
-        on_windowResize(window, screenSize.x, screenSize.y);
+        on_windowResize(window, config.screenSize.x, config.screenSize.y);
 
         for (const glm::vec4& c : paletteData) {
             state.AddColorMarker(c.w, { c.r, c.g, c.b }, 1.0f);
@@ -647,12 +540,11 @@ public:
             glm::dvec2(zoom, (screenSize.y * zoom) / screenSize.x) + offset;
     }
     static glm::dvec2 pixel_to_complex(MV2* app, glm::dvec2 pixelCoord) {
-        glm::ivec2 ss = (app->fullscreen ? consts::monitorSize : app->screenSize);
+        glm::ivec2 ss = (app->fullscreen ? monitorSize : app->config.screenSize);
         return ((glm::dvec2(pixelCoord.x / ss.x, (ss.y - pixelCoord.y) / ss.y)) - glm::dvec2(0.5, 0.5)) *
-            glm::dvec2(app->zoom, (ss.y * app->zoom) / ss.x) + app->offset;
+            glm::dvec2(app->config.zoom, (ss.y * app->config.zoom) / ss.x) + app->config.offset;
     }
     static int max_iters(double zoom, double zoom_co, double iter_co, double initial_zoom = 5.0) {
-        //return sqrt(2 * sqrt(abs(1 - sqrt(5 * 1/zoom)))) * 66.5;
         return 100 * pow(iter_co, log2(zoom / initial_zoom) / log2(zoom_co));
     }
 
@@ -660,11 +552,11 @@ public:
         MV2* app = static_cast<MV2*>(glfwGetWindowUserPointer(window));
         glViewport(0, 0, width, height);
 
-        if (!app->fullscreen) app->screenSize = { width, height };
+        if (!app->fullscreen) app->config.screenSize = { width, height };
         if (app->shaderProgram)
             glUniform2i(glGetUniformLocation(app->shaderProgram, "screenSize"), width, height);
         app->protocol = MV_COMPUTE;
-        int factor = (app->ssaa ? app->ssaa_factor : 1);
+        int factor = (app->config.ssaa ? app->config.ssaa_factor : 1);
 
         glBindFramebuffer(GL_FRAMEBUFFER, app->mandelbrotFrameBuffer);
         glBindTexture(GL_TEXTURE_2D, app->mandelbrotTexBuffer);
@@ -677,7 +569,7 @@ public:
 
     static void on_mouseButton(GLFWwindow* window, int button, int action, int mod) {
         MV2* app = static_cast<MV2*>(glfwGetWindowUserPointer(window));
-        glm::ivec2 ss = (app->fullscreen ? consts::monitorSize : app->screenSize);
+        glm::ivec2 ss = (app->fullscreen ? monitorSize : app->config.screenSize);
         if (ImGui::GetIO().WantCaptureMouse) return;
         switch (button) {
         case GLFW_MOUSE_BUTTON_LEFT:
@@ -687,12 +579,12 @@ public:
                 app->lastPresses.y = glfwGetTime();
                 glfwGetCursorPos(window, &app->oldPos.x, &app->oldPos.y);
             }
-            else if (app->lastPresses.y - app->lastPresses.x < consts::doubleClick_interval) {
+            else if (app->lastPresses.y - app->lastPresses.x < doubleClick_interval) {
                 glfwGetCursorPos(window, &app->oldPos.x, &app->oldPos.y);
                 glm::dvec2 pos = pixel_to_complex(app, app->oldPos);
                 glm::dvec2 center = pixel_to_complex(app, static_cast<glm::dvec2>(ss) / 2.0);
-                app->offset += pos - center;
-                glUniform2d(glGetUniformLocation(app->shaderProgram, "offset"), app->offset.x, app->offset.y);
+                app->config.offset += pos - center;
+                glUniform2d(glGetUniformLocation(app->shaderProgram, "offset"), app->config.offset.x, app->config.offset.y);
                 app->dragging = false;
                 app->protocol = MV_COMPUTE;
             }
@@ -707,7 +599,7 @@ public:
                 app->julia_zoom = 3.0;
                 glUniform1d(glGetUniformLocation(app->shaderProgram, "julia_zoom"), app->julia_zoom);
                 glUniform1i(glGetUniformLocation(app->shaderProgram, "julia_maxiters"),
-                    max_iters(app->julia_zoom, consts::zoom_co, app->iter_co, 3.0));
+                    max_iters(app->julia_zoom, zoom_co, app->config.iter_co, 3.0));
                 break;
             case GLFW_RELEASE:
                 app->rightClickHold = false;
@@ -717,15 +609,15 @@ public:
 
     static void on_cursorMove(GLFWwindow* window, double x, double y) {
         MV2* app = static_cast<MV2*>(glfwGetWindowUserPointer(window));
-        glm::ivec2 ss = (app->fullscreen ? consts::monitorSize : app->screenSize);
+        glm::ivec2 ss = (app->fullscreen ? monitorSize : app->config.screenSize);
         glUniform2d(glGetUniformLocation(app->shaderProgram, "mousePos"), x / ss.x, y / ss.y);
         if (ImGui::GetIO().WantCaptureMouse)
             return;
         if (app->dragging) {
-            app->lastPresses = { -consts::doubleClick_interval, 0 };
-            app->offset.x -= ((x - app->oldPos.x) * app->zoom) / ss.x;
-            app->offset.y -= ((app->oldPos.y - y) * ((app->zoom * ss.y) / ss.x)) / ss.y;
-            glUniform2d(glGetUniformLocation(app->shaderProgram, "offset"), app->offset.x, app->offset.y);
+            app->lastPresses = { -doubleClick_interval, 0 };
+            app->config.offset.x -= ((x - app->oldPos.x) * app->config.zoom) / ss.x;
+            app->config.offset.y -= ((app->oldPos.y - y) * ((app->config.zoom * ss.y) / ss.x)) / ss.y;
+            glUniform2d(glGetUniformLocation(app->shaderProgram, "offset"), app->config.offset.x, app->config.offset.y);
             app->oldPos = { x, y };
             app->protocol = MV_COMPUTE;
         }
@@ -734,16 +626,16 @@ public:
     static void on_mouseScroll(GLFWwindow* window, double x, double y) {
         MV2* app = static_cast<MV2*>(glfwGetWindowUserPointer(window));
         if (app->rightClickHold) {
-            app->julia_zoom *= pow(consts::zoom_co, y * 1.5);
+            app->julia_zoom *= pow(zoom_co, y * 1.5);
             glUniform1d(glGetUniformLocation(app->shaderProgram, "julia_zoom"), app->julia_zoom);
             glUniform1i(glGetUniformLocation(app->shaderProgram, "julia_maxiters"),
-                max_iters(app->julia_zoom, consts::zoom_co, app->iter_co, 3.0));
+                max_iters(app->julia_zoom, zoom_co, app->config.iter_co, 3.0));
         }
         else {
-            app->zoom *= pow(consts::zoom_co, y * 1.5);
-            glUniform1d(glGetUniformLocation(app->shaderProgram, "zoom"), app->zoom);
+            app->config.zoom *= pow(zoom_co, y * 1.5);
+            glUniform1d(glGetUniformLocation(app->shaderProgram, "zoom"), app->config.zoom);
             glUniform1i(glGetUniformLocation(app->shaderProgram, "max_iters"),
-                max_iters(app->zoom, consts::zoom_co, app->iter_co));
+                max_iters(app->config.zoom, zoom_co, app->config.iter_co));
             app->protocol = MV_COMPUTE;
         }
     }
@@ -765,7 +657,7 @@ public:
             }
             else {
                 glfwSetWindowMonitor(window, nullptr, app->screenPos.x,
-                    app->screenPos.y, app->screenSize.x, app->screenSize.y, 0);
+                    app->screenPos.y, app->config.screenSize.x, app->config.screenSize.y, 0);
                 app->fullscreen = false;
             }
         }
@@ -780,7 +672,7 @@ public:
 
             ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 6);
 
-            glm::ivec2 ss = (fullscreen ? consts::monitorSize : screenSize);
+            glm::ivec2 ss = (fullscreen ? monitorSize : config.screenSize);
 
             ImGui::PushFont(font_title);
             ImGui::SetNextWindowPos({ 10, 10 });
@@ -798,11 +690,10 @@ public:
                     std::ostringstream oss;
                     oss << std::put_time(&tm, "MV2 %d-%m-%Y %H-%M-%S");
                     char const* path = tinyfd_saveFileDialog("Save screenshot", oss.str().c_str(), 1, lFilterPatterns, "PNG (*.png)");
-                    if (glfwGetWindowMonitor(window) == nullptr)
-                        glfwShowWindow(window);
-                    else glfwRestoreWindow(window);
+                    if (glfwGetWindowMonitor(window) != nullptr) glfwRestoreWindow(window);
+                    glfwShowWindow(window);
                     if (path) {
-                        int factor = (ssaa ? ssaa_factor : 1);
+                        int factor = (config.ssaa ? config.ssaa_factor : 1);
                         int w, h;
                         if (fullscreen) {
                             GLFWmonitor* monitor = glfwGetPrimaryMonitor();
@@ -810,7 +701,7 @@ public:
                             w = mode->width * factor, h = mode->height * factor;
                         }
                         else {
-                            w = screenSize.x * factor, h = screenSize.y * factor;
+                            w = config.screenSize.x * factor, h = config.screenSize.y * factor;
                         }
                         unsigned char* buffer = new unsigned char[4 * w * h];
                         glActiveTexture(GL_TEXTURE1);
@@ -822,51 +713,110 @@ public:
                     }
                 }
                 ImGui::SameLine();
-                if (ImGui::BeginPopupModal("Zoom sequence creator", nullptr, ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoMove)) {
+                if (ImGui::BeginPopupModal("Zoom sequence creator", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+                    zsc.tcfg = config;
+                    if (ImGui::Button("Browse...")) {
+                        char const* lFilterPatterns[1] = { "*.mp4" };
+                        auto t = std::time(nullptr);
+                        auto tm = *std::localtime(&t);
+                        std::ostringstream oss;
+                        oss << std::put_time(&tm, "MV2 %d-%m-%Y %H-%M-%S");
+                        char const* buf = tinyfd_saveFileDialog("Save sequence", oss.str().c_str(), 1, lFilterPatterns, "Video Files (*.mp4)");
+                        if (glfwGetWindowMonitor(window) != nullptr) glfwRestoreWindow(window);
+                        glfwShowWindow(window);
+                        if (buf) strcpy(zsc.path, buf);
+                    }
+                    ImGui::SameLine();
+                    ImGui::PushItemWidth(330);
+                    ImGui::InputTextWithHint("##output", "Output", zsc.path, 256, ImGuiInputTextFlags_None, nullptr, nullptr);
+                    ImGui::PushItemWidth(80);
+                    ImGui::InputInt("FPS", &zsc.fps, 1, 5);
+                    ImGui::SameLine();
+                    ImGui::InputInt("Duration", &zsc.duration, 5, 20);
+                    ImGui::SameLine();
+                    const std::vector<glm::ivec2> commonres = {
+                        { 426,  240  },
+                        { 640,  480  },
+                        { 1280, 720  },
+                        { 1920, 1080 },
+                        { 2560, 1440 },
+                        { 3840, 2160 }
+                    };
+                    static int res = 3;
+                    auto vec_to_str = [commonres](int i) {
+                        return std::format("{}x{}", commonres.at(i).x, commonres.at(i).y);
+                    };
+                    std::string preview = vec_to_str(res);
+
+                    if (ImGui::BeginCombo("Resolution", preview.c_str())) {
+                        for (int i = 0; i < commonres.size(); i++) {
+                            const bool is_selected = (res == i);
+                            if (ImGui::Selectable(vec_to_str(i).c_str(), is_selected)) {
+                                zsc.tcfg.screenSize = commonres.at(i);
+                                res = i;
+                            } 
+                            if (is_selected) ImGui::SetItemDefaultFocus();
+                        }
+                        ImGui::EndCombo();
+                    }
+                    ImGui::PopItemWidth();
+
+                    if (!rendering && ImGui::Button("Render", ImVec2(100, 0))) {
+                        rendering = true;
+                        progress = 0;
+                    }
+                    else if (rendering && ImGui::Button(paused ? "Resume" : "Pause", ImVec2(100, 0))) {
+                        paused ^= 1;
+                    }
+                    ImGui::SameLine();
+                    if (ImGui::Button("Cancel", ImVec2(100, 0))) {
+                        rendering = false;
+                        progress = 0;
+                        ImGui::CloseCurrentPopup();
+                    }
 
                     ImGui::EndPopup();
                 }
                 if (ImGui::Button("Create zoom sequence")) {
                     ImGui::OpenPopup("Zoom sequence creator");
-
                 }
 
                 ImGui::SeparatorText("Parameters");
                 bool update = false;
                 ImGui::Text("Re"); ImGui::SetNextItemWidth(270); ImGui::SameLine();
                 ImGui::SetCursorPosY(ImGui::GetCursorPosY() - 3.f);
-                update |= ImGui::InputDouble("##re", &offset.x, 0.0, 0.0, "%.17g");
+                update |= ImGui::InputDouble("##re", &config.offset.x, 0.0, 0.0, "%.17g");
                 ImGui::Text("Im"); ImGui::SetNextItemWidth(270); ImGui::SameLine();
                 ImGui::SetCursorPosY(ImGui::GetCursorPosY() - 3.f);
-                update |= ImGui::InputDouble("##im", &offset.y, 0.0, 0.0, "%.17g");
+                update |= ImGui::InputDouble("##im", &config.offset.y, 0.0, 0.0, "%.17g");
                 if (update) {
-                    glUniform2d(glGetUniformLocation(shaderProgram, "offset"), offset.x, offset.y);
+                    glUniform2d(glGetUniformLocation(shaderProgram, "offset"), config.offset.x, config.offset.y);
                     protocol = MV_COMPUTE;
                 }
                 ImGui::Text("Zoom"); ImGui::SetNextItemWidth(80); ImGui::SameLine();
                 ImGui::SetCursorPosY(ImGui::GetCursorPosY() - 3.f);
-                if (ImGui::InputDouble("##zoom", &zoom, 0.0, 0.0, "%.2e")) {
-                    glUniform1d(glGetUniformLocation(shaderProgram, "zoom"), zoom);
+                if (ImGui::InputDouble("##zoom", &config.zoom, 0.0, 0.0, "%.2e")) {
+                    glUniform1d(glGetUniformLocation(shaderProgram, "zoom"), config.zoom);
                     protocol = MV_COMPUTE;
                 }
 
                 ImGui::BeginGroup();
                 ImGui::SeparatorText("Computation");
-                if (ImGui::SliderFloat("Iteration coeff.", &iter_co, 1.01, 1.1)) {
+                if (ImGui::SliderFloat("Iteration coeff.", &config.iter_co, 1.01, 1.1)) {
                     glUniform1i(glGetUniformLocation(shaderProgram, "max_iters"),
-                        max_iters(zoom, consts::zoom_co, iter_co));
+                        max_iters(config.zoom, zoom_co, config.iter_co));
                     protocol = MV_COMPUTE;
                 }
-                if (ImGui::SliderFloat("Bailout radius", &bailout_radius, 2.0, 25.0)) {
-                    glUniform1d(glGetUniformLocation(shaderProgram, "bailout_radius"), pow(bailout_radius, 2));
+                if (ImGui::SliderFloat("Bailout radius", &config.bailout_radius, 2.0, 25.0)) {
+                    glUniform1d(glGetUniformLocation(shaderProgram, "bailout_radius"), pow(config.bailout_radius, 2));
                     protocol = MV_COMPUTE;
                 }
-                if (ImGui::SliderInt("Order", &degree, 2, 7)) {
-                    glUniform1i(glGetUniformLocation(shaderProgram, "degree"), degree);
+                if (ImGui::SliderInt("Order", &config.degree, 2, 7)) {
+                    glUniform1i(glGetUniformLocation(shaderProgram, "degree"), config.degree);
                     protocol = MV_COMPUTE;
                 }
-                if (ImGui::Checkbox("SSAA", &ssaa)) {
-                    int factor = ((ssaa) ? ssaa_factor : 1);
+                if (ImGui::Checkbox("SSAA", &config.ssaa)) {
+                    int factor = (config.ssaa ? config.ssaa_factor : 1);
                     glBindFramebuffer(GL_FRAMEBUFFER, mandelbrotFrameBuffer);
                     glBindTexture(GL_TEXTURE_2D, mandelbrotTexBuffer);
                     glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA32F, ss.x * factor,
@@ -887,21 +837,21 @@ public:
                     protocol = MV_COMPUTE;
                 }
                 ImGui::SameLine();
-                if (ImGui::Checkbox("Continuous Coloring", reinterpret_cast<bool*>(&continuous_coloring))) {
-                    glUniform1i(glGetUniformLocation(shaderProgram, "continuous_coloring"), continuous_coloring);
+                if (ImGui::Checkbox("Continuous Coloring", reinterpret_cast<bool*>(&config.continuous_coloring))) {
+                    glUniform1i(glGetUniformLocation(shaderProgram, "continuous_coloring"), config.continuous_coloring);
                     protocol = MV_COMPUTE;
                 }
                 ImGui::SeparatorText("Coloring");
-                if (ImGui::ColorEdit3("Set color", &set_color.x)) {
-                    glUniform3f(glGetUniformLocation(shaderProgram, "set_color"), set_color.r, set_color.g, set_color.b);
+                if (ImGui::ColorEdit3("Set color", &config.set_color.x)) {
+                    glUniform3f(glGetUniformLocation(shaderProgram, "set_color"), config.set_color.r, config.set_color.g, config.set_color.b);
                     protocol = MV_POSTPROC;
                 }
-                if (ImGui::SliderFloat("Multiplier", &iter_multiplier, 1, 128, "x%.4g", ImGuiSliderFlags_Logarithmic | ImGuiSliderFlags_NoRoundToFormat)) {
-                    glUniform1f(glGetUniformLocation(shaderProgram, "iter_multiplier"), iter_multiplier);
+                if (ImGui::SliderFloat("Multiplier", &config.iter_multiplier, 1, 128, "x%.4g", ImGuiSliderFlags_Logarithmic | ImGuiSliderFlags_NoRoundToFormat)) {
+                    glUniform1f(glGetUniformLocation(shaderProgram, "iter_multiplier"), config.iter_multiplier);
                     protocol = MV_POSTPROC;
                 }
-                if (ImGui::SliderFloat("Offset", &spectrum_offset, 0, span)) {
-                    glUniform1f(glGetUniformLocation(shaderProgram, "spectrum_offset"), spectrum_offset);
+                if (ImGui::SliderFloat("Offset", &config.spectrum_offset, 0, span)) {
+                    glUniform1f(glGetUniformLocation(shaderProgram, "spectrum_offset"), config.spectrum_offset);
                     protocol = MV_POSTPROC;
                 }
                 ImGui::Dummy(ImVec2(0.0f, 3.0f));
@@ -927,12 +877,12 @@ public:
                 }
 
                 int size_diff = paletteData.size() - state.Colors.size();
-                bool d = 0;
-                for (int i = 0; i < std::min(state.Colors.size(), paletteData.size()) && !d; i++) {
+                update = false;
+                for (int i = 0; i < std::min(state.Colors.size(), paletteData.size()) && !update; i++) {
                     for (int j = 0; j < 4; j++) {
                         float v1 = (j < 3 ? state.Colors[i].Color[j] : state.Colors[i].Position);
                         float v2 = paletteData[i][j];
-                        if (d |= v1 != v2) {
+                        if (update |= v1 != v2) {
                             paletteData[i][j] = v1;
                         }
                     }
@@ -952,17 +902,38 @@ public:
                         paletteData.push_back(v);
                     }
                 }
-                if (d) {
+                ImGui::EndGroup();
+                if (ImGui::Button("Save", ImVec2(90.f, 0.f))) {
+
+                }
+                ImGui::SameLine();
+                if (ImGui::Button("Load", ImVec2(90.f, 0.f))) {
+
+                }
+                ImGui::SameLine();
+                if (ImGui::Button("Reset", ImVec2(90.f, 0.f))) {
+                    paletteData = {
+                        { 0.0000f, 0.0274f, 0.3921f, 0.0000f },
+                        { 0.1254f, 0.4196f, 0.7960f, 0.1600f },
+                        { 0.9294f, 1.0000f, 1.0000f, 0.4200f },
+                        { 1.0000f, 0.6666f, 0.0000f, 0.6425f },
+                        { 0.0000f, 0.0078f, 0.0000f, 0.8575f },
+                        { 0.0000f, 0.0274f, 0.3921f, 1.0000f }
+                    };
+                    state.ColorCount = paletteData.size();
+                    for (int i = 0; i < state.ColorCount; i++) {
+                        state.Colors[i].Color = *reinterpret_cast<std::array<float, 3>*>(glm::value_ptr(paletteData[i]));
+                        state.Colors[i].Position = paletteData[i][3];
+                    }
+                    update = true;
+                }
+                if (update) {
                     glBindBuffer(GL_SHADER_STORAGE_BUFFER, paletteBuffer);
                     memcpy(glMapBuffer(GL_SHADER_STORAGE_BUFFER, GL_WRITE_ONLY),
                         paletteData.data(), paletteData.size() * sizeof(glm::vec4));
                     glUnmapBuffer(GL_SHADER_STORAGE_BUFFER);
                     protocol = MV_POSTPROC;
                 }
-                ImGui::EndGroup();
-                ImGui::Button("Save", ImVec2(80.f, 0.f)); ImGui::SameLine();
-                ImGui::Button("Load", ImVec2(80.f, 0.f)); ImGui::SameLine();
-                ImGui::Button("Reset", ImVec2(80.f, 0.f));
                 ImGui::PushStyleColor(ImGuiCol_Text, IM_COL32(80, 80, 80, 255));
                 ImGui::Text("(c) 2017-2024 Yilmaz Alpaslan");
                 ImGui::PopStyleColor();
@@ -970,9 +941,9 @@ public:
             }
             ImGui::End();
 
-            int factor = ((ssaa) ? ssaa_factor : 1);
+            int factor = (config.ssaa ? config.ssaa_factor : 1);
 
-            if (rightClickHold) {
+            if (!rendering && rightClickHold) {
                 double x, y;
                 glfwGetCursorPos(window, &x, &y);
 
@@ -995,12 +966,12 @@ public:
                 glm::dvec2 c = pixel_to_complex(this, { x, y });
                 glm::dvec2 z = c;
                 int i;
-                for (i = 1; i < max_iters(zoom, consts::zoom_co, iter_co); i++) {
+                for (i = 1; i < max_iters(config.zoom, zoom_co, config.iter_co); i++) {
                     double xx = z.x * z.x;
                     double yy = z.y * z.y;
-                    if (xx + yy > pow(bailout_radius, 2))
+                    if (xx + yy > pow(config.bailout_radius, 2))
                         goto display;
-                    switch (degree) {
+                    switch (config.degree) {
                     case 2:
                         z = glm::dvec2(xx - yy, 2.0f * z.x * z.y) + c;
                         break;
@@ -1043,7 +1014,7 @@ public:
                 ImGui::End();
             }
             glViewport(0, 0, ss.x * factor, ss.y * factor);
-            glUniform2i(glGetUniformLocation(shaderProgram, "screenSize"), ss.x * factor, ss.y * factor);
+            glUniform2i(glGetUniformLocation(shaderProgram, "screenSize"), ss.x* factor, ss.y* factor);
             switch (protocol) {
             case MV_COMPUTE:
                 glBindTexture(GL_TEXTURE_2D, mandelbrotTexBuffer);
@@ -1067,6 +1038,9 @@ public:
                 ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
                 glfwSwapBuffers(window);
                 protocol = MV_RENDER;
+            }
+            if (rendering) {
+                
             }
         } while (!glfwWindowShouldClose(window));
     }
