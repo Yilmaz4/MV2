@@ -84,7 +84,7 @@ uniform int    julia_maxiters;
 uniform int    blur;
 
 //experimental
-uniform double constant_coeff = 1.0;
+uniform double const_coeff = 1.0;
 
 layout(binding=0) uniform sampler2D mandelbrotTex;
 layout(binding=1) uniform sampler2D postprocTex;
@@ -128,22 +128,22 @@ vec3 color(float i) {
 dvec2 advance(dvec2 z, dvec2 c, double xx, double yy) {
     switch (degree) {
     case 2:
-        z = dvec2(xx - yy, 2 * z.x * z.y) + constant_coeff * c;
+        z = dvec2(xx - yy, 2 * z.x * z.y) + const_coeff * c;
         break;
     case 3:
-        z = dvec2(xx * z.x - 3 * z.x * yy, 3 * xx * z.y - yy * z.y) + constant_coeff * c;
+        z = dvec2(xx * z.x - 3 * z.x * yy, 3 * xx * z.y - yy * z.y) + const_coeff * c;
         break;
     case 4:
         z = dvec2(xx * xx + yy * yy - 6 * xx * yy,
-            4 * xx * z.x * z.y - 4 * z.x * yy * z.y) + constant_coeff * c;
+            4 * xx * z.x * z.y - 4 * z.x * yy * z.y) + const_coeff * c;
         break;
     case 5:
         z = dvec2(xx * xx * z.x + 5 * z.x * yy * yy - 10 * xx * z.x * yy,
-            5 * xx * xx * z.y + yy * yy * z.y - 10 * xx * yy * z.y) + constant_coeff * c;
+            5 * xx * xx * z.y + yy * yy * z.y - 10 * xx * yy * z.y) + const_coeff * c;
         break;
     case 6:
         z = dvec2(xx * xx * xx - 15 * xx * xx * yy + 15 * xx * yy * yy - yy * yy * yy,
-            6 * xx * xx * z.x * z.y - 20 * xx * z.x * yy * z.y + 6 * z.x * yy * yy * z.y) + constant_coeff * c;
+            6 * xx * xx * z.x * z.y - 20 * xx * z.x * yy * z.y + 6 * z.x * yy * yy * z.y) + const_coeff * c;
         break;
     }
     return z;
@@ -182,7 +182,7 @@ void main() {
         double yy = z.y * z.y;
 
         double p = xx - z.x / 2.0 + 0.0625 + yy;
-        if (degree != 2 || degree == 2 && (4.0 * p * (p + (z.x - 0.25)) > yy && (xx + yy + 2 * z.x + 1) > 0.0625)) {
+        if (degree != 2 || degree == 2 && (const_coeff != 1.f || (4.0 * p * (p + (z.x - 0.25)) > yy && (xx + yy + 2 * z.x + 1) > 0.0625))) {
             for (int i = 0; i < max_iters; i++) {
                 if (xx + yy > bailout_radius) {
                     double lo = 0.5 * log(float(xx + yy));
@@ -321,7 +321,7 @@ struct Config {
     int    degree = 2;
     bool   ssaa = true;
     int    ssaa_factor = 2;
-    float  constant_coeff = 1.f;
+    float  const_coeff = 1.f;
 };
 
 struct ZoomSequenceConfig {
@@ -856,11 +856,22 @@ public:
                     glUniform2d(glGetUniformLocation(shaderProgram, "offset"), config.offset.x, config.offset.y);
                     protocol = MV_COMPUTE;
                 }
+                ImGui::SetCursorPosY(ImGui::GetCursorPosY() + 3.f);
                 ImGui::Text("Zoom"); ImGui::SetNextItemWidth(80); ImGui::SameLine();
                 ImGui::SetCursorPosY(ImGui::GetCursorPosY() - 3.f);
                 if (ImGui::InputDouble("##zoom", &config.zoom, 0.0, 0.0, "%.2e")) {
                     glUniform1d(glGetUniformLocation(shaderProgram, "zoom"), config.zoom);
                     protocol = MV_COMPUTE;
+                }
+                ImGui::SameLine();
+                ImGui::SetCursorPosY(ImGui::GetCursorPosY() - 3.f);
+                if (ImGui::Button("Save", ImVec2(83, 0))) {
+
+                }
+                ImGui::SameLine();
+                ImGui::SetCursorPosY(ImGui::GetCursorPosY() - 3.f);
+                if (ImGui::Button("Load", ImVec2(83, 0))) {
+
                 }
 
                 ImGui::BeginGroup();
@@ -875,8 +886,8 @@ public:
                     protocol = MV_COMPUTE;
                 }
                 if (ImGui::TreeNode("Experimental")) {
-                    if (ImGui::DragFloat("Coeff. of c", &config.constant_coeff, std::max(1e-4f, abs(1 - config.constant_coeff) / 40.f), 0.f, 0.f, "%.3f", ImGuiSliderFlags_NoRoundToFormat)) {
-                        glUniform1d(glGetUniformLocation(shaderProgram, "constant_coeff"), static_cast<double>(config.constant_coeff));
+                    if (ImGui::DragFloat("Coeff. of c", &config.const_coeff, std::max(1e-4f, abs(1 - config.const_coeff) / 40.f), 0.f, 0.f, "%.3f", ImGuiSliderFlags_NoRoundToFormat)) {
+                        glUniform1d(glGetUniformLocation(shaderProgram, "const_coeff"), static_cast<double>(config.const_coeff));
                         protocol = MV_COMPUTE;
                     }
                     if (ImGui::SliderInt("Order", &config.degree, 2, 6)) {
@@ -1053,7 +1064,7 @@ public:
                 glm::dvec2 c = pixel_to_complex(this, { x, y });
                 glm::dvec2 z = c;
                 int i;
-                glm::dvec2 mc = static_cast<double>(config.constant_coeff) * c;
+                glm::dvec2 mc = static_cast<double>(config.const_coeff) * c;
                 for (i = 1; i < max_iters(config.zoom, zoom_co, config.iter_co); i++) {
                     double xx = z.x * z.x;
                     double yy = z.y * z.y;
