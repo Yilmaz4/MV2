@@ -11,15 +11,13 @@ This is a project I started randomly while learning OpenGL for a completely diff
 - Customizable color palette with up to 8 colors
 - Explore 3rd degree and beyond Mandelbrot Set variants
 - Hold right-click to see the corresponding Julia set for any point
+- Zoom sequence creation
 
 ## Planned features
 - 3D-like shadows
-- Zoom video creation
 - GPU arbitrary precision for zooming without limits
 - Non-integer degree Mandelbrot sets
 - Burning ship fractal
-- Ability to manually set location and zoom amount
-- Ability save/load location information and color palette
 
 ## A screenshot I took with this that I'm currently using as my wallpaper
 ![Screenshot 2024-02-03 211204](https://github.com/Yilmaz4/MV2/assets/77583632/b1e42990-d045-450c-8ff7-d4a6e00b47fc)
