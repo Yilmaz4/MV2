@@ -22,6 +22,9 @@
     <Filter Include="Source Files\glad">
       <UniqueIdentifier>{340c063b-9a84-4b62-a60d-aed0f7e6e4f6}</UniqueIdentifier>
     </Filter>
+    <Filter Include="Dynamic Link Libraries">
+      <UniqueIdentifier>{ed30bf68-917c-499c-a6ad-d95009a16fdb}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="main.cpp">
@@ -98,5 +101,13 @@
     <ClInclude Include="libs\include\tinyfiledialogs\tinyfiledialogs.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+  </ItemGroup>
+  <ItemGroup>
+    <CopyFileToFolders Include="libs\dlls\opencv_world490.dll">
+      <Filter>Dynamic Link Libraries</Filter>
+    </CopyFileToFolders>
+    <CopyFileToFolders Include="libs\dlls\opencv_videoio_ffmpeg490_64.dll">
+      <Filter>Dynamic Link Libraries</Filter>
+    </CopyFileToFolders>
   </ItemGroup>
 </Project>
