@@ -18,6 +18,7 @@
 #include <glm/gtc/type_ptr.hpp>
 #include <stb/stb_image_write.h>
 #include <tinyfiledialogs/tinyfiledialogs.h>
+#include <opencv.hpp>
 
 #include <iostream>
 #include <fstream>
@@ -26,10 +27,12 @@
 #include <iomanip>
 #include <ctime>
 #include <string>
+#include <filesystem>
 
-#define MV_COMPUTE  2
-#define MV_POSTPROC 1
-#define MV_RENDER   0
+#define MV_COMPUTE  3
+#define MV_POSTPROC 2
+#define MV_RENDER   1
+#define MV_DISPLAY  0
 
 float vertices[] = {
     -1.0f, -1.0f,
@@ -85,8 +88,9 @@ uniform double constant_coeff = 1.0;
 
 layout(binding=0) uniform sampler2D mandelbrotTex;
 layout(binding=1) uniform sampler2D postprocTex;
+layout(binding=2) uniform sampler2D finalTex;
 
-uniform int    protocol;
+uniform int protocol;
 
 vec2 cexp(vec2 z) {
     return exp(z.x) * vec2(cos(z.y), sin(z.y));
@@ -146,7 +150,7 @@ dvec2 advance(dvec2 z, dvec2 c, double xx, double yy) {
 }
 
 void main() {
-    if (protocol == 3) {
+    if (protocol == 4) {
         dvec2 c = (dvec2(gl_FragCoord.x / screenSize.x, (screenSize.y - gl_FragCoord.y) / screenSize.y) - dvec2(0.5, 0.5)) * dvec2(julia_zoom, julia_zoom);
         dvec2 z = c;
         
@@ -162,7 +166,7 @@ void main() {
         fragColor = vec4(set_color, 1.0);
     }
     
-    if (protocol == 2) {
+    if (protocol == 3) {
         double h2 = 1;
         vec2 dir = vec2(mousePos) - vec2(screenSize) / 2.f;
         float angle = atan(dir.y, dir.x);
@@ -207,7 +211,7 @@ void main() {
         }
         fragColor = vec4(-1.f, -1.f, 0.f, 0.f);
     }
-    if (protocol == 1) {
+    if (protocol == 2) {
         vec4 data = texture(mandelbrotTex, vec2(gl_FragCoord.x / screenSize.x, gl_FragCoord.y / screenSize.y));
         if (blur == 1) {
             fragColor = vec4(color(data.x * iter_multiplier), 1.f);
@@ -222,8 +226,11 @@ void main() {
         }
         fragColor = vec4(blurredColor, 1.f);
     }
-    if (protocol == 0) {
+    if (protocol == 1) {
         fragColor = texture(postprocTex, vec2(gl_FragCoord.x / screenSize.x, gl_FragCoord.y / screenSize.y));
+    }
+    if (protocol == 0) {
+        fragColor = texture(finalTex, vec2(gl_FragCoord.x / screenSize.x, gl_FragCoord.y / screenSize.y));
     }
 }
 )glsl";
@@ -340,31 +347,33 @@ class MV2 {
     const int max_colors = 8;
 
     glm::ivec2 screenPos = { 0, 0 };
-    bool   fullscreen = false;
+    bool fullscreen = false;
     Config config;
     ZoomSequenceConfig zsc;
-    int    julia_size = 210;
+    int julia_size = 210;
     double julia_zoom = 3;
     double fps_update_interval = 0.03;
 
     glm::dvec2 oldPos = { 0, 0 };
     glm::dvec2 lastPresses = { -doubleClick_interval, 0 };
-    bool   dragging = false;
-    bool   rightClickHold = false;
-    char*  sspath = nullptr;
+    bool dragging = false;
+    bool rightClickHold = false;
 
-    bool   rendering = false;
-    bool   paused = false;
-    float  progress = 0.f;
+    bool recording = false;
+    bool paused = false;
+    int progress = 0;
+    cv::VideoWriter writer;
 
     GLuint shaderProgram = 0;
 
     GLuint mandelbrotFrameBuffer = NULL;
     GLuint postprocFrameBuffer = NULL;
+    GLuint finalFrameBuffer = NULL;
     GLuint juliaFrameBuffer = NULL;
 
     GLuint mandelbrotTexBuffer = NULL;
     GLuint postprocTexBuffer = NULL;
+    GLuint finalTexBuffer = NULL;
     GLuint juliaTexBuffer = NULL;
 
     GLuint paletteBuffer = NULL;
@@ -413,6 +422,8 @@ public:
         font_title = io.Fonts->AddFontFromFileTTF("C:\\Windows\\Fonts\\consola.ttf", 11.f);
         IM_ASSERT(font_title != NULL);
         io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
+        io.IniFilename = NULL;
+        io.LogFilename = NULL;
 
         ImGui::StyleColorsDark();
         ImGui::LoadTheme();
@@ -445,6 +456,14 @@ public:
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
 
+        glGenTextures(1, &finalTexBuffer);
+        glActiveTexture(GL_TEXTURE2);
+        glBindTexture(GL_TEXTURE_2D, finalTexBuffer);
+        glUniform1i(glGetUniformLocation(shaderProgram, "finalTex"), 2);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA32F, 1920, 1080, 0, GL_RGB, GL_UNSIGNED_BYTE, NULL);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+
         glGenTextures(1, &juliaTexBuffer);
         glBindTexture(GL_TEXTURE_2D, juliaTexBuffer);
         glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA32F, julia_size * factor,
@@ -459,6 +478,10 @@ public:
         glGenFramebuffers(1, &postprocFrameBuffer);
         glBindFramebuffer(GL_FRAMEBUFFER, postprocFrameBuffer);
         glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, postprocTexBuffer, 0);
+
+        glGenFramebuffers(1, &finalFrameBuffer);
+        glBindFramebuffer(GL_FRAMEBUFFER, finalFrameBuffer);
+        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, finalTexBuffer, 0);
 
         glGenFramebuffers(1, &juliaFrameBuffer);
         glBindFramebuffer(GL_FRAMEBUFFER, juliaFrameBuffer);
@@ -518,25 +541,42 @@ public:
         glShaderStorageBlockBinding(shaderProgram, block_index, ssbo_binding_point_index);
         glUniform1i(glGetUniformLocation(shaderProgram, "span"), span);
 
-        glUniform2d(glGetUniformLocation(shaderProgram, "offset"), config.offset.x, config.offset.y);
-        glUniform1f(glGetUniformLocation(shaderProgram, "iter_multiplier"), config.iter_multiplier);
-        glUniform1d(glGetUniformLocation(shaderProgram, "zoom"), config.zoom);
-        glUniform1i(glGetUniformLocation(shaderProgram, "max_iters"),
-            max_iters(config.zoom, zoom_co, config.iter_co));
-        glUniform1f(glGetUniformLocation(shaderProgram, "spectrum_offset"), config.spectrum_offset);
-        glUniform1d(glGetUniformLocation(shaderProgram, "bailout_radius"), pow(config.bailout_radius, 2));
-        glUniform1i(glGetUniformLocation(shaderProgram, "continuous_coloring"), config.continuous_coloring);
-        glUniform3f(glGetUniformLocation(shaderProgram, "set_color"), config.set_color.x, config.set_color.y, config.set_color.z);
-        glUniform1i(glGetUniformLocation(shaderProgram, "degree"), config.degree);
-        glUniform1d(glGetUniformLocation(shaderProgram, "julia_zoom"), julia_zoom);
-        glUniform1i(glGetUniformLocation(shaderProgram, "julia_maxiters"),
-            max_iters(julia_zoom, zoom_co, config.iter_co, 3.0));
-        glUniform1i(glGetUniformLocation(shaderProgram, "blur"), config.ssaa_factor);
+        use_config(config, true, false);
 
         on_windowResize(window, config.screenSize.x, config.screenSize.y);
 
         for (const glm::vec4& c : paletteData) {
             state.AddColorMarker(c.w, { c.r, c.g, c.b }, 1.0f);
+        }
+    }
+
+    void use_config(Config config, bool variables = true, bool textures = true) {
+        if (variables) {
+            glUniform2i(glGetUniformLocation(shaderProgram, "screenSize"), config.screenSize.x, config.screenSize.y);
+            glUniform2d(glGetUniformLocation(shaderProgram, "offset"), config.offset.x, config.offset.y);
+            glUniform1f(glGetUniformLocation(shaderProgram, "iter_multiplier"), config.iter_multiplier);
+            glUniform1d(glGetUniformLocation(shaderProgram, "zoom"), config.zoom);
+            glUniform1i(glGetUniformLocation(shaderProgram, "max_iters"),
+                max_iters(config.zoom, zoom_co, config.iter_co));
+            glUniform1f(glGetUniformLocation(shaderProgram, "spectrum_offset"), config.spectrum_offset);
+            glUniform1d(glGetUniformLocation(shaderProgram, "bailout_radius"), pow(config.bailout_radius, 2));
+            glUniform1i(glGetUniformLocation(shaderProgram, "continuous_coloring"), config.continuous_coloring);
+            glUniform3f(glGetUniformLocation(shaderProgram, "set_color"), config.set_color.x, config.set_color.y, config.set_color.z);
+            glUniform1i(glGetUniformLocation(shaderProgram, "degree"), config.degree);
+            glUniform1d(glGetUniformLocation(shaderProgram, "julia_zoom"), julia_zoom);
+            glUniform1i(glGetUniformLocation(shaderProgram, "julia_maxiters"),
+                max_iters(julia_zoom, zoom_co, config.iter_co, 3.0));
+            glUniform1i(glGetUniformLocation(shaderProgram, "blur"), config.ssaa_factor);
+        }
+        if (textures) {
+            int factor = (config.ssaa ? config.ssaa_factor : 1);
+            glBindFramebuffer(GL_FRAMEBUFFER, mandelbrotFrameBuffer);
+            glBindTexture(GL_TEXTURE_2D, mandelbrotTexBuffer);
+            glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA32F, config.screenSize.x * factor, config.screenSize.y * factor, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
+
+            glBindFramebuffer(GL_FRAMEBUFFER, postprocFrameBuffer);
+            glBindTexture(GL_TEXTURE_2D, postprocTexBuffer);
+            glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, config.screenSize.x * factor, config.screenSize.y * factor, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
         }
     }
 
@@ -686,46 +726,44 @@ public:
                 ImGuiWindowFlags_AlwaysAutoResize |
                 ImGuiWindowFlags_NoMove
             )) {
-                if (sspath) {
-                    int factor = (config.ssaa ? config.ssaa_factor : 1);
+                if (ImGui::Button("Take screenshot")) {
                     int w, h;
                     if (fullscreen) {
                         GLFWmonitor* monitor = glfwGetPrimaryMonitor();
                         const GLFWvidmode* mode = glfwGetVideoMode(monitor);
-                        w = mode->width * factor, h = mode->height * factor;
+                        w = mode->width, h = mode->height;
                     }
-                    else {
-                        w = config.screenSize.x * factor, h = config.screenSize.y * factor;
-                    }
+                    else w = config.screenSize.x, h = config.screenSize.y;
                     unsigned char* buffer = new unsigned char[4 * w * h];
-                    glActiveTexture(GL_TEXTURE1);
-                    glBindTexture(GL_TEXTURE_2D, postprocTexBuffer);
-                    glGetTexImage(GL_TEXTURE_2D, 0, GL_RGBA, GL_UNSIGNED_BYTE, buffer);
-                    stbi_flip_vertically_on_write(true);
-                    stbi_write_png(sspath, w, h, 4, buffer, 4 * w);
-                    delete[] buffer;
-                    sspath = nullptr;
-                }
-                if (ImGui::Button("Take screenshot")) {
+                    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+                    glDrawArrays(GL_TRIANGLES, 0, 6);
+                    glReadBuffer(GL_BACK);
+                    glReadPixels(0, 0, w, h, GL_RGBA, GL_UNSIGNED_BYTE, buffer);
+
                     char const* lFilterPatterns[1] = { "*.png" };
                     auto t = std::time(nullptr);
                     auto tm = *std::localtime(&t);
                     std::ostringstream oss;
                     oss << std::put_time(&tm, "MV2 %d-%m-%Y %H-%M-%S");
-                    sspath = tinyfd_saveFileDialog("Save screenshot", oss.str().c_str(), 1, lFilterPatterns, "PNG (*.png)");
+                    const char* path = tinyfd_saveFileDialog("Save screenshot", oss.str().c_str(), 1, lFilterPatterns, "PNG (*.png)");
                     if (glfwGetWindowMonitor(window) != nullptr) glfwRestoreWindow(window);
                     glfwShowWindow(window);
+                    if (path) {
+                        stbi_flip_vertically_on_write(true);
+                        stbi_write_png(path, w, h, 4, buffer, 4 * w);
+                    }
+                    delete[] buffer;
                 }
                 ImGui::SameLine();
                 if (ImGui::BeginPopupModal("Zoom sequence creator", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
                     zsc.tcfg = config;
                     if (ImGui::Button("Browse...")) {
-                        char const* lFilterPatterns[1] = { "*.mp4" };
+                        char const* lFilterPatterns[1] = { "*.avi" };
                         auto t = std::time(nullptr);
                         auto tm = *std::localtime(&t);
                         std::ostringstream oss;
                         oss << std::put_time(&tm, "MV2 %d-%m-%Y %H-%M-%S");
-                        char const* buf = tinyfd_saveFileDialog("Save sequence", oss.str().c_str(), 1, lFilterPatterns, "Video Files (*.mp4)");
+                        char const* buf = tinyfd_saveFileDialog("Save sequence", oss.str().c_str(), 1, lFilterPatterns, "Video Files (*.avi)");
                         if (glfwGetWindowMonitor(window) != nullptr) glfwRestoreWindow(window);
                         glfwShowWindow(window);
                         if (buf) strcpy(zsc.path, buf);
@@ -747,6 +785,7 @@ public:
                         { 3840, 2160 }
                     };
                     static int res = 3;
+                    zsc.tcfg.screenSize = commonres[res];
                     auto vec_to_str = [commonres](int i) {
                         return std::format("{}x{}", commonres.at(i).x, commonres.at(i).y);
                     };
@@ -757,6 +796,9 @@ public:
                             const bool is_selected = (res == i);
                             if (ImGui::Selectable(vec_to_str(i).c_str(), is_selected)) {
                                 zsc.tcfg.screenSize = commonres.at(i);
+                                glBindFramebuffer(GL_FRAMEBUFFER, finalFrameBuffer);
+                                glBindTexture(GL_TEXTURE_2D, finalTexBuffer);
+                                glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, zsc.tcfg.screenSize.x, zsc.tcfg.screenSize.y, 0, GL_RGB, GL_UNSIGNED_BYTE, NULL);
                                 res = i;
                             } 
                             if (is_selected) ImGui::SetItemDefaultFocus();
@@ -765,17 +807,34 @@ public:
                     }
                     ImGui::PopItemWidth();
 
-                    if (!rendering && ImGui::Button("Render", ImVec2(100, 0))) {
-                        rendering = true;
-                        progress = 0;
+                    if (strlen(zsc.path) == 0) {
+                        ImGui::BeginDisabled();
                     }
-                    else if (rendering && ImGui::Button(paused ? "Resume" : "Pause", ImVec2(100, 0))) {
+                    if (!recording && ImGui::Button("Render", ImVec2(100, 0))) {
+                        recording = true;
+                        progress = 0;
+                        zsc.tcfg.zoom = 5.0f;
+                        int factor = (zsc.tcfg.ssaa ? zsc.tcfg.ssaa_factor : 1);
+                        writer = cv::VideoWriter(zsc.path, cv::VideoWriter::fourcc('m', 'j', 'p', 'g'), zsc.fps, cv::Size(zsc.tcfg.screenSize.x, zsc.tcfg.screenSize.y));
+
+                        if (!writer.isOpened()) throw Error("Failed to initialize sequencer");
+                        use_config(zsc.tcfg, true, true);
+                    }
+                    else if (recording && ImGui::Button(paused ? "Resume" : "Pause", ImVec2(100, 0))) {
                         paused ^= 1;
+                    }
+                    if (strlen(zsc.path) == 0) {
+                        ImGui::EndDisabled();
                     }
                     ImGui::SameLine();
                     if (ImGui::Button("Cancel", ImVec2(100, 0))) {
-                        rendering = false;
+                        if (recording && progress != 0) {
+                            writer.release();
+                            std::filesystem::remove(zsc.path);
+                        }
+                        recording = false;
                         progress = 0;
+                        use_config(config, true, true);
                         ImGui::CloseCurrentPopup();
                     }
 
@@ -971,7 +1030,7 @@ public:
 
             int factor = (config.ssaa ? config.ssaa_factor : 1);
 
-            if (!rendering && rightClickHold) {
+            if (rightClickHold) {
                 double x, y;
                 glfwGetCursorPos(window, &x, &y);
 
@@ -1029,7 +1088,7 @@ public:
                     ImGui::Text("Re: %.17g\nIm: %.17g\nPoint is in set", c.x, c.y);
                 glViewport(0, 0, julia_size * factor, julia_size * factor);
                 glBindFramebuffer(GL_FRAMEBUFFER, juliaFrameBuffer);
-                glUniform1i(glGetUniformLocation(shaderProgram, "protocol"), 3);
+                glUniform1i(glGetUniformLocation(shaderProgram, "protocol"), 4);
                 glUniform2d(glGetUniformLocation(shaderProgram, "mouseCoord"), c.x, c.y);
                 glUniform2i(glGetUniformLocation(shaderProgram, "screenSize"), julia_size * factor, julia_size * factor);
                 glDrawArrays(GL_TRIANGLES, 0, 6);
@@ -1038,35 +1097,81 @@ public:
                 ImGui::End();
             }
             ImGui::PopFont();
-            glViewport(0, 0, ss.x * factor, ss.y * factor);
-            glUniform2i(glGetUniformLocation(shaderProgram, "screenSize"), ss.x* factor, ss.y* factor);
+            if (!recording) {
+                glViewport(0, 0, ss.x * factor, ss.y * factor);
+                glUniform2i(glGetUniformLocation(shaderProgram, "screenSize"), ss.x * factor, ss.y * factor);
+            }
+            else {
+                factor = (zsc.tcfg.ssaa ? zsc.tcfg.ssaa_factor : 1);
+                glViewport(0, 0, zsc.tcfg.screenSize.x * factor, zsc.tcfg.screenSize.y * factor);
+                glUniform2i(glGetUniformLocation(shaderProgram, "screenSize"), zsc.tcfg.screenSize.x * factor, zsc.tcfg.screenSize.y * factor);
+            }
             switch (protocol) {
             case MV_COMPUTE:
-                glBindTexture(GL_TEXTURE_2D, mandelbrotTexBuffer);
                 glBindFramebuffer(GL_FRAMEBUFFER, mandelbrotFrameBuffer);
                 glUniform1i(glGetUniformLocation(shaderProgram, "protocol"), MV_COMPUTE);
                 glDrawArrays(GL_TRIANGLES, 0, 6);
                 [[fallthrough]];
             case MV_POSTPROC:
-                glBindTexture(GL_TEXTURE_2D, postprocTexBuffer);
+                glBindTexture(GL_TEXTURE_2D, mandelbrotTexBuffer);
                 glBindFramebuffer(GL_FRAMEBUFFER, postprocFrameBuffer);
                 glUniform1i(glGetUniformLocation(shaderProgram, "protocol"), MV_POSTPROC);
                 glDrawArrays(GL_TRIANGLES, 0, 6);
                 [[fallthrough]];
             case MV_RENDER:
-                glBindFramebuffer(GL_FRAMEBUFFER, 0);
-                glViewport(0, 0, ss.x, ss.y);
-                glUniform1i(glGetUniformLocation(shaderProgram, "protocol"), MV_RENDER);
-                glUniform2i(glGetUniformLocation(shaderProgram, "screenSize"), ss.x, ss.y);
-                ImGui::Render();
-                glDrawArrays(GL_TRIANGLES, 0, 6);
-                ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
-                glfwSwapBuffers(window);
+                glBindTexture(GL_TEXTURE_2D, postprocTexBuffer);
+                if (recording) {
+                    glBindFramebuffer(GL_FRAMEBUFFER, finalFrameBuffer);
+                    glUniform1i(glGetUniformLocation(shaderProgram, "protocol"), MV_RENDER);
+                    glViewport(0, 0, zsc.tcfg.screenSize.x, zsc.tcfg.screenSize.y);
+                    glUniform2i(glGetUniformLocation(shaderProgram, "screenSize"), zsc.tcfg.screenSize.x, zsc.tcfg.screenSize.y);
+                    glDrawArrays(GL_TRIANGLES, 0, 6);
+
+                    glBindTexture(GL_TEXTURE_2D, finalTexBuffer);
+                    glBindFramebuffer(GL_FRAMEBUFFER, NULL);
+                    glUniform1i(glGetUniformLocation(shaderProgram, "protocol"), MV_DISPLAY);
+                    glViewport(0, 0, ss.x, ss.y);
+                    glUniform2i(glGetUniformLocation(shaderProgram, "screenSize"), ss.x, ss.y);
+                    glDrawArrays(GL_TRIANGLES, 0, 6);
+                } else {
+                    glBindFramebuffer(GL_FRAMEBUFFER, NULL);
+                    glUniform1i(glGetUniformLocation(shaderProgram, "protocol"), MV_RENDER);
+                    glViewport(0, 0, ss.x, ss.y);
+                    glUniform2i(glGetUniformLocation(shaderProgram, "screenSize"), ss.x, ss.y);
+                    glDrawArrays(GL_TRIANGLES, 0, 6);
+                }
                 protocol = MV_RENDER;
             }
-            if (rendering) {
-                
+            if (recording) {
+                glBindTexture(GL_TEXTURE_2D, finalTexBuffer);
+                int w = zsc.tcfg.screenSize.x, h = zsc.tcfg.screenSize.y;
+                unsigned char* buffer = new unsigned char[4 * w * h];
+                glGetTexImage(GL_TEXTURE_2D, 0, GL_RGB, GL_UNSIGNED_BYTE, buffer);
+
+                cv::Mat frame(cv::Size(w, h), CV_8UC3, buffer);
+                cv::cvtColor(frame, frame, cv::COLOR_RGB2BGR);
+                writer.write(frame);
+                progress++;
+                if (zsc.fps * zsc.duration == progress) {
+                    use_config(config);
+                    recording = false;
+                    writer.release();
+                } else {
+                    int framecount = (zsc.fps * zsc.duration);
+                    //double x = static_cast<double>(progress) / framecount;
+                    //double z = 2 * pow(x, 3) - 3 * pow(x, 2) + 1.f;
+                    double coeff = pow(config.zoom / 5.0, 1.0 / framecount);
+                    zsc.tcfg.zoom = 5.0 * pow(coeff, progress);
+                    glUniform1i(glGetUniformLocation(shaderProgram, "max_iters"),
+                        max_iters(zsc.tcfg.zoom, zoom_co, config.iter_co));
+                    glUniform1d(glGetUniformLocation(shaderProgram, "zoom"), zsc.tcfg.zoom);
+                }
+                protocol = MV_COMPUTE;
             }
+            ImGui::Render();
+            ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
+            glfwSwapBuffers(window);
+
         } while (!glfwWindowShouldClose(window));
     }
 };
