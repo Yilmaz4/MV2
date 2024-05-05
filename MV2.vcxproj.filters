@@ -13,17 +13,20 @@
       <UniqueIdentifier>{67DA6AB6-F800-4c08-8B7A-83BB121AAD01}</UniqueIdentifier>
       <Extensions>rc;ico;cur;bmp;dlg;rc2;rct;bin;rgs;gif;jpg;jpeg;jpe;resx;tiff;tif;png;wav;mfcribbon-ms</Extensions>
     </Filter>
-    <Filter Include="Source Files\ImGui">
-      <UniqueIdentifier>{ebf4bf53-9d5d-4d20-b441-b07247916e4e}</UniqueIdentifier>
-    </Filter>
-    <Filter Include="Source Files\tinyfiledialogs">
-      <UniqueIdentifier>{f55460f9-b41a-47d9-bf05-bec4632c3f62}</UniqueIdentifier>
-    </Filter>
-    <Filter Include="Source Files\glad">
-      <UniqueIdentifier>{340c063b-9a84-4b62-a60d-aed0f7e6e4f6}</UniqueIdentifier>
-    </Filter>
     <Filter Include="Dynamic Link Libraries">
       <UniqueIdentifier>{ed30bf68-917c-499c-a6ad-d95009a16fdb}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Source Files\Sources">
+      <UniqueIdentifier>{87fcb20e-a1a1-40ab-bec8-e88406420a00}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Source Files\Sources\tinyfiledialogs">
+      <UniqueIdentifier>{f55460f9-b41a-47d9-bf05-bec4632c3f62}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Source Files\Sources\ImGui">
+      <UniqueIdentifier>{ebf4bf53-9d5d-4d20-b441-b07247916e4e}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Source Files\Sources\glad">
+      <UniqueIdentifier>{340c063b-9a84-4b62-a60d-aed0f7e6e4f6}</UniqueIdentifier>
     </Filter>
   </ItemGroup>
   <ItemGroup>
@@ -31,37 +34,40 @@
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="imgui\ImGradientHDR.cpp">
-      <Filter>Source Files\ImGui</Filter>
+      <Filter>Source Files\Sources\ImGui</Filter>
     </ClCompile>
     <ClCompile Include="imgui\imgui.cpp">
-      <Filter>Source Files\ImGui</Filter>
+      <Filter>Source Files\Sources\ImGui</Filter>
     </ClCompile>
     <ClCompile Include="imgui\imgui_demo.cpp">
-      <Filter>Source Files\ImGui</Filter>
+      <Filter>Source Files\Sources\ImGui</Filter>
     </ClCompile>
     <ClCompile Include="imgui\imgui_draw.cpp">
-      <Filter>Source Files\ImGui</Filter>
+      <Filter>Source Files\Sources\ImGui</Filter>
     </ClCompile>
     <ClCompile Include="imgui\imgui_impl_glfw.cpp">
-      <Filter>Source Files\ImGui</Filter>
+      <Filter>Source Files\Sources\ImGui</Filter>
     </ClCompile>
     <ClCompile Include="imgui\imgui_impl_opengl3.cpp">
-      <Filter>Source Files\ImGui</Filter>
+      <Filter>Source Files\Sources\ImGui</Filter>
     </ClCompile>
     <ClCompile Include="imgui\imgui_tables.cpp">
-      <Filter>Source Files\ImGui</Filter>
+      <Filter>Source Files\Sources\ImGui</Filter>
     </ClCompile>
     <ClCompile Include="imgui\imgui_widgets.cpp">
-      <Filter>Source Files\ImGui</Filter>
+      <Filter>Source Files\Sources\ImGui</Filter>
     </ClCompile>
     <ClCompile Include="libs\include\tinyfiledialogs\tinyfiledialogs.cpp">
-      <Filter>Source Files\tinyfiledialogs</Filter>
+      <Filter>Source Files\Sources\tinyfiledialogs</Filter>
     </ClCompile>
     <ClCompile Include="glad.c">
-      <Filter>Source Files\glad</Filter>
+      <Filter>Source Files\Sources\glad</Filter>
     </ClCompile>
     <ClCompile Include="imgui\imgui_theme.h">
       <Filter>Header Files</Filter>
+    </ClCompile>
+    <ClCompile Include="libs\include\chromium\cubic_bezier.cpp">
+      <Filter>Source Files\Sources</Filter>
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
@@ -99,6 +105,9 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="libs\include\tinyfiledialogs\tinyfiledialogs.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="libs\include\chromium\cubic_bezier.h">
       <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>
