@@ -668,8 +668,9 @@ public:
         }
     }
 
-    void set_protocol(int p) {
-        if (p > protocol) protocol = p;
+    void set_protocol(int p, bool override = false) {
+        if (p > protocol || override) protocol = p;
+        std::cout << "set protocol to " << p << std::endl;
     }
 
     static glm::dvec2 pixel_to_complex(glm::dvec2 pixelCoord, glm::ivec2 screenSize, double zoom, glm::dvec2 offset) {
@@ -1254,6 +1255,7 @@ public:
                 glViewport(0, 0, zsc.tcfg.screenSize.x * factor, zsc.tcfg.screenSize.y * factor);
                 glUniform2i(glGetUniformLocation(shaderProgram, "screenSize"), zsc.tcfg.screenSize.x * factor, zsc.tcfg.screenSize.y * factor);
             }
+            std::cout << protocol << std::endl;
             switch (protocol) {
             case MV_COMPUTE:
                 glBindFramebuffer(GL_FRAMEBUFFER, mandelbrotFrameBuffer);
@@ -1288,7 +1290,7 @@ public:
                     glUniform2i(glGetUniformLocation(shaderProgram, "screenSize"), ss.x, ss.y);
                     glDrawArrays(GL_TRIANGLES, 0, 6);
                 }
-                set_protocol(MV_RENDER);
+                set_protocol(MV_RENDER, true);
             }
             if (recording && !paused) {
                 glBindTexture(GL_TEXTURE_2D, finalTexBuffer);
