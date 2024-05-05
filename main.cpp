@@ -19,6 +19,7 @@
 #include <stb/stb_image_write.h>
 #include <tinyfiledialogs/tinyfiledialogs.h>
 #include <opencv.hpp>
+#include <chromium/cubic_bezier.h>
 
 #include <iostream>
 #include <fstream>
@@ -28,6 +29,7 @@
 #include <ctime>
 #include <string>
 #include <filesystem>
+#include <functional>
 
 #define MV_COMPUTE  3
 #define MV_POSTPROC 2
@@ -237,40 +239,126 @@ void main() {
 
 // TODO: https://blog.cyclemap.link/2011-06-09-glsl-part2-emu/ implement nth power of complex number, use quad-single precision
 
+static gfx::CubicBezier fast_out_slow_in(0.4, 0.0, 0.2, 1.0);
+
+static float bezier(float t) {
+    return fast_out_slow_in.Solve(t);
+}
+
 namespace ImGui {
     ImFont* font;
 
-    static bool ToggleButton(const char* name, bool* v) {
-        ImVec2 p = ImGui::GetCursorScreenPos();
-        ImDrawList* draw_list = ImGui::GetWindowDrawList();
+    // credit: https://github.com/zfedoran
+    bool BufferingBar(const char* label, float value, const ImVec2& size_arg, const ImU32& bg_col, const ImU32& fg_col) {
+        ImGuiWindow* window = GetCurrentWindow();
+        if (window->SkipItems)
+            return false;
 
-        float height = ImGui::GetFrameHeight();
-        float width = height * 1.8f;
-        float radius = height * 0.50f;
-        float rounding = 0.4f;
+        ImGuiContext& g = *GImGui;
+        const ImGuiStyle& style = g.Style;
+        const ImGuiID id = window->GetID(label);
 
-        ImGui::InvisibleButton(name, ImVec2(width, height));
-        if (ImGui::IsItemClicked()) {
-            *v ^= 1;
-            return true;
-        }
-        ImGuiContext& gg = *GImGui;
-        float ANIM_SPEED = 0.055f;
-        if (gg.LastActiveId == gg.CurrentWindow->GetID(name))
-            float t_anim = ImSaturate(gg.LastActiveIdTimer / ANIM_SPEED);
-        if (ImGui::IsItemHovered()) draw_list->AddRectFilled(p, ImVec2(p.x + width, p.y + height),
-            ImGui::GetColorU32(ImVec4(0.2196f, 0.2196f, 0.2196f, 1.0f)), height * rounding);
-        else draw_list->AddRectFilled(p, ImVec2(p.x + width, p.y + height),
-            ImGui::GetColorU32(*v ? ImVec4(0.2196f, 0.2196f, 0.2196f, 1.0f) : ImVec4(0.08f, 0.08f, 0.08f, 1.0f)), height * rounding);
-        ImVec2 center = ImVec2(radius + (*v ? 1 : 0) * (width - radius * 2.0f), radius);
-        draw_list->AddRectFilled(ImVec2((p.x + center.x) - 9.0f, p.y + 1.5f),
-            ImVec2((p.x + (width / 2) + center.x) - 9.0f, p.y + height - 1.5f), IM_COL32(255, 255, 255, 255), height * rounding);
-        ImGui::SameLine(p.x + 22.f);
-        ImGui::SetCursorPosY(ImGui::GetCursorPosY() + 3.f);
-        ImGui::Text(name);
-        return false;
+        ImVec2 pos = window->DC.CursorPos;
+        ImVec2 size = size_arg;
+        size.x -= style.FramePadding.x * 2;
+
+        const ImRect bb(pos, ImVec2(pos.x + size.x, pos.y + size.y));
+        ItemSize(bb, style.FramePadding.y);
+        if (!ItemAdd(bb, id))
+            return false;
+
+        window->DrawList->AddRectFilled(bb.Min, bb.Max, bg_col);
+        window->DrawList->AddRectFilled(bb.Min, ImVec2(bb.Min.x + value * size.x, bb.Max.y), fg_col);
     }
 
+    // credit: https://github.com/hofstee
+    constexpr static auto lerp(float x0, float x1) {
+        return [=](float t) {
+            return (1 - t) * x0 + t * x1;
+        };
+    }
+
+    constexpr static float lerp(float x0, float x1, float t) {
+        return lerp(x0, x1)(t);
+    }
+
+    static auto interval(float T0, float T1, std::function<float(float)> tween = lerp(0.0, 1.0)) {
+        return [=](float t) {
+            return t < T0 ? 0.0f : t > T1 ? 1.0f : tween((t - T0) / (T1 - T0));
+        };
+    }
+
+    template <int T> float sawtooth(float t) {
+        return ImFmod(((float)T) * t, 1.0f);
+    }
+
+    bool Spinner(const char* label, float radius, int thickness, const ImU32& color) {
+        ImGuiWindow* window = GetCurrentWindow();
+        if (window->SkipItems) return false;
+
+        ImGuiContext& g = *GImGui;
+        const ImGuiStyle& style = g.Style;
+        const ImGuiID id = window->GetID(label);
+
+        ImVec2 pos = window->DC.CursorPos;
+        ImVec2 size((radius) * 2, (radius + style.FramePadding.y) * 2);
+
+        const ImRect bb(pos, ImVec2(pos.x + size.x, pos.y + size.y));
+        ItemSize(bb, style.FramePadding.y);
+        if (!ItemAdd(bb, id)) return false;
+
+        const ImVec2 center = ImVec2(pos.x + radius, pos.y + radius + thickness + style.FramePadding.y);
+
+        const float start_angle = -IM_PI / 2.0f;         // Start at the top
+        const int num_detents = 5;                       // how many rotations we want before a repeat
+        const int skip_detents = 3;                      // how many steps we skip each rotation
+        const float period = 5.0f;                       // in seconds
+        const float t = ImFmod(g.Time, period) / period; // map period into [0, 1]
+
+        auto stroke_head_tween = [](float t) {
+            t = sawtooth<num_detents>(t);
+            return interval(0.0, 0.5, bezier)(t);
+        };
+
+        auto stroke_tail_tween = [](float t) {
+            t = sawtooth<num_detents>(t);
+            return interval(0.5, 1.0, bezier)(t);
+        };
+
+        auto step_tween = [=](float t) {
+            return floor(lerp(0.0, (float)num_detents, t));
+        };
+
+        auto rotation_tween = sawtooth<num_detents>;
+
+        const float head_value = stroke_head_tween(t);
+        const float tail_value = stroke_tail_tween(t);
+        const float step_value = step_tween(t);
+        const float rotation_value = rotation_tween(t);
+
+        const float min_arc = 30.0f / 360.0f * 2.0f * IM_PI;
+        const float max_arc = 270.0f / 360.0f * 2.0f * IM_PI;
+        const float step_offset = skip_detents * 2.0f * IM_PI / num_detents;
+        const float rotation_compensation = ImFmod(4.0 * IM_PI - step_offset - max_arc, 2 * IM_PI);
+
+        const float a_min = start_angle + tail_value * max_arc + rotation_value * rotation_compensation - step_value * step_offset;
+        const float a_max = a_min + (head_value - tail_value) * max_arc + min_arc;
+
+        window->DrawList->PathClear();
+
+        int num_segments = 24;
+        for (int i = 0; i < num_segments; i++) {
+            const float a = a_min + ((float)i / (float)num_segments) * (a_max - a_min);
+            window->DrawList->PathLineTo(ImVec2(center.x + ImCos(a) * radius,
+                center.y + ImSin(a) * radius));
+        }
+
+        window->DrawList->PathStroke(color, false, thickness);
+
+        return true;
+    }
+
+    // from imgui demo app
     static void HelpMarker(const char* desc) {
         ImGui::TextDisabled("(?)");
         if (ImGui::BeginItemTooltip()) {
@@ -757,6 +845,7 @@ public:
                 ImGui::SameLine();
                 if (ImGui::BeginPopupModal("Zoom sequence creator", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
                     zsc.tcfg = config;
+                    if (recording) ImGui::BeginDisabled();
                     if (ImGui::Button("Browse...")) {
                         char const* lFilterPatterns[1] = { "*.avi" };
                         auto t = std::time(nullptr);
@@ -777,14 +866,13 @@ public:
                     ImGui::InputInt("Duration", &zsc.duration, 5, 20);
                     ImGui::SameLine();
                     const std::vector<glm::ivec2> commonres = {
-                        { 426,  240  },
                         { 640,  480  },
                         { 1280, 720  },
                         { 1920, 1080 },
                         { 2560, 1440 },
                         { 3840, 2160 }
                     };
-                    static int res = 3;
+                    static int res = 2;
                     zsc.tcfg.screenSize = commonres[res];
                     auto vec_to_str = [commonres](int i) {
                         return std::format("{}x{}", commonres.at(i).x, commonres.at(i).y);
@@ -807,12 +895,11 @@ public:
                     }
                     ImGui::PopItemWidth();
 
-                    if (strlen(zsc.path) == 0) {
-                        ImGui::BeginDisabled();
-                    }
+                    if (strlen(zsc.path) == 0 && !recording) ImGui::BeginDisabled();
                     if (!recording && ImGui::Button("Render", ImVec2(100, 0))) {
                         recording = true;
                         progress = 0;
+                        glfwSwapInterval(0);
                         zsc.tcfg.zoom = 5.0f;
                         int factor = (zsc.tcfg.ssaa ? zsc.tcfg.ssaa_factor : 1);
                         writer = cv::VideoWriter(zsc.path, cv::VideoWriter::fourcc('m', 'j', 'p', 'g'), zsc.fps, cv::Size(zsc.tcfg.screenSize.x, zsc.tcfg.screenSize.y));
@@ -823,19 +910,29 @@ public:
                     else if (recording && ImGui::Button(paused ? "Resume" : "Pause", ImVec2(100, 0))) {
                         paused ^= 1;
                     }
-                    if (strlen(zsc.path) == 0) {
-                        ImGui::EndDisabled();
-                    }
+                    if (strlen(zsc.path) == 0 && !recording || recording) ImGui::EndDisabled();
                     ImGui::SameLine();
                     if (ImGui::Button("Cancel", ImVec2(100, 0))) {
                         if (recording && progress != 0) {
                             writer.release();
                             std::filesystem::remove(zsc.path);
+                            glfwSwapInterval(1);
                         }
                         recording = false;
                         progress = 0;
                         use_config(config, true, true);
                         ImGui::CloseCurrentPopup();
+                    }
+                    ImGui::SameLine();
+                    if (recording) {
+                        const ImU32 col = ImGui::GetColorU32(ImGuiCol_ButtonHovered);
+                        const ImU32 bg = ImGui::GetColorU32(ImGuiCol_Button);
+
+                        ImGui::SetCursorPosY(ImGui::GetCursorPosY() - 1.f);
+                        ImGui::Spinner("##spinner", 5, 2, col);
+                        ImGui::SameLine();
+                        ImGui::SetCursorPosY(ImGui::GetCursorPosY() + 5.f);
+                        ImGui::BufferingBar("##buffer_bar", progress / static_cast<float>(zsc.fps * zsc.duration), ImVec2(182, 6), bg, col);
                     }
 
                     ImGui::EndPopup();
@@ -1153,7 +1250,7 @@ public:
                 }
                 protocol = MV_RENDER;
             }
-            if (recording) {
+            if (recording && !paused) {
                 glBindTexture(GL_TEXTURE_2D, finalTexBuffer);
                 int w = zsc.tcfg.screenSize.x, h = zsc.tcfg.screenSize.y;
                 unsigned char* buffer = new unsigned char[4 * w * h];
@@ -1161,12 +1258,14 @@ public:
 
                 cv::Mat frame(cv::Size(w, h), CV_8UC3, buffer);
                 cv::cvtColor(frame, frame, cv::COLOR_RGB2BGR);
+                cv::flip(frame, frame, 0);
                 writer.write(frame);
                 progress++;
                 if (zsc.fps * zsc.duration == progress) {
                     use_config(config);
                     recording = false;
                     writer.release();
+                    glfwSwapInterval(1);
                 } else {
                     int framecount = (zsc.fps * zsc.duration);
                     //double x = static_cast<double>(progress) / framecount;
