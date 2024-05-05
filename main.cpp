@@ -668,6 +668,10 @@ public:
         }
     }
 
+    void set_protocol(int p) {
+        if (p > protocol) protocol = p;
+    }
+
     static glm::dvec2 pixel_to_complex(glm::dvec2 pixelCoord, glm::ivec2 screenSize, double zoom, glm::dvec2 offset) {
         return ((glm::dvec2(pixelCoord.x / screenSize.x, (screenSize.y - pixelCoord.y) / screenSize.y)) - glm::dvec2(0.5, 0.5)) *
             glm::dvec2(zoom, (screenSize.y * zoom) / screenSize.x) + offset;
@@ -688,7 +692,7 @@ public:
         if (!app->fullscreen) app->config.screenSize = { width, height };
         if (app->shaderProgram)
             glUniform2i(glGetUniformLocation(app->shaderProgram, "screenSize"), width, height);
-        app->protocol = MV_COMPUTE;
+        app->set_protocol(MV_COMPUTE);
         int factor = (app->config.ssaa ? app->config.ssaa_factor : 1);
 
         glBindFramebuffer(GL_FRAMEBUFFER, app->mandelbrotFrameBuffer);
@@ -719,7 +723,7 @@ public:
                 app->config.offset += pos - center;
                 glUniform2d(glGetUniformLocation(app->shaderProgram, "offset"), app->config.offset.x, app->config.offset.y);
                 app->dragging = false;
-                app->protocol = MV_COMPUTE;
+                app->set_protocol(MV_COMPUTE);
             }
             else {
                 app->dragging = false;
@@ -752,7 +756,7 @@ public:
             app->config.offset.y -= ((app->oldPos.y - y) * ((app->config.zoom * ss.y) / ss.x)) / ss.y;
             glUniform2d(glGetUniformLocation(app->shaderProgram, "offset"), app->config.offset.x, app->config.offset.y);
             app->oldPos = { x, y };
-            app->protocol = MV_COMPUTE;
+            app->set_protocol(MV_COMPUTE);
         }
     }
 
@@ -769,7 +773,7 @@ public:
             glUniform1d(glGetUniformLocation(app->shaderProgram, "zoom"), app->config.zoom);
             glUniform1i(glGetUniformLocation(app->shaderProgram, "max_iters"),
                 max_iters(app->config.zoom, zoom_co, app->config.iter_co));
-            app->protocol = MV_COMPUTE;
+            app->set_protocol(MV_COMPUTE);
         }
     }
 
@@ -906,11 +910,12 @@ public:
 
                         if (!writer.isOpened()) throw Error("Failed to initialize sequencer");
                         use_config(zsc.tcfg, true, true);
+                        ImGui::BeginDisabled();
                     }
                     else if (recording && ImGui::Button(paused ? "Resume" : "Pause", ImVec2(100, 0))) {
                         paused ^= 1;
                     }
-                    if (strlen(zsc.path) == 0 && !recording || recording) ImGui::EndDisabled();
+                    if ((strlen(zsc.path) == 0 && !recording) || recording) ImGui::EndDisabled();
                     ImGui::SameLine();
                     if (ImGui::Button("Cancel", ImVec2(100, 0))) {
                         if (recording && progress != 0) {
@@ -951,24 +956,59 @@ public:
                 update |= ImGui::InputDouble("##im", &config.offset.y, 0.0, 0.0, "%.17g");
                 if (update) {
                     glUniform2d(glGetUniformLocation(shaderProgram, "offset"), config.offset.x, config.offset.y);
-                    protocol = MV_COMPUTE;
+                    set_protocol(MV_COMPUTE);
                 }
                 ImGui::SetCursorPosY(ImGui::GetCursorPosY() + 3.f);
                 ImGui::Text("Zoom"); ImGui::SetNextItemWidth(80); ImGui::SameLine();
                 ImGui::SetCursorPosY(ImGui::GetCursorPosY() - 3.f);
                 if (ImGui::InputDouble("##zoom", &config.zoom, 0.0, 0.0, "%.2e")) {
                     glUniform1d(glGetUniformLocation(shaderProgram, "zoom"), config.zoom);
-                    protocol = MV_COMPUTE;
+                    set_protocol(MV_COMPUTE);
                 }
                 ImGui::SameLine();
                 ImGui::SetCursorPosY(ImGui::GetCursorPosY() - 3.f);
                 if (ImGui::Button("Save", ImVec2(83, 0))) {
-
+                    const char* lFilterPatterns[1] = { "*.mvl" };
+                    auto t = std::time(nullptr);
+                    auto tm = *std::localtime(&t);
+                    std::ostringstream oss;
+                    oss << std::put_time(&tm, "MV2 %d-%m-%Y %H-%M-%S");
+                    const char* buf = tinyfd_saveFileDialog("Save location", oss.str().c_str(),
+                        1, lFilterPatterns, "MV2 Location File (*.mvl)");
+                    if (glfwGetWindowMonitor(window) != nullptr) glfwRestoreWindow(window);
+                    glfwShowWindow(window);
+                    if (buf != nullptr) {
+                        std::ofstream fout;
+                        fout.open(buf, std::ios::binary | std::ios::out | std::ofstream::trunc);
+                        fout.write(reinterpret_cast<const char*>(glm::value_ptr(config.offset)), sizeof(glm::dvec2));
+                        fout.write(reinterpret_cast<const char*>(&config.zoom), sizeof(double));
+                        fout.close();
+                    }
                 }
                 ImGui::SameLine();
                 ImGui::SetCursorPosY(ImGui::GetCursorPosY() - 3.f);
                 if (ImGui::Button("Load", ImVec2(83, 0))) {
-
+                    const char* lFilterPatterns[1] = { "*.mvl" };
+                    char* buf = tinyfd_openFileDialog("Open location", nullptr,
+                        1, lFilterPatterns, "MV2 Location File (*.mvl)", false);
+                    if (glfwGetWindowMonitor(window) != nullptr) glfwRestoreWindow(window);
+                    glfwShowWindow(window);
+                    if (buf != nullptr) {
+                        std::ifstream fin;
+                        fin.open(buf, std::ios::binary | std::ios::in | std::ios::ate);
+                        int size = static_cast<int>(fin.tellg());
+                        if (size % 4 != 0 || (size /= 16) > 16) {
+                            throw Error("Palette file invalid");
+                        }
+                        paletteData.resize(size);
+                        fin.seekg(0);
+                        fin.read(reinterpret_cast<char*>(glm::value_ptr(config.offset)), sizeof(glm::dvec2));
+                        fin.read(reinterpret_cast<char*>(&config.zoom), sizeof(double));
+                        fin.close();
+                        glUniform2d(glGetUniformLocation(shaderProgram, "offset"), config.offset.x, config.offset.y);
+                        glUniform1d(glGetUniformLocation(shaderProgram, "zoom"), config.zoom);
+                        set_protocol(MV_COMPUTE);
+                    }
                 }
 
                 ImGui::BeginGroup();
@@ -976,20 +1016,20 @@ public:
                 if (ImGui::SliderFloat("Iteration coeff.", &config.iter_co, 1.01, 1.1)) {
                     glUniform1i(glGetUniformLocation(shaderProgram, "max_iters"),
                         max_iters(config.zoom, zoom_co, config.iter_co));
-                    protocol = MV_COMPUTE;
+                    set_protocol(MV_COMPUTE);
                 }
                 if (ImGui::SliderFloat("Bailout radius", &config.bailout_radius, 2.0, 25.0)) {
                     glUniform1d(glGetUniformLocation(shaderProgram, "bailout_radius"), pow(config.bailout_radius, 2));
-                    protocol = MV_COMPUTE;
+                    set_protocol(MV_COMPUTE);
                 }
                 if (ImGui::TreeNode("Experimental")) {
                     if (ImGui::DragFloat("Coeff. of c", &config.const_coeff, std::max(1e-4f, abs(1 - config.const_coeff) / 40.f), 0.f, 0.f, "%.3f", ImGuiSliderFlags_NoRoundToFormat)) {
                         glUniform1d(glGetUniformLocation(shaderProgram, "const_coeff"), static_cast<double>(config.const_coeff));
-                        protocol = MV_COMPUTE;
+                        set_protocol(MV_COMPUTE);
                     }
                     if (ImGui::SliderInt("Order", &config.degree, 2, 6)) {
                         glUniform1i(glGetUniformLocation(shaderProgram, "degree"), config.degree);
-                        protocol = MV_COMPUTE;
+                        set_protocol(MV_COMPUTE);
                     }
                     ImGui::TreePop();
                 }
@@ -1012,25 +1052,25 @@ public:
 
                     glUniform1i(glGetUniformLocation(shaderProgram, "blur"), factor);
 
-                    protocol = MV_COMPUTE;
+                    set_protocol(MV_COMPUTE);
                 }
                 ImGui::SameLine();
                 if (ImGui::Checkbox("Continuous Coloring", reinterpret_cast<bool*>(&config.continuous_coloring))) {
                     glUniform1i(glGetUniformLocation(shaderProgram, "continuous_coloring"), config.continuous_coloring);
-                    protocol = MV_COMPUTE;
+                    set_protocol(MV_COMPUTE);
                 }
                 ImGui::SeparatorText("Coloring");
                 if (ImGui::ColorEdit3("Set color", &config.set_color.x)) {
                     glUniform3f(glGetUniformLocation(shaderProgram, "set_color"), config.set_color.r, config.set_color.g, config.set_color.b);
-                    protocol = MV_POSTPROC;
+                    set_protocol(MV_POSTPROC);
                 }
                 if (ImGui::SliderFloat("Multiplier", &config.iter_multiplier, 1, 128, "x%.4g", ImGuiSliderFlags_Logarithmic | ImGuiSliderFlags_NoRoundToFormat)) {
                     glUniform1f(glGetUniformLocation(shaderProgram, "iter_multiplier"), config.iter_multiplier);
-                    protocol = MV_POSTPROC;
+                    set_protocol(MV_POSTPROC);
                 }
                 if (ImGui::SliderFloat("Offset", &config.spectrum_offset, 0, span)) {
                     glUniform1f(glGetUniformLocation(shaderProgram, "spectrum_offset"), config.spectrum_offset);
-                    protocol = MV_POSTPROC;
+                    set_protocol(MV_POSTPROC);
                 }
                 ImGui::Dummy(ImVec2(0.0f, 3.0f));
                 bool isMarkerShown = true;
@@ -1127,7 +1167,7 @@ public:
                     memcpy(glMapBuffer(GL_SHADER_STORAGE_BUFFER, GL_WRITE_ONLY),
                         paletteData.data(), paletteData.size() * sizeof(glm::vec4));
                     glUnmapBuffer(GL_SHADER_STORAGE_BUFFER);
-                    protocol = MV_POSTPROC;
+                    set_protocol(MV_POSTPROC);
                 }
                 ImGui::PushStyleColor(ImGuiCol_Text, IM_COL32(80, 80, 80, 255));
                 ImGui::Text("(c) 2017-2024 Yilmaz Alpaslan");
@@ -1248,7 +1288,7 @@ public:
                     glUniform2i(glGetUniformLocation(shaderProgram, "screenSize"), ss.x, ss.y);
                     glDrawArrays(GL_TRIANGLES, 0, 6);
                 }
-                protocol = MV_RENDER;
+                set_protocol(MV_RENDER);
             }
             if (recording && !paused) {
                 glBindTexture(GL_TEXTURE_2D, finalTexBuffer);
@@ -1276,7 +1316,7 @@ public:
                         max_iters(zsc.tcfg.zoom, zoom_co, config.iter_co));
                     glUniform1d(glGetUniformLocation(shaderProgram, "zoom"), zsc.tcfg.zoom);
                 }
-                protocol = MV_COMPUTE;
+                set_protocol(MV_COMPUTE);
             }
             ImGui::Render();
             ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
