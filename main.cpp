@@ -77,6 +77,7 @@ uniform float  spectrum_offset;
 uniform float  iter_multiplier;
 uniform double bailout_radius;
 uniform int    continuous_coloring;
+uniform int    normal_map_effect;
 uniform vec3   set_color;
 uniform int    degree;
 uniform dvec2  mousePos; // position in pixels
@@ -84,6 +85,9 @@ uniform dvec2  mouseCoord; // position in the complex plane
 uniform double julia_zoom;
 uniform int    julia_maxiters;
 uniform int    blur;
+
+uniform float  height;
+uniform float  angle;
 
 //experimental
 uniform double const_coeff = 1.0;
@@ -94,12 +98,19 @@ layout(binding=2) uniform sampler2D finalTex;
 
 uniform int protocol;
 
-vec2 cexp(vec2 z) {
-    return exp(z.x) * vec2(cos(z.y), sin(z.y));
+dvec2 cexp(vec2 z) {
+    return exp(z.x) * dvec2(cos(z.y), sin(z.y));
 }
 dvec2 cconj(dvec2 z) {
 	return dvec2(z.x, -z.y);
 }
+dvec2 cmultiply(dvec2 a, dvec2 b) {
+    return dvec2(a.x * b.x - a.y * b.y, a.x * b.y + a.y * b.x);
+}
+dvec2 cdivide(dvec2 a, dvec2 b) {
+    return dvec2(a.x * b.x + a.y * b.y, a.y * b.x - a.x * b.y) / (b.x * b.x + b.y * b.y);
+}
+
 uniform mat3 weight = mat3(
     0.0751136, 0.123841, 0.0751136,
     0.1238410, 0.204180, 0.1238410,
@@ -153,7 +164,7 @@ dvec2 advance(dvec2 z, dvec2 c, double xx, double yy) {
 
 void main() {
     if (protocol == 4) {
-        dvec2 c = (dvec2(gl_FragCoord.x / screenSize.x, (screenSize.y - gl_FragCoord.y) / screenSize.y) - dvec2(0.5, 0.5)) * dvec2(julia_zoom, julia_zoom);
+        dvec2 c = dvec2(julia_zoom, julia_zoom) * (dvec2(gl_FragCoord.x / screenSize.x, (screenSize.y - gl_FragCoord.y) / screenSize.y) - dvec2(0.5, 0.5));
         dvec2 z = c;
         
         for (int i = 1; i < julia_maxiters; i++) {
@@ -169,16 +180,13 @@ void main() {
     }
     
     if (protocol == 3) {
-        double h2 = 1;
-        vec2 dir = vec2(mousePos) - vec2(screenSize) / 2.f;
-        float angle = atan(dir.y, dir.x);
-        dvec2 v = dvec2(cexp(vec2(0.0f, angle * M_2PI / 360)));
+        dvec2 nv = cexp(vec2(0.f, angle * 2.f * M_PI / 360.f));
 
-        dvec2 c = (dvec2(gl_FragCoord.x / screenSize.x, (gl_FragCoord.y) / screenSize.y) - dvec2(0.5, 0.5)) * dvec2(zoom, (screenSize.y * zoom) / screenSize.x) + offset;
+        dvec2 c = offset + (dvec2(gl_FragCoord.x / screenSize.x, (gl_FragCoord.y) / screenSize.y) - dvec2(0.5, 0.5)) * dvec2(zoom, (screenSize.y * zoom) / screenSize.x);
         dvec2 z = c;
 
-        dvec2 der1 = dvec2(1.0, 0.0);
-        dvec2 der2 = dvec2(0.0, 0.0);
+        dvec2 dc = dvec2(1.0, 0.0);
+        dvec2 der = dc;
 
         double xx = z.x * z.x;
         double yy = z.y * z.y;
@@ -187,12 +195,11 @@ void main() {
         if (degree != 2 || degree == 2 && (const_coeff != 1.f || (4.0 * p * (p + (z.x - 0.25)) > yy && (xx + yy + 2 * z.x + 1) > 0.0625))) {
             for (int i = 0; i < max_iters; i++) {
                 if (xx + yy > bailout_radius) {
-                    double lo = 0.5 * log(float(xx + yy));
-                    dvec2 u = z * der1 * ((1 + lo) * cconj(der1 * der1) - lo * cconj(z * der2));
-                    u /= length(u);
-                    double t = dot(u, v) + h2;
-                    t /= h2 + 1.0;
-                    if (t < 0) t = 0.2;
+                    dvec2 u = cdivide(z, der);
+                    u = u / length(u);
+                    double t = u.x * nv.x + u.y * nv.y + height;
+                    t = t / (1.f + height);
+                    if (t < 0) t = 0;
 
                     if (continuous_coloring == 1) {
                         fragColor = vec4(i + 2 - log2(log2(float(length(z)))) / log2(degree), i, t, 0.f);
@@ -202,11 +209,9 @@ void main() {
                     return;
                 }
                 dvec2 new_z = advance(z, c, xx, yy);
-                dvec2 new_der1 = der1 * 2.0 * z + 1.0;
-                dvec2 new_der2 = 2 * (der2 * z + der1 * der1);
+                dvec2 new_der = cmultiply(der, z) * 2.0 + 1.0;
                 z = new_z;
-                der1 = new_der1;
-                der2 = new_der2;
+                der = new_der;
                 xx = z.x * z.x;
                 yy = z.y * z.y;
             }
@@ -216,7 +221,7 @@ void main() {
     if (protocol == 2) {
         vec4 data = texture(mandelbrotTex, vec2(gl_FragCoord.x / screenSize.x, gl_FragCoord.y / screenSize.y));
         if (blur == 1) {
-            fragColor = vec4(color(data.x * iter_multiplier), 1.f);
+            fragColor = mix(vec4(0.f), vec4(color(data.x * iter_multiplier), 1.f), 1 - normal_map_effect * data.z);
             return;
         }
         vec3 blurredColor = vec3(0.0);
@@ -226,7 +231,7 @@ void main() {
                 blurredColor += s * weight[i + 1][j + 1];
             }
         }
-        fragColor = vec4(blurredColor, 1.f);
+        fragColor = mix(vec4(0.f), vec4(blurredColor, 1.f), 1 - normal_map_effect * data.z);
     }
     if (protocol == 1) {
         fragColor = texture(postprocTex, vec2(gl_FragCoord.x / screenSize.x, gl_FragCoord.y / screenSize.y));
@@ -405,11 +410,15 @@ struct Config {
     float  bailout_radius = 10.f;
     float  iter_co = 1.045f;
     int    continuous_coloring = 1;
+    int    normal_map_effect = 0;
     glm::fvec3 set_color = { 0.f, 0.f, 0.f };
     int    degree = 2;
     bool   ssaa = true;
     int    ssaa_factor = 2;
     float  const_coeff = 1.f;
+
+    float  angle = 300.f;
+    float  height = 1.5f;
 };
 
 struct ZoomSequenceConfig {
@@ -649,12 +658,16 @@ public:
             glUniform1f(glGetUniformLocation(shaderProgram, "spectrum_offset"), config.spectrum_offset);
             glUniform1d(glGetUniformLocation(shaderProgram, "bailout_radius"), pow(config.bailout_radius, 2));
             glUniform1i(glGetUniformLocation(shaderProgram, "continuous_coloring"), config.continuous_coloring);
+            glUniform1i(glGetUniformLocation(shaderProgram, "normal_map_effect"), config.normal_map_effect);
             glUniform3f(glGetUniformLocation(shaderProgram, "set_color"), config.set_color.x, config.set_color.y, config.set_color.z);
             glUniform1i(glGetUniformLocation(shaderProgram, "degree"), config.degree);
             glUniform1d(glGetUniformLocation(shaderProgram, "julia_zoom"), julia_zoom);
             glUniform1i(glGetUniformLocation(shaderProgram, "julia_maxiters"),
                 max_iters(julia_zoom, zoom_co, config.iter_co, 3.0));
             glUniform1i(glGetUniformLocation(shaderProgram, "blur"), config.ssaa_factor);
+
+            glUniform1f(glGetUniformLocation(shaderProgram, "angle"), config.angle);
+            glUniform1f(glGetUniformLocation(shaderProgram, "height"), config.height);
         }
         if (textures) {
             int factor = (config.ssaa ? config.ssaa_factor : 1);
@@ -670,7 +683,6 @@ public:
 
     void set_protocol(int p, bool override = false) {
         if (p > protocol || override) protocol = p;
-        std::cout << "set protocol to " << p << std::endl;
     }
 
     static glm::dvec2 pixel_to_complex(glm::dvec2 pixelCoord, glm::ivec2 screenSize, double zoom, glm::dvec2 offset) {
@@ -1056,9 +1068,24 @@ public:
                     set_protocol(MV_COMPUTE);
                 }
                 ImGui::SameLine();
-                if (ImGui::Checkbox("Continuous Coloring", reinterpret_cast<bool*>(&config.continuous_coloring))) {
+                if (ImGui::Checkbox("Continuous coloring", reinterpret_cast<bool*>(&config.continuous_coloring))) {
                     glUniform1i(glGetUniformLocation(shaderProgram, "continuous_coloring"), config.continuous_coloring);
                     set_protocol(MV_COMPUTE);
+                }
+                ImGui::SameLine();
+                if (ImGui::Checkbox("Normal illum.", reinterpret_cast<bool*>(&config.normal_map_effect))) {
+                    glUniform1i(glGetUniformLocation(shaderProgram, "normal_map_effect"), config.normal_map_effect);
+                    set_protocol(MV_COMPUTE);
+                }
+                if (config.normal_map_effect) {
+                    if (ImGui::SliderFloat("Angle", &config.angle, 0.f, 360.f)) {
+                        glUniform1f(glGetUniformLocation(shaderProgram, "angle"), config.angle);
+                        set_protocol(MV_COMPUTE);
+                    }
+                    if (ImGui::SliderFloat("Height", &config.height, 0.f, 10.f)) {
+                        glUniform1f(glGetUniformLocation(shaderProgram, "height"), config.height);
+                        set_protocol(MV_COMPUTE);
+                    }
                 }
                 ImGui::SeparatorText("Coloring");
                 if (ImGui::ColorEdit3("Set color", &config.set_color.x)) {
@@ -1255,7 +1282,6 @@ public:
                 glViewport(0, 0, zsc.tcfg.screenSize.x * factor, zsc.tcfg.screenSize.y * factor);
                 glUniform2i(glGetUniformLocation(shaderProgram, "screenSize"), zsc.tcfg.screenSize.x * factor, zsc.tcfg.screenSize.y * factor);
             }
-            std::cout << protocol << std::endl;
             switch (protocol) {
             case MV_COMPUTE:
                 glBindFramebuffer(GL_FRAMEBUFFER, mandelbrotFrameBuffer);
