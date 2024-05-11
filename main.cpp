@@ -50,9 +50,7 @@ const char* vertexShaderSource = R"(
 
 layout(location = 0) in vec2 aPos;
 
-void main() {
-    gl_Position = vec4(aPos, 0.0, 1.0);
-}
+void main() { gl_Position = vec4(aPos, 0.0, 1.0); }
 )";
 
 const char* doublePrecFragmentShader = R"glsl(
@@ -79,7 +77,6 @@ uniform double bailout_radius;
 uniform int    continuous_coloring;
 uniform int    normal_map_effect;
 uniform vec3   set_color;
-uniform int    degree;
 uniform dvec2  mousePos; // position in pixels
 uniform dvec2  mouseCoord; // position in the complex plane
 uniform double julia_zoom;
@@ -90,7 +87,8 @@ uniform float  height;
 uniform float  angle;
 
 //experimental
-uniform double const_coeff = 1.0;
+uniform float  degree;
+uniform double const_coeff;
 
 layout(binding=0) uniform sampler2D mandelbrotTex;
 layout(binding=1) uniform sampler2D postprocTex;
@@ -109,6 +107,12 @@ dvec2 cmultiply(dvec2 a, dvec2 b) {
 }
 dvec2 cdivide(dvec2 a, dvec2 b) {
     return dvec2(a.x * b.x + a.y * b.y, a.y * b.x - a.x * b.y) / (b.x * b.x + b.y * b.y);
+}
+dvec2 cpow(dvec2 z, float p) {
+    vec2 c = vec2(z);
+    float r = sqrt(c.x * c.x + c.y * c.y);
+    float theta = atan(c.y, c.x);
+    return pow(r, p) * dvec2(cos(p * theta), sin(p * theta));
 }
 
 uniform mat3 weight = mat3(
@@ -138,28 +142,22 @@ vec3 color(float i) {
     return vec3(i, i, i);
 }
 
-dvec2 advance(dvec2 z, dvec2 c, double xx, double yy) {
-    switch (degree) {
-    case 2:
-        z = dvec2(xx - yy, 2 * z.x * z.y) + const_coeff * c;
-        break;
-    case 3:
-        z = dvec2(xx * z.x - 3 * z.x * yy, 3 * xx * z.y - yy * z.y) + const_coeff * c;
-        break;
-    case 4:
-        z = dvec2(xx * xx + yy * yy - 6 * xx * yy,
-            4 * xx * z.x * z.y - 4 * z.x * yy * z.y) + const_coeff * c;
-        break;
-    case 5:
-        z = dvec2(xx * xx * z.x + 5 * z.x * yy * yy - 10 * xx * z.x * yy,
-            5 * xx * xx * z.y + yy * yy * z.y - 10 * xx * yy * z.y) + const_coeff * c;
-        break;
-    case 6:
-        z = dvec2(xx * xx * xx - 15 * xx * xx * yy + 15 * xx * yy * yy - yy * yy * yy,
-            6 * xx * xx * z.x * z.y - 20 * xx * z.x * yy * z.y + 6 * z.x * yy * yy * z.y) + const_coeff * c;
-        break;
-    }
+dvec2 advance(dvec2 z, dvec2 c) {
+    if (degree == 2.f) z = dvec2(z.x * z.x - z.y * z.y, 2 * z.x * z.y) + const_coeff * c;
+    else z = cpow(z, degree) + const_coeff * c;
     return z;
+}
+
+dvec2 differentiate(dvec2 z, dvec2 der) {
+    der = cpow(cmultiply(der, z), degree - 1.f) * degree + 1.0;
+    return der;
+}
+
+bool is_experimental() {
+    int res = 0;
+    res |= int(const_coeff != 1.0);
+    res |= int(degree != 2.f);
+    return bool(res);
 }
 
 void main() {
@@ -174,7 +172,7 @@ void main() {
                 fragColor = vec4(color(iter_multiplier * (i + 1 - log2(log2(float(length(z)))) / log2(degree))), 1.f);
                 return;
             }
-            z = advance(z, mouseCoord, xx, yy);
+            z = advance(z, mouseCoord);
         }
         fragColor = vec4(set_color, 1.0);
     }
@@ -192,14 +190,16 @@ void main() {
         double yy = z.y * z.y;
 
         double p = xx - z.x / 2.0 + 0.0625 + yy;
-        if (degree != 2 || degree == 2 && (const_coeff != 1.f || (4.0 * p * (p + (z.x - 0.25)) > yy && (xx + yy + 2 * z.x + 1) > 0.0625))) {
+        if (is_experimental() || !is_experimental() && (4.0 * p * (p + (z.x - 0.25)) > yy && (xx + yy + 2 * z.x + 1) > 0.0625)) {
             for (int i = 0; i < max_iters; i++) {
                 if (xx + yy > bailout_radius) {
-                    dvec2 u = cdivide(z, der);
-                    u = u / length(u);
-                    double t = u.x * nv.x + u.y * nv.y + height;
-                    t = t / (1.f + height);
-                    if (t < 0) t = 0;
+                    double t;
+                    if (normal_map_effect == 1) {
+                        dvec2 u = cdivide(z, der);
+                        u = u / length(u);
+                        t = (u.x * nv.x + u.y * nv.y + height) / (1.f + height);
+                        if (t < 0) t = 0;
+                    } else t = 0;
 
                     if (continuous_coloring == 1) {
                         fragColor = vec4(i + 2 - log2(log2(float(length(z)))) / log2(degree), i, t, 0.f);
@@ -208,10 +208,9 @@ void main() {
                     }
                     return;
                 }
-                dvec2 new_z = advance(z, c, xx, yy);
-                dvec2 new_der = cmultiply(der, z) * 2.0 + 1.0;
-                z = new_z;
-                der = new_der;
+                if (normal_map_effect == 1)
+                    der = differentiate(z, der);
+                z = advance(z, c);
                 xx = z.x * z.x;
                 yy = z.y * z.y;
             }
@@ -221,17 +220,18 @@ void main() {
     if (protocol == 2) {
         vec4 data = texture(mandelbrotTex, vec2(gl_FragCoord.x / screenSize.x, gl_FragCoord.y / screenSize.y));
         if (blur == 1) {
-            fragColor = mix(vec4(0.f), vec4(color(data.x * iter_multiplier), 1.f), 1 - normal_map_effect * data.z);
+            fragColor = mix(vec4(color(data.x * iter_multiplier), 1.f), vec4(0.f), normal_map_effect * data.z);
             return;
         }
         vec3 blurredColor = vec3(0.0);
         for (int i = -1; i <= 1; i++) {
             for (int j = -1; j <= 1; j++) {
-                vec3 s = color(texture(mandelbrotTex, vec2((gl_FragCoord.x + float(i)) / screenSize.x, (gl_FragCoord.y + float(j)) / screenSize.y)).x * iter_multiplier);
-                blurredColor += s * weight[i + 1][j + 1];
+                vec4 d = texture(mandelbrotTex, vec2((gl_FragCoord.x + float(i)) / screenSize.x, (gl_FragCoord.y + float(j)) / screenSize.y));
+                vec3 s = color(d.x * iter_multiplier);
+                blurredColor += mix(s, vec3(0.f), normal_map_effect * d.z) * weight[i + 1][j + 1];
             }
         }
-        fragColor = mix(vec4(0.f), vec4(blurredColor, 1.f), 1 - normal_map_effect * data.z);
+        fragColor = vec4(blurredColor, 1.f);
     }
     if (protocol == 1) {
         fragColor = texture(postprocTex, vec2(gl_FragCoord.x / screenSize.x, gl_FragCoord.y / screenSize.y));
@@ -412,11 +412,12 @@ struct Config {
     int    continuous_coloring = 1;
     int    normal_map_effect = 0;
     glm::fvec3 set_color = { 0.f, 0.f, 0.f };
-    int    degree = 2;
     bool   ssaa = true;
     int    ssaa_factor = 2;
+    // experimental
+    float  degree = 2.f;
     float  const_coeff = 1.f;
-
+    // normal mapping
     float  angle = 300.f;
     float  height = 1.5f;
 };
@@ -660,11 +661,13 @@ public:
             glUniform1i(glGetUniformLocation(shaderProgram, "continuous_coloring"), config.continuous_coloring);
             glUniform1i(glGetUniformLocation(shaderProgram, "normal_map_effect"), config.normal_map_effect);
             glUniform3f(glGetUniformLocation(shaderProgram, "set_color"), config.set_color.x, config.set_color.y, config.set_color.z);
-            glUniform1i(glGetUniformLocation(shaderProgram, "degree"), config.degree);
             glUniform1d(glGetUniformLocation(shaderProgram, "julia_zoom"), julia_zoom);
             glUniform1i(glGetUniformLocation(shaderProgram, "julia_maxiters"),
                 max_iters(julia_zoom, zoom_co, config.iter_co, 3.0));
             glUniform1i(glGetUniformLocation(shaderProgram, "blur"), config.ssaa_factor);
+
+            glUniform1f(glGetUniformLocation(shaderProgram, "degree"), config.degree);
+            glUniform1d(glGetUniformLocation(shaderProgram, "const_coeff"), config.const_coeff);
 
             glUniform1f(glGetUniformLocation(shaderProgram, "angle"), config.angle);
             glUniform1f(glGetUniformLocation(shaderProgram, "height"), config.height);
@@ -1036,12 +1039,31 @@ public:
                     set_protocol(MV_COMPUTE);
                 }
                 if (ImGui::TreeNode("Experimental")) {
-                    if (ImGui::DragFloat("Coeff. of c", &config.const_coeff, std::max(1e-4f, abs(1 - config.const_coeff) / 40.f), 0.f, 0.f, "%.3f", ImGuiSliderFlags_NoRoundToFormat)) {
+                    int update = 0;
+                    auto experiment = [&]<typename type>(const char* label, type* ptr, const type def) {
+                        ImGui::PushID(*reinterpret_cast<const int*>(label));
+                        if (ImGui::Button("Round##")) {
+                            *ptr = round(*ptr);
+                            update = 1;
+                        }
+                        ImGui::PopID();
+                        ImGui::PushID(*reinterpret_cast<const int*>(label));
+                        ImGui::SameLine();
+                        if (ImGui::Button("Reset##")) {
+                            *ptr = def;
+                            update = 1;
+                        }
+                        ImGui::PopID();
+                        ImGui::SameLine();
+                        ImGui::PushItemWidth(90);
+                        update |= ImGui::DragFloat(label, ptr, std::max(1e-4f, abs(def - *ptr) / 40.f), 0.f, 0.f, "%.5f", ImGuiSliderFlags_NoRoundToFormat);
+                        ImGui::PopItemWidth();
+                    };
+                    experiment("Coeff. of c", &config.const_coeff, 1.f);
+                    experiment("Order", &config.degree, 2.f);
+                    if (update) {
                         glUniform1d(glGetUniformLocation(shaderProgram, "const_coeff"), static_cast<double>(config.const_coeff));
-                        set_protocol(MV_COMPUTE);
-                    }
-                    if (ImGui::SliderInt("Order", &config.degree, 2, 6)) {
-                        glUniform1i(glGetUniformLocation(shaderProgram, "degree"), config.degree);
+                        glUniform1f(glGetUniformLocation(shaderProgram, "degree"), config.degree);
                         set_protocol(MV_COMPUTE);
                     }
                     ImGui::TreePop();
@@ -1235,25 +1257,13 @@ public:
                     double yy = z.y * z.y;
                     if (xx + yy > pow(config.bailout_radius, 2))
                         goto display;
-                    switch (config.degree) {
-                    case 2:
+                    if (config.degree == 2.f) {
                         z = glm::dvec2(xx - yy, 2.0f * z.x * z.y) + mc;
-                        break;
-                    case 3:
-                        z = glm::dvec2(xx * z.x - 3 * z.x * yy, 3 * xx * z.y - yy * z.y) + mc;
-                        break;
-                    case 4:
-                        z = glm::dvec2(xx * xx + yy * yy - 6 * xx * yy,
-                            4 * xx * z.x * z.y - 4 * z.x * yy * z.y) + mc;
-                        break;
-                    case 5:
-                        z = glm::dvec2(xx * xx * z.x + 5 * z.x * yy * yy - 10 * xx * z.x * yy,
-                            5 * xx * xx * z.y + yy * yy * z.y - 10 * xx * yy * z.y) + mc;
-                        break;
-                    case 6:
-                        z = glm::dvec2(xx * xx * xx - 15 * xx * xx * yy + 15 * xx * yy * yy - yy * yy * yy,
-                            6 * xx * xx * z.x * z.y - 20 * xx * z.x * yy * z.y + 6 * z.x * yy * yy * z.y) + mc;
-                        break;
+                    }
+                    else {
+                        float r = sqrt(z.x * z.x + z.y * z.y);
+                        float theta = atan2(z.y, z.x);
+                        z = pow(glm::length(z), config.degree) * glm::dvec2(cos(config.degree * theta), sin(config.degree * theta)) + c;
                     }
                 }
                 i = -1;
