@@ -149,7 +149,7 @@ dvec2 advance(dvec2 z, dvec2 c) {
 }
 
 dvec2 differentiate(dvec2 z, dvec2 der) {
-    der = cpow(cmultiply(der, z), degree - 1.f) * degree + 1.0;
+    der = cmultiply(cpow(z, degree - 1.f), der) * degree + 1.0;
     return der;
 }
 
@@ -191,7 +191,7 @@ void main() {
 
         double p = xx - z.x / 2.0 + 0.0625 + yy;
         if (is_experimental() || !is_experimental() && (4.0 * p * (p + (z.x - 0.25)) > yy && (xx + yy + 2 * z.x + 1) > 0.0625)) {
-            for (int i = 0; i < max_iters; i++) {
+            for (int i = 1; i < max_iters; i++) {
                 if (xx + yy > bailout_radius) {
                     double t;
                     if (normal_map_effect == 1) {
@@ -220,7 +220,7 @@ void main() {
     if (protocol == 2) {
         vec4 data = texture(mandelbrotTex, vec2(gl_FragCoord.x / screenSize.x, gl_FragCoord.y / screenSize.y));
         if (blur == 1) {
-            fragColor = mix(vec4(color(data.x * iter_multiplier), 1.f), vec4(0.f), normal_map_effect * data.z);
+            fragColor = vec4(mix(color(data.x * iter_multiplier), vec3(0.f), normal_map_effect * data.z), 1.f);
             return;
         }
         vec3 blurredColor = vec3(0.0);
@@ -1040,7 +1040,7 @@ public:
                 }
                 if (ImGui::TreeNode("Experimental")) {
                     int update = 0;
-                    auto experiment = [&]<typename type>(const char* label, type* ptr, const type def) {
+                    auto experiment = [&]<typename type>(const char* label, type* ptr, const type def, const float speed, const float min) {
                         ImGui::PushID(*reinterpret_cast<const int*>(label));
                         if (ImGui::Button("Round##")) {
                             *ptr = round(*ptr);
@@ -1056,11 +1056,11 @@ public:
                         ImGui::PopID();
                         ImGui::SameLine();
                         ImGui::PushItemWidth(90);
-                        update |= ImGui::DragFloat(label, ptr, std::max(1e-4f, abs(def - *ptr) / 40.f), 0.f, 0.f, "%.5f", ImGuiSliderFlags_NoRoundToFormat);
+                        update |= ImGui::DragFloat(label, ptr, speed, min, min == 0.f ? 0.f : FLT_MAX, "%.5f", ImGuiSliderFlags_NoRoundToFormat | ImGuiSliderFlags_AlwaysClamp);
                         ImGui::PopItemWidth();
                     };
-                    experiment("Coeff. of c", &config.const_coeff, 1.f);
-                    experiment("Order", &config.degree, 2.f);
+                    experiment("Coeff. of c", &config.const_coeff, 1.f, std::max(1e-4f, abs(1.f - config.const_coeff) / 40.f), 0.f);
+                    experiment("Order", &config.degree, 2.f, std::max(1e-3f, abs(round(config.degree) - config.degree)) * std::min(pow(1.2, config.degree), 1e+3) / 20.f, FLT_MIN);
                     if (update) {
                         glUniform1d(glGetUniformLocation(shaderProgram, "const_coeff"), static_cast<double>(config.const_coeff));
                         glUniform1f(glGetUniformLocation(shaderProgram, "degree"), config.degree);
