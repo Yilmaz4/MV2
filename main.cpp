@@ -4,6 +4,10 @@
 
 #define IMGUI_DEFINE_MATH_OPERATORS
 #define STB_IMAGE_WRITE_IMPLEMENTATION
+#define NOMINMAX
+
+#include <Windows.h>
+#include "resource.h"
 
 #include <imgui.h>
 #include <imgui_impl_glfw.h>
@@ -45,6 +49,11 @@ float vertices[] = {
     -1.0f,  1.0f
 };
 
+void GLAPIENTRY glMessageCallback(GLenum source, GLenum type, GLuint id, GLenum severity, GLsizei length, const GLchar* message, const void* userParam) {
+    if (type != GL_DEBUG_TYPE_ERROR) return;
+    fprintf(stderr, "GL CALLBACK: %s type = 0x%x, severity = 0x%x, message = %s\n", "** GL ERROR **", type, severity, message);
+}
+
 const char* vertexShaderSource = R"(
 #version 430 core
 
@@ -52,197 +61,6 @@ layout(location = 0) in vec2 aPos;
 
 void main() { gl_Position = vec4(aPos, 0.0, 1.0); }
 )";
-
-const char* doublePrecFragmentShader = R"glsl(
-#version 430 core
-
-#extension GL_ARB_gpu_shader_fp64 : enable
-#extension GL_NV_uniform_buffer_std430_layout : enable
-
-double M_PI = 	 3.14159265358979323846LF;
-double M_2PI =   M_PI * 2.0LF;
-double M_PI2 =   M_PI / 2.0LF;
-double M_E =     2.71828182845904523536LF;
-double M_EHALF = 1.6487212707001281469LF;
-
-out vec4 fragColor;
-
-uniform ivec2  screenSize;
-uniform dvec2  offset;
-uniform double zoom;
-uniform int    max_iters;
-uniform float  spectrum_offset;
-uniform float  iter_multiplier;
-uniform double bailout_radius;
-uniform int    continuous_coloring;
-uniform int    normal_map_effect;
-uniform vec3   set_color;
-uniform dvec2  mousePos; // position in pixels
-uniform dvec2  mouseCoord; // position in the complex plane
-uniform double julia_zoom;
-uniform int    julia_maxiters;
-uniform int    blur;
-
-uniform float  height;
-uniform float  angle;
-
-//experimental
-uniform float  degree;
-uniform double const_coeff;
-
-layout(binding=0) uniform sampler2D mandelbrotTex;
-layout(binding=1) uniform sampler2D postprocTex;
-layout(binding=2) uniform sampler2D finalTex;
-
-uniform int protocol;
-
-dvec2 cexp(vec2 z) {
-    return exp(z.x) * dvec2(cos(z.y), sin(z.y));
-}
-dvec2 cconj(dvec2 z) {
-	return dvec2(z.x, -z.y);
-}
-dvec2 cmultiply(dvec2 a, dvec2 b) {
-    return dvec2(a.x * b.x - a.y * b.y, a.x * b.y + a.y * b.x);
-}
-dvec2 cdivide(dvec2 a, dvec2 b) {
-    return dvec2(a.x * b.x + a.y * b.y, a.y * b.x - a.x * b.y) / (b.x * b.x + b.y * b.y);
-}
-dvec2 cpow(dvec2 z, float p) {
-    vec2 c = vec2(z);
-    float r = sqrt(c.x * c.x + c.y * c.y);
-    float theta = atan(c.y, c.x);
-    return pow(r, p) * dvec2(cos(p * theta), sin(p * theta));
-}
-
-uniform mat3 weight = mat3(
-    0.0751136, 0.123841, 0.0751136,
-    0.1238410, 0.204180, 0.1238410,
-    0.0751136, 0.123841, 0.0751136
-);
-
-layout(std430, binding = 1) readonly buffer spectrum {
-    vec4 spec[];
-};
-uniform int span;
-
-vec3 color(float i) {
-    if (i < 0.f) return set_color;
-    i = mod(i + spectrum_offset, span) / span;
-    for (int v = 0; v < spec.length(); v++) {
-        if (spec[v].w >= i) {
-            vec4 v2 = spec[v];
-            vec4 v1;
-            if (v > 0.f) v1 = spec[v - 1];
-            else v2 = v1;
-            vec4 dv = v2 - v1;
-            return v1.rgb + (dv.rgb * (i - v1.w)) / dv.w;
-        }
-    }
-    return vec3(i, i, i);
-}
-
-dvec2 advance(dvec2 z, dvec2 c) {
-    if (degree == 2.f) z = dvec2(z.x * z.x - z.y * z.y, 2 * z.x * z.y) + const_coeff * c;
-    else z = cpow(z, degree) + const_coeff * c;
-    return z;
-}
-
-dvec2 differentiate(dvec2 z, dvec2 der) {
-    der = cmultiply(cpow(z, degree - 1.f), der) * degree + 1.0;
-    return der;
-}
-
-bool is_experimental() {
-    int res = 0;
-    res |= int(const_coeff != 1.0);
-    res |= int(degree != 2.f);
-    return bool(res);
-}
-
-void main() {
-    if (protocol == 4) {
-        dvec2 c = dvec2(julia_zoom, julia_zoom) * (dvec2(gl_FragCoord.x / screenSize.x, (screenSize.y - gl_FragCoord.y) / screenSize.y) - dvec2(0.5, 0.5));
-        dvec2 z = c;
-        
-        for (int i = 1; i < julia_maxiters; i++) {
-            double xx = z.x * z.x;
-            double yy = z.y * z.y;
-            if (xx + yy >= bailout_radius) {
-                fragColor = vec4(color(iter_multiplier * (i + 1 - log2(log2(float(length(z)))) / log2(degree))), 1.f);
-                return;
-            }
-            z = advance(z, mouseCoord);
-        }
-        fragColor = vec4(set_color, 1.0);
-    }
-    
-    if (protocol == 3) {
-        dvec2 nv = cexp(vec2(0.f, angle * 2.f * M_PI / 360.f));
-
-        dvec2 c = offset + (dvec2(gl_FragCoord.x / screenSize.x, (gl_FragCoord.y) / screenSize.y) - dvec2(0.5, 0.5)) * dvec2(zoom, (screenSize.y * zoom) / screenSize.x);
-        dvec2 z = c;
-
-        dvec2 dc = dvec2(1.0, 0.0);
-        dvec2 der = dc;
-
-        double xx = z.x * z.x;
-        double yy = z.y * z.y;
-
-        double p = xx - z.x / 2.0 + 0.0625 + yy;
-        if (is_experimental() || !is_experimental() && (4.0 * p * (p + (z.x - 0.25)) > yy && (xx + yy + 2 * z.x + 1) > 0.0625)) {
-            for (int i = 1; i < max_iters; i++) {
-                if (xx + yy > bailout_radius) {
-                    double t;
-                    if (normal_map_effect == 1) {
-                        dvec2 u = cdivide(z, der);
-                        u = u / length(u);
-                        t = (u.x * nv.x + u.y * nv.y + height) / (1.f + height);
-                        if (t < 0) t = 0;
-                    } else t = 0;
-
-                    if (continuous_coloring == 1) {
-                        fragColor = vec4(i + 2 - log2(log2(float(length(z)))) / log2(degree), i, t, 0.f);
-                    } else {
-                        fragColor = vec4(i, i, t, 0.f);
-                    }
-                    return;
-                }
-                if (normal_map_effect == 1)
-                    der = differentiate(z, der);
-                z = advance(z, c);
-                xx = z.x * z.x;
-                yy = z.y * z.y;
-            }
-        }
-        fragColor = vec4(-1.f, -1.f, 0.f, 0.f);
-    }
-    if (protocol == 2) {
-        vec4 data = texture(mandelbrotTex, vec2(gl_FragCoord.x / screenSize.x, gl_FragCoord.y / screenSize.y));
-        if (blur == 1) {
-            fragColor = vec4(mix(color(data.x * iter_multiplier), vec3(0.f), normal_map_effect * data.z), 1.f);
-            return;
-        }
-        vec3 blurredColor = vec3(0.0);
-        for (int i = -1; i <= 1; i++) {
-            for (int j = -1; j <= 1; j++) {
-                vec4 d = texture(mandelbrotTex, vec2((gl_FragCoord.x + float(i)) / screenSize.x, (gl_FragCoord.y + float(j)) / screenSize.y));
-                vec3 s = color(d.x * iter_multiplier);
-                blurredColor += mix(s, vec3(0.f), normal_map_effect * d.z) * weight[i + 1][j + 1];
-            }
-        }
-        fragColor = vec4(blurredColor, 1.f);
-    }
-    if (protocol == 1) {
-        fragColor = texture(postprocTex, vec2(gl_FragCoord.x / screenSize.x, gl_FragCoord.y / screenSize.y));
-    }
-    if (protocol == 0) {
-        fragColor = texture(finalTex, vec2(gl_FragCoord.x / screenSize.x, gl_FragCoord.y / screenSize.y));
-    }
-}
-)glsl";
-
-// TODO: https://blog.cyclemap.link/2011-06-09-glsl-part2-emu/ implement nth power of complex number, use quad-single precision
 
 static gfx::CubicBezier fast_out_slow_in(0.4, 0.0, 0.2, 1.0);
 
@@ -462,7 +280,7 @@ class MV2 {
     int progress = 0;
     cv::VideoWriter writer;
 
-    GLuint shaderProgram = 0;
+    GLuint shaderProgram  = NULL;
 
     GLuint mandelbrotFrameBuffer = NULL;
     GLuint postprocFrameBuffer = NULL;
@@ -600,7 +418,8 @@ public:
 
         unsigned int fragmentShader;
         fragmentShader = glCreateShader(GL_FRAGMENT_SHADER);
-        glShaderSource(fragmentShader, 1, &doublePrecFragmentShader, NULL);
+        char* fragmentSource = read_resource(IDR_RNDR);
+        glShaderSource(fragmentShader, 1, &fragmentSource, NULL);
         glCompileShader(fragmentShader);
         glGetShaderiv(fragmentShader, GL_COMPILE_STATUS, &success);
         if (!success) {
@@ -608,7 +427,6 @@ public:
             std::cout << infoLog << std::endl;
             return;
         }
-
         shaderProgram = glCreateProgram();
         glAttachShader(shaderProgram, vertexShader);
         glAttachShader(shaderProgram, fragmentShader);
@@ -640,12 +458,24 @@ public:
         glUniform1i(glGetUniformLocation(shaderProgram, "span"), span);
 
         use_config(config, true, false);
-
         on_windowResize(window, config.screenSize.x, config.screenSize.y);
 
         for (const glm::vec4& c : paletteData) {
             state.AddColorMarker(c.w, { c.r, c.g, c.b }, 1.0f);
         }
+    }
+
+    static inline char* read_resource(int name) {
+        HMODULE handle = GetModuleHandleW(NULL);
+        HRSRC rc = FindResourceW(handle, MAKEINTRESOURCE(name), MAKEINTRESOURCE(TEXTFILE));
+        if (rc == NULL) return nullptr;
+        HGLOBAL rcData = LoadResource(handle, rc);
+        if (rcData == NULL) return nullptr;
+        DWORD size = SizeofResource(handle, rc);
+        char* res = new char[size + 1];
+        memcpy(res, static_cast<const char*>(LockResource(rcData)), size);
+        res[size] = '\0';
+        return res;
     }
 
     void use_config(Config config, bool variables = true, bool textures = true) {
@@ -683,6 +513,7 @@ public:
             glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, config.screenSize.x * factor, config.screenSize.y * factor, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
         }
     }
+
 
     void set_protocol(int p, bool override = false) {
         if (p > protocol || override) protocol = p;
@@ -1100,11 +931,13 @@ public:
                     set_protocol(MV_COMPUTE);
                 }
                 if (config.normal_map_effect) {
-                    if (ImGui::SliderFloat("Angle", &config.angle, 0.f, 360.f)) {
+                    if (ImGui::DragFloat("Angle", &config.angle, 1.f, 0.f, 0.f, "%.1f deg")) {
+                        if (config.angle > 360.f) config.angle = config.angle - 360;
+                        if (config.angle < 0.f) config.angle = 360 + config.angle;
                         glUniform1f(glGetUniformLocation(shaderProgram, "angle"), config.angle);
                         set_protocol(MV_COMPUTE);
                     }
-                    if (ImGui::SliderFloat("Height", &config.height, 0.f, 10.f)) {
+                    if (ImGui::DragFloat("Height", &config.height, 0.1f, 0.f, FLT_MAX, "%.1f", ImGuiSliderFlags_AlwaysClamp)) {
                         glUniform1f(glGetUniformLocation(shaderProgram, "height"), config.height);
                         set_protocol(MV_COMPUTE);
                     }
@@ -1257,13 +1090,12 @@ public:
                     double yy = z.y * z.y;
                     if (xx + yy > pow(config.bailout_radius, 2))
                         goto display;
-                    if (config.degree == 2.f) {
+                    if (config.degree == 2.f)
                         z = glm::dvec2(xx - yy, 2.0f * z.x * z.y) + mc;
-                    }
                     else {
                         float r = sqrt(z.x * z.x + z.y * z.y);
                         float theta = atan2(z.y, z.x);
-                        z = pow(glm::length(z), config.degree) * glm::dvec2(cos(config.degree * theta), sin(config.degree * theta)) + c;
+                        z = pow(glm::length(z), config.degree) * glm::dvec2(cos(config.degree * theta), sin(config.degree * theta)) + mc;
                     }
                 }
                 i = -1;

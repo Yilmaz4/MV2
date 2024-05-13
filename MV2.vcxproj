@@ -187,6 +187,7 @@
     <ClInclude Include="libs\include\chromium\cubic_bezier.h" />
     <ClInclude Include="libs\include\stb\stb_image_write.h" />
     <ClInclude Include="libs\include\tinyfiledialogs\tinyfiledialogs.h" />
+    <ClInclude Include="resource.h" />
   </ItemGroup>
   <ItemGroup>
     <CopyFileToFolders Include="libs\dlls\opencv_world490.dll">
@@ -197,6 +198,13 @@
     <CopyFileToFolders Include="libs\dlls\opencv_videoio_ffmpeg490_64.dll">
       <FileType>Document</FileType>
     </CopyFileToFolders>
+  </ItemGroup>
+  <ItemGroup>
+    <ResourceCompile Include="MV2.rc" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="shaders\compute.glsl" />
+    <None Include="shaders\render.glsl" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
