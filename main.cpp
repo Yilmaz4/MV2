@@ -236,7 +236,7 @@ struct Config {
     float  degree = 2.f;
     float  const_coeff = 1.f;
     // normal mapping
-    float  angle = 300.f;
+    float  angle = 0.f;
     float  height = 1.5f;
 };
 
@@ -932,9 +932,9 @@ public:
                 }
                 if (config.normal_map_effect) {
                     if (ImGui::DragFloat("Angle", &config.angle, 1.f, 0.f, 0.f, "%.1f deg")) {
-                        if (config.angle > 360.f) config.angle = config.angle - 360;
-                        if (config.angle < 0.f) config.angle = 360 + config.angle;
-                        glUniform1f(glGetUniformLocation(shaderProgram, "angle"), config.angle);
+                        if (config.angle > 360.f) config.angle = config.angle - 360.f;
+                        if (config.angle < 0.f) config.angle = 360.f + config.angle;
+                        glUniform1f(glGetUniformLocation(shaderProgram, "angle"), 360.f - config.angle);
                         set_protocol(MV_COMPUTE);
                     }
                     if (ImGui::DragFloat("Height", &config.height, 0.1f, 0.f, FLT_MAX, "%.1f", ImGuiSliderFlags_AlwaysClamp)) {

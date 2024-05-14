@@ -26,7 +26,7 @@ uniform dvec2  mouseCoord; // position in the complex plane
 uniform double julia_zoom;
 uniform int    julia_maxiters;
 uniform int    blur;
-
+//normal mapping (https://www.math.univ-toulouse.fr/~cheritat/wiki-draw/index.php/Mandelbrot_set#Normal_map_effect)
 uniform float  height;
 uniform float  angle;
 
