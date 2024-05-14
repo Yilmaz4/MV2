@@ -166,7 +166,7 @@ void main() {
     if (protocol == 2) {
         vec4 data = texture(mandelbrotTex, vec2(gl_FragCoord.x / screenSize.x, gl_FragCoord.y / screenSize.y));
         if (blur == 1) {
-            fragColor = vec4(mix(color(data.x * iter_multiplier), vec3(0.f), normal_map_effect * data.z), 1.f);
+            fragColor = vec4(mix(vec3(0.f), color(data.x * iter_multiplier), normal_map_effect == 1 ? pow(data.z, 1.f / 1.8f) : 1.f), 1.f);
             return;
         }
         vec3 blurredColor = vec3(0.0);
@@ -174,7 +174,7 @@ void main() {
             for (int j = -1; j <= 1; j++) {
                 vec4 d = texture(mandelbrotTex, vec2((gl_FragCoord.x + float(i)) / screenSize.x, (gl_FragCoord.y + float(j)) / screenSize.y));
                 vec3 s = color(d.x * iter_multiplier);
-                blurredColor += mix(s, vec3(0.f), normal_map_effect * d.z) * weight[i + 1][j + 1];
+                blurredColor += mix(vec3(0.f), s, normal_map_effect == 1 ? pow(data.z, 1.f / 1.8f) : 1.f) * weight[i + 1][j + 1];
             }
         }
         fragColor = vec4(blurredColor, 1.f);
