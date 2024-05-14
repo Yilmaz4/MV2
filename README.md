@@ -1,5 +1,5 @@
 # Mandelbrot Voyage 2
-A fully interactive open-source and free fractal zoom program aimed at creating artistic and high quality images & videos.
+A fully interactive open-source fractal zoom program aimed at creating artistic and high quality images & videos.
 
 ![Screenshot of the UI](https://github.com/Yilmaz4/MV2/assets/77583632/d8a478c7-7a6f-42c0-b0f2-89a93d4702dc)
 
