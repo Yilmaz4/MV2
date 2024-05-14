@@ -228,7 +228,7 @@ struct Config {
     float  bailout_radius = 10.f;
     float  iter_co = 1.045f;
     int    continuous_coloring = 1;
-    int    normal_map_effect = 0;
+    int    normal_map_effect = 1;
     glm::fvec3 set_color = { 0.f, 0.f, 0.f };
     bool   ssaa = true;
     int    ssaa_factor = 2;
@@ -984,7 +984,7 @@ public:
                         paletteData[i] = co;
                     }
                 }
-                if (ImGui::Button("Save", ImVec2(90.f, 0.f))) {
+                if (ImGui::Button("Save##", ImVec2(90.f, 0.f))) {
                     const char* lFilterPatterns[1] = { "*.mvcp" };
                     auto t = std::time(nullptr);
                     auto tm = *std::localtime(&t);
@@ -1004,7 +1004,7 @@ public:
                     }
                 }
                 ImGui::SameLine();
-                if (ImGui::Button("Load", ImVec2(90.f, 0.f))) {
+                if (ImGui::Button("Load##", ImVec2(90.f, 0.f))) {
                     const char* lFilterPatterns[1] = { "*.mvcp" };
                     char* buf = tinyfd_openFileDialog("Open color palette", nullptr,
                         1, lFilterPatterns, "MV2 Color Palette File (*.mvcp)", false);
