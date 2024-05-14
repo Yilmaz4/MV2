@@ -203,7 +203,6 @@
     <ResourceCompile Include="MV2.rc" />
   </ItemGroup>
   <ItemGroup>
-    <None Include="shaders\compute.glsl" />
     <None Include="shaders\render.glsl" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />

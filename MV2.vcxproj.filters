@@ -128,9 +128,6 @@
     </ResourceCompile>
   </ItemGroup>
   <ItemGroup>
-    <None Include="shaders\compute.glsl">
-      <Filter>Shaders</Filter>
-    </None>
     <None Include="shaders\render.glsl">
       <Filter>Shaders</Filter>
     </None>
