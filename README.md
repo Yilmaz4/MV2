@@ -14,3 +14,7 @@ A fully interactive open-source fractal zoom program aimed at creating artistic 
 ## Planned features
 - GPU arbitrary precision for zooming without limits
 - Fully customizable equation with math parsing
+
+
+![2024-05-16 00-02-40](https://github.com/Yilmaz4/MV2/assets/77583632/62a251ba-33af-4b81-8e86-50531adbc114)
+![2024-05-16 00-02-40_2](https://github.com/Yilmaz4/MV2/assets/77583632/10c6e49f-1dd6-4937-9d55-b0eeb6a8e5f5)
