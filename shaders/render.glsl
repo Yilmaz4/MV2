@@ -38,7 +38,7 @@ layout(binding = 0) uniform sampler2D mandelbrotTex;
 layout(binding = 1) uniform sampler2D postprocTex;
 layout(binding = 2) uniform sampler2D finalTex;
 
-uniform int protocol;
+uniform int op;
 
 dvec2 cexp(vec2 z) {
     return exp(z.x) * dvec2(cos(z.y), sin(z.y));
@@ -105,25 +105,39 @@ bool is_experimental() {
 }
 
 void main() {
-    if (protocol == 4) {
+    dvec2 nv = cexp(vec2(0.f, angle * 2.f * M_PI / 360.f));
+    if (op == 4) {
         dvec2 c = dvec2(julia_zoom, julia_zoom) * (dvec2(gl_FragCoord.x / screenSize.x, (screenSize.y - gl_FragCoord.y) / screenSize.y) - dvec2(0.5, 0.5));
         dvec2 z = c;
 
+        dvec2 dc = dvec2(1.0, 0.0);
+        dvec2 der = dc;
+
+        double xx = z.x * z.x;
+        double yy = z.y * z.y;
+
         for (int i = 1; i < julia_maxiters; i++) {
-            double xx = z.x * z.x;
-            double yy = z.y * z.y;
             if (xx + yy >= bailout_radius) {
-                fragColor = vec4(color(iter_multiplier * (i + 1 - log2(log2(float(length(z)))) / log2(degree))), 1.f);
+                float t = 0;
+                if (normal_map_effect == 1) {
+                    dvec2 u = cdivide(z, der);
+                    u = u / length(u);
+                    t = float(u.x * nv.x + u.y * nv.y + height) / (1.f + height);
+                    if (t < 0) t = 0;
+                }
+                fragColor = vec4(mix(vec3(0.f), vec3(color(iter_multiplier * (continuous_coloring == 1 ? i + 1 - log2(log2(float(length(z)))) / log2(degree) : i))), normal_map_effect == 1 ? pow(t, 1.f / 1.8f) : 1.f), 1.f);
                 return;
             }
+            if (normal_map_effect == 1)
+                der = differentiate(z, der);
             z = advance(z, mouseCoord);
+            xx = z.x * z.x;
+            yy = z.y * z.y;
         }
         fragColor = vec4(set_color, 1.0);
     }
 
-    if (protocol == 3) {
-        dvec2 nv = cexp(vec2(0.f, angle * 2.f * M_PI / 360.f));
-
+    if (op == 3) {
         dvec2 c = offset + (dvec2(gl_FragCoord.x / screenSize.x, (gl_FragCoord.y) / screenSize.y) - dvec2(0.5, 0.5)) * dvec2(zoom, (screenSize.y * zoom) / screenSize.x);
         dvec2 z = c;
 
@@ -137,14 +151,13 @@ void main() {
         if (is_experimental() || !is_experimental() && (4.0 * p * (p + (z.x - 0.25)) > yy && (xx + yy + 2 * z.x + 1) > 0.0625)) {
             for (int i = 1; i < max_iters; i++) {
                 if (xx + yy > bailout_radius) {
-                    double t;
+                    double t = 0;
                     if (normal_map_effect == 1) {
                         dvec2 u = cdivide(z, der);
                         u = u / length(u);
                         t = (u.x * nv.x + u.y * nv.y + height) / (1.f + height);
                         if (t < 0) t = 0;
                     }
-                    else t = 0;
 
                     if (continuous_coloring == 1) {
                         fragColor = vec4(i + 2 - log2(log2(float(length(z)))) / log2(degree), i, t, 0.f);
@@ -163,7 +176,7 @@ void main() {
         }
         fragColor = vec4(-1.f, -1.f, 0.f, 0.f);
     }
-    if (protocol == 2) {
+    if (op == 2) {
         vec4 data = texture(mandelbrotTex, vec2(gl_FragCoord.x / screenSize.x, gl_FragCoord.y / screenSize.y));
         if (blur == 1) {
             fragColor = vec4(mix(vec3(0.f), color(data.x * iter_multiplier), normal_map_effect == 1 ? pow(data.z, 1.f / 1.8f) : 1.f), 1.f);
@@ -179,10 +192,10 @@ void main() {
         }
         fragColor = vec4(blurredColor, 1.f);
     }
-    if (protocol == 1) {
+    if (op == 1) {
         fragColor = texture(postprocTex, vec2(gl_FragCoord.x / screenSize.x, gl_FragCoord.y / screenSize.y));
     }
-    if (protocol == 0) {
+    if (op == 0) {
         fragColor = texture(finalTex, vec2(gl_FragCoord.x / screenSize.x, gl_FragCoord.y / screenSize.y));
     }
 }
