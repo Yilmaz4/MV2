@@ -15,8 +15,12 @@ A fully interactive open-source GPU-based fractal zoom program aimed at creating
 - GPU arbitrary precision for zooming without limits
 - Fully customizable equation with math parsing
 
-
+## Preview
 ![2024-05-16 00-02-40](https://github.com/Yilmaz4/MV2/assets/77583632/62a251ba-33af-4b81-8e86-50531adbc114)<br />
 Fractional order Mandelbrot sets in real time<br />
 ![2024-05-16 00-02-40_2](https://github.com/Yilmaz4/MV2/assets/77583632/10c6e49f-1dd6-4937-9d55-b0eeb6a8e5f5)<br />
 7 second 20 FPS zoom sequence rendered at 640x480 in 49 seconds, with RTX 3070
+
+## Limitations
+- Any order ≠ 2 will be limited to single-precision floating point, limiting amount of zoom to 10^4
+- Maximum zoom is 10^14 due to finite precision
