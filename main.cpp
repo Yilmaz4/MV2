@@ -939,7 +939,7 @@ public:
                         update |= ImGui::DragFloat(label, ptr, speed, min, min == 0.f ? 0.f : FLT_MAX, "%.5f", ImGuiSliderFlags_NoRoundToFormat | ImGuiSliderFlags_AlwaysClamp);
                         ImGui::PopItemWidth();
                     };  
-                    experiment("Order", &config.degree, 2.f, std::max(1e-3f, abs(round(config.degree) - config.degree))* std::min(pow(1.2, config.degree), 1e+3) / 20.f, FLT_MIN);
+                    experiment("Degree", &config.degree, 2.f, std::max(1e-3f, abs(round(config.degree) - config.degree))* std::min(pow(1.2, config.degree), 1e+3) / 20.f, FLT_MIN);
                     if (update) {
                         glUniform1f(glGetUniformLocation(shaderProgram, "degree"), config.degree);
                         set_op(MV_COMPUTE);
