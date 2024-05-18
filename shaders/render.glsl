@@ -321,8 +321,7 @@ void main() {
         dvec2 z = c;
         dvec2 prevz = z;
 
-        dvec2 dc = dvec2(1.0, 0.0);
-        dvec2 der = dc;
+        dvec2 der = dvec2(1.0, 0.0);
 
         double xx = z.x * z.x;
         double yy = z.y * z.y;
@@ -354,8 +353,7 @@ void main() {
         dvec2 z = c;
         dvec2 prevz = z;
 
-        dvec2 dc = dvec2(1.0, 0.0);
-        dvec2 der = dc;
+        dvec2 der = dvec2(1.0, 0.0);
 
         double xx = z.x * z.x;
         double yy = z.y * z.y;
@@ -374,7 +372,7 @@ void main() {
                     }
 
                     if (continuous_coloring == 1 && i > 1) {
-                        fragColor = vec4(i + 1 - log2(log2(float(length(z)))) / log2(degree), i, t, 0.f);
+                        fragColor = vec4(i + 1 - log2(log(float(length(z)))) / log2(degree), i, t, 0.f);
                     }
                     else {
                         fragColor = vec4(i, i, t, 0.f);
