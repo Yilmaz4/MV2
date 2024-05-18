@@ -221,7 +221,7 @@ static void HelpMarker(const char* desc) { // code from imgui demo
 
 struct Config {
     glm::dvec2 offset = { -0.4, 0 };
-    glm::ivec2 screenSize = { 840, 540 };
+    glm::ivec2 screenSize = { 840, 590 };
     double zoom = 5.0;
     float  spectrum_offset = 0.f;
     float  iter_multiplier = 18.f;
@@ -237,7 +237,8 @@ struct Config {
     float  angle = 0.f;
     float  height = 1.5f;
 
-    std::string equation = "dvec2(xx - yy, 2 * z.x * z.y) + c";
+    std::string equation = "cpow(z, degree) + c";
+    std::string condition = "distance(z, c) > 10";
 };
 
 struct ZoomSequenceConfig {
@@ -419,8 +420,8 @@ public:
         unsigned int fragmentShader;
         fragmentShader = glCreateShader(GL_FRAGMENT_SHADER);
         char* fragmentSource = read_resource(IDR_RNDR);
-        char* modifiedSource = new char[strlen(fragmentSource) + 1024];
-        sprintf(modifiedSource, fragmentSource, config.equation.data(), 0);
+        char* modifiedSource = new char[strlen(fragmentSource) + 3072];
+        sprintf(modifiedSource, fragmentSource, config.equation.data(), 0, config.condition.data(), config.condition.data());
         glShaderSource(fragmentShader, 1, &modifiedSource, NULL);
         glCompileShader(fragmentShader);
         glGetShaderiv(fragmentShader, GL_COMPILE_STATUS, &success);
@@ -615,7 +616,7 @@ public:
             glUniform1i(glGetUniformLocation(app->shaderProgram, "julia_maxiters"),
                 max_iters(app->julia_zoom, zoom_co, app->config.iter_co, 3.0));
         }
-        else {
+        else if (!ImGui::GetIO().WantCaptureMouse) {
             app->config.zoom *= pow(zoom_co, y * 1.5);
             glUniform1d(glGetUniformLocation(app->shaderProgram, "zoom"), app->config.zoom);
             glUniform1i(glGetUniformLocation(app->shaderProgram, "max_iters"),
@@ -871,24 +872,28 @@ public:
                     static GLuint shader = NULL;
                     static char* fragmentSource = read_resource(IDR_RNDR);
                     static bool reverted = false;
+                    bool reload = false;
                     ImGui::PushItemWidth(265);
-                    if (ImGui::InputText("##equation", config.equation.data(), 1024) || reverted) {
-                        char* modifiedSource = new char[strlen(fragmentSource) + 1024];
+                    if (ImGui::InputText("##equation", config.equation.data(), 1024) || reverted) reload = true;
+                    if (ImGui::InputText("##condition", config.condition.data(), 1024)) reload = true;
+                    if (reload) {
+                        char* modifiedSource = new char[strlen(fragmentSource) + 3072];
                         if (shader) glDeleteShader(shader);
                         shader = glCreateShader(GL_FRAGMENT_SHADER);
-                        sprintf(modifiedSource, fragmentSource, config.equation.data(), 1);
+                        sprintf(modifiedSource, fragmentSource, config.equation.data(), 1, config.condition.data(), config.condition.data());
                         glShaderSource(shader, 1, &modifiedSource, NULL);
                         glCompileShader(shader);
                         glGetShaderiv(shader, GL_COMPILE_STATUS, &success);
                         if (!success) {
                             glGetShaderInfoLog(shader, 512, NULL, infoLog);
-                        } else infoLog[0] = '\0';
+                        }
+                        else infoLog[0] = '\0';
                         delete[] modifiedSource;
                     }
                     ImGui::PopItemWidth();
                     ImGui::InputTextMultiline("##errorlist", infoLog, 512, ImVec2(265, 40), ImGuiInputTextFlags_ReadOnly);
                     ImGui::BeginDisabled(!success);
-                    if (ImGui::Button("Apply", ImVec2(100.f, 0.f)) && success || reverted) {
+                    if (ImGui::Button("Reload", ImVec2(100.f, 0.f)) && success || reverted) {
                         glDeleteProgram(shaderProgram);
                         shaderProgram = glCreateProgram();
                         glAttachShader(shaderProgram, vertexShader);
@@ -898,7 +903,6 @@ public:
                         glDeleteShader(shader);
                         glUseProgram(shaderProgram);
                         config.normal_map_effect = false;
-                        config.continuous_coloring = false;
                         use_config(config, true, false);
 
                         glDeleteBuffers(1, &paletteBuffer);
@@ -939,7 +943,7 @@ public:
                         update |= ImGui::DragFloat(label, ptr, speed, min, min == 0.f ? 0.f : FLT_MAX, "%.5f", ImGuiSliderFlags_NoRoundToFormat | ImGuiSliderFlags_AlwaysClamp);
                         ImGui::PopItemWidth();
                     };  
-                    experiment("Degree", &config.degree, 2.f, std::max(1e-3f, abs(round(config.degree) - config.degree))* std::min(pow(1.2, config.degree), 1e+3) / 20.f, FLT_MIN);
+                    experiment("Degree", &config.degree, 2.f, std::max(1e-3f, abs(round(config.degree) - config.degree)) * std::min(pow(1.2, config.degree), 1e+3) / 20.f, 2.f);
                     if (update) {
                         glUniform1f(glGetUniformLocation(shaderProgram, "degree"), config.degree);
                         set_op(MV_COMPUTE);
@@ -973,13 +977,11 @@ public:
                     glUniform1i(glGetUniformLocation(shaderProgram, "continuous_coloring"), config.continuous_coloring);
                     set_op(MV_COMPUTE);
                 }
-                ImGui::BeginDisabled(config.equation != Config().equation);
                 ImGui::SameLine();
                 if (ImGui::Checkbox("Normal illum.", reinterpret_cast<bool*>(&config.normal_map_effect))) {
                     glUniform1i(glGetUniformLocation(shaderProgram, "normal_map_effect"), config.normal_map_effect);
                     set_op(MV_COMPUTE);
                 }
-                ImGui::EndDisabled();
                 if (config.normal_map_effect) {
                     if (ImGui::DragFloat("Angle", &config.angle, 1.f, 0.f, 0.f, "%.1f deg")) {
                         if (config.angle > 360.f) config.angle = config.angle - 360.f;

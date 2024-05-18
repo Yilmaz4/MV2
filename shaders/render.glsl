@@ -235,23 +235,33 @@ double dpow(double x, double y) {
     return dexp(y * dlog(x));
 }
 
-dvec2 cexp(vec2 z) {
-    return exp(z.x) * dvec2(cos(z.y), sin(z.y));
+dvec2 cexp(dvec2 z) {
+    return dexp(z.x) * dvec2(dcos(z.y), dsin(z.y));
 }
 dvec2 cconj(dvec2 z) {
     return dvec2(z.x, -z.y);
+}
+double carg(dvec2 z) {
+    return atan2(z.y, z.x);
 }
 dvec2 cmultiply(dvec2 a, dvec2 b) {
     return dvec2(a.x * b.x - a.y * b.y, a.x * b.y + a.y * b.x);
 }
 dvec2 cdivide(dvec2 a, dvec2 b) {
-    double denominator = b.x * b.x + b.y * b.y;
-    return dvec2((a.x * b.x + a.y * b.y), (a.y * b.x - a.x * b.y)) / denominator;
+    return dvec2((a.x * b.x + a.y * b.y), (a.y * b.x - a.x * b.y)) / (b.x * b.x + b.y * b.y);
+}
+dvec2 clog(dvec2 z) {
+    return dvec2(dlog(length(z)), carg(z));
 }
 dvec2 cpow(dvec2 z, float p) {
+    if (p == 2.f)
+        return dvec2(z.x * z.x - z.y * z.y, 2 * z.x * z.y);
     vec2 c = vec2(z);
     float theta = atan(c.y, c.x);
     return pow(float(length(z)), p) * dvec2(cos(p * theta), sin(p * theta));
+}
+dvec2 cpow(dvec2 z, dvec2 p) {
+    return cexp(cmultiply(p, clog(z)));
 }
 dvec2 csin(dvec2 z) {
     vec2 c = vec2(z);
@@ -262,7 +272,7 @@ dvec2 ccos(dvec2 z) {
     return dvec2(cos(c.x) * cosh(c.y), -sin(c.x) * sinh(c.y));
 }
 
-uniform mat3 weight = mat3(
+mat3 weight = mat3(
     0.0751136, 0.123841, 0.0751136,
     0.1238410, 0.204180, 0.1238410,
     0.0751136, 0.123841, 0.0751136
@@ -289,9 +299,8 @@ vec3 color(float i) {
     return vec3(i, i, i);
 }
 
-dvec2 advance(dvec2 z, dvec2 c, double xx, double yy) {
-    z = %s;
-    return z;
+dvec2 advance(dvec2 z, dvec2 c, dvec2 prevz, double xx, double yy) {
+    return %s;
 }
 
 dvec2 differentiate(dvec2 z, dvec2 der) {
@@ -306,10 +315,11 @@ bool is_experimental() {
 }
 
 void main() {
-    dvec2 nv = cexp(vec2(0.f, angle * 2.f * M_PI / 360.f));
+    dvec2 nv = cexp(dvec2(0.f, angle * 2.f * M_PI / 360.f));
     if (op == 4) {
         dvec2 c = dvec2(julia_zoom, julia_zoom) * (dvec2(gl_FragCoord.x / screenSize.x, (screenSize.y - gl_FragCoord.y) / screenSize.y) - dvec2(0.5, 0.5));
         dvec2 z = c;
+        dvec2 prevz = z;
 
         dvec2 dc = dvec2(1.0, 0.0);
         dvec2 der = dc;
@@ -318,7 +328,7 @@ void main() {
         double yy = z.y * z.y;
 
         for (int i = 1; i < julia_maxiters; i++) {
-            if (xx + yy >= 100) {
+            if (%s) {
                 float t = 0;
                 if (normal_map_effect == 1) {
                     dvec2 u = cdivide(z, der);
@@ -331,7 +341,8 @@ void main() {
             }
             if (normal_map_effect == 1)
                 der = differentiate(z, der);
-            z = advance(z, mouseCoord, xx, yy);
+            prevz = z;
+            z = advance(z, mouseCoord, prevz, xx, yy);
             xx = z.x * z.x;
             yy = z.y * z.y;
         }
@@ -341,6 +352,7 @@ void main() {
     if (op == 3) {
         dvec2 c = offset + (dvec2(gl_FragCoord.x / screenSize.x, (screenSize.y - gl_FragCoord.y) / screenSize.y) - dvec2(0.5, 0.5)) * dvec2(zoom, (screenSize.y * zoom) / screenSize.x);
         dvec2 z = c;
+        dvec2 prevz = z;
 
         dvec2 dc = dvec2(1.0, 0.0);
         dvec2 der = dc;
@@ -352,7 +364,7 @@ void main() {
         int i;
         if (is_experimental() || !is_experimental() && (4.0 * p * (p + (z.x - 0.25)) > yy && (xx + yy + 2 * z.x + 1) > 0.0625)) {
             for (i = 1; i < max_iters; i++) {
-                if ((z.x - c.x) * (z.x - c.x) + (z.y - c.y) * (z.y - c.y) > 100) {
+                if (%s) {
                     double t = 0;
                     if (normal_map_effect == 1) {
                         dvec2 u = cdivide(z, der);
@@ -371,7 +383,8 @@ void main() {
                 }
                 if (normal_map_effect == 1)
                     der = differentiate(z, der);
-                z = advance(z, c, xx, yy);
+                prevz = z;
+                z = advance(z, c, prevz, xx, yy);
                 xx = z.x * z.x;
                 yy = z.y * z.y;
             }
