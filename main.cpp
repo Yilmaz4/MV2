@@ -893,7 +893,7 @@ public:
                     ImGui::PopItemWidth();
                     ImGui::InputTextMultiline("##errorlist", infoLog, 512, ImVec2(265, 40), ImGuiInputTextFlags_ReadOnly);
                     ImGui::BeginDisabled(!success);
-                    if (ImGui::Button("Reload", ImVec2(100.f, 0.f)) && success || reverted) {
+                    if (ImGui::Button("Reload", ImVec2(129, 0.f)) && success || reverted) {
                         glDeleteProgram(shaderProgram);
                         shaderProgram = glCreateProgram();
                         glAttachShader(shaderProgram, vertexShader);
@@ -919,7 +919,7 @@ public:
                     }
                     ImGui::EndDisabled();
                     ImGui::SameLine();
-                    if (ImGui::Button("Reset", ImVec2(100.f, 0.f))) {
+                    if (ImGui::Button("Reset", ImVec2(129, 0.f))) {
                         config.equation = Config().equation;
                         reverted = true;
                     }
