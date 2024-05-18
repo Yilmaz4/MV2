@@ -8,7 +8,7 @@ Mandelbrot set is a set defined in the complex plane, and consists of all comple
 Points inside the set are colored black, and points outside the set are colored based on $n$.
 
 ## Features
-- Continuous (smooth) coloring with $n^{\prime}=n-\log_P\left(\log|Z_n|\right)$ where $n$ is the first iteration number where $|Z_n| > 2$
+- Continuous (smooth) coloring with $n^{\prime}=n-\log_P\left(\log|Z_n|\right)$ where $n$ is the first iteration number after $|Z_n| \geq 2$
 - Fully customizable equation in GLSL syntax, supporting 10 different complex defined functions
 - Normal vector calculation for Lambert lighting
 - Super-sampling anti aliasing (SSAA)
