@@ -1,5 +1,5 @@
 # Mandelbrot Voyage 2
-A fully interactive open-source GPU-based fractal zoom program aimed at creating artistic and high quality images & videos.
+A fully interactive open-source GPU-based fully customizable fractal zoom program aimed at creating artistic and high quality images & videos.
 
 ![Screenshot of the UI](https://github.com/Yilmaz4/MV2/assets/77583632/d8a478c7-7a6f-42c0-b0f2-89a93d4702dc)
 
@@ -18,11 +18,10 @@ Mandelbrot set is a set defined in the complex plane, and consists of all comple
 - GPU arbitrary precision for zooming without limits
 
 # Custom equations
-Burning ship fractal $Z_{n+1}=(|Re(Z_n)| + i|Re(Z_n)|)^2+c$\
+Burning ship fractal $Z_{n+1}=(|\Re(Z_n)| + i|\Im(Z_n)|)^2+c$\
 ![Screenshot 2024-05-18 165422](https://github.com/Yilmaz4/MV2/assets/77583632/d9fb9d98-52c5-44bc-aeed-2c875a807411)\
 Tricorn fractal $Z_{n+1}=\bar{Z_n}^2+c$
 ![Screenshot 2024-05-18 170237](https://github.com/Yilmaz4/MV2/assets/77583632/6798c9d6-5fcc-4fb8-b767-88d4f29863f0)
-
 
 ## Preview & gallery
 ![2024-05-16 00-02-40](https://github.com/Yilmaz4/MV2/assets/77583632/62a251ba-33af-4b81-8e86-50531adbc114)\
