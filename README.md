@@ -5,6 +5,8 @@ A fully interactive open-source GPU-based fully customizable fractal zoom progra
 
 Mandelbrot set is a set defined in the complex plane, and consists of all complex numbers which satisfy $|Z_n| < 2$ for all $n$ under iteration of $Z_{n+1}=Z_n^2+c$ where $c$ is the particular point in the Mandelbrot set and $Z_0=0$.
 
+Points inside the set are colored black, and points outside the set are colored based on $n$.
+
 ## Features
 - Continuous (smooth) coloring with $n^{\prime}=n-\log_P\left(\log|Z_n|\right)$ where $n$ is the first iteration number where $|Z_n| > 2$
 - Fully customizable equation in GLSL syntax, supporting 10 different complex defined functions
