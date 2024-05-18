@@ -223,21 +223,21 @@ struct Config {
     glm::dvec2 offset = { -0.4, 0 };
     glm::ivec2 screenSize = { 840, 540 };
     double zoom = 5.0;
-    float  spectrum_offset = 850.f;
+    float  spectrum_offset = 0.f;
     float  iter_multiplier = 18.f;
-    float  bailout_radius = 10.f;
     float  iter_co = 1.045f;
     int    continuous_coloring = 1;
-    int    normal_map_effect = 1;
+    int    normal_map_effect = 0;
     glm::fvec3 set_color = { 0.f, 0.f, 0.f };
     bool   ssaa = true;
     int    ssaa_factor = 2;
     // experimental
     float  degree = 2.f;
-    float  const_coeff = 1.f;
     // normal mapping
     float  angle = 0.f;
     float  height = 1.5f;
+
+    std::string equation = "dvec2(xx - yy, 2 * z.x * z.y) + c";
 };
 
 struct ZoomSequenceConfig {
@@ -281,6 +281,7 @@ class MV2 {
     cv::VideoWriter writer;
 
     GLuint shaderProgram  = NULL;
+    GLuint vertexShader = NULL;
 
     GLuint mandelbrotFrameBuffer = NULL;
     GLuint postprocFrameBuffer = NULL;
@@ -298,7 +299,7 @@ class MV2 {
     ImGradientHDRState state;
     ImGradientHDRTemporaryState tempState;
 
-    int protocol = MV_COMPUTE;
+    int op = MV_COMPUTE;
 public:
     MV2() {
         glfwInit();
@@ -403,7 +404,6 @@ public:
         glBindFramebuffer(GL_FRAMEBUFFER, juliaFrameBuffer);
         glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, juliaTexBuffer, 0);
 
-        unsigned int vertexShader;
         vertexShader = glCreateShader(GL_VERTEX_SHADER);
         glShaderSource(vertexShader, 1, &vertexShaderSource, NULL);
         glCompileShader(vertexShader);
@@ -419,7 +419,9 @@ public:
         unsigned int fragmentShader;
         fragmentShader = glCreateShader(GL_FRAGMENT_SHADER);
         char* fragmentSource = read_resource(IDR_RNDR);
-        glShaderSource(fragmentShader, 1, &fragmentSource, NULL);
+        char* modifiedSource = new char[strlen(fragmentSource) + 1024];
+        sprintf(modifiedSource, fragmentSource, config.equation.data(), 0);
+        glShaderSource(fragmentShader, 1, &modifiedSource, NULL);
         glCompileShader(fragmentShader);
         glGetShaderiv(fragmentShader, GL_COMPILE_STATUS, &success);
         if (!success) {
@@ -431,8 +433,8 @@ public:
         glAttachShader(shaderProgram, vertexShader);
         glAttachShader(shaderProgram, fragmentShader);
         glLinkProgram(shaderProgram);
-        glDeleteShader(vertexShader);
         glDeleteShader(fragmentShader);
+        delete[] modifiedSource;
 
         unsigned int VBO, VAO;
         glGenVertexArrays(1, &VAO);
@@ -487,17 +489,15 @@ public:
             glUniform1i(glGetUniformLocation(shaderProgram, "max_iters"),
                 max_iters(config.zoom, zoom_co, config.iter_co));
             glUniform1f(glGetUniformLocation(shaderProgram, "spectrum_offset"), config.spectrum_offset);
-            glUniform1d(glGetUniformLocation(shaderProgram, "bailout_radius"), pow(config.bailout_radius, 2));
             glUniform1i(glGetUniformLocation(shaderProgram, "continuous_coloring"), config.continuous_coloring);
             glUniform1i(glGetUniformLocation(shaderProgram, "normal_map_effect"), config.normal_map_effect);
             glUniform3f(glGetUniformLocation(shaderProgram, "set_color"), config.set_color.x, config.set_color.y, config.set_color.z);
             glUniform1d(glGetUniformLocation(shaderProgram, "julia_zoom"), julia_zoom);
             glUniform1i(glGetUniformLocation(shaderProgram, "julia_maxiters"),
                 max_iters(julia_zoom, zoom_co, config.iter_co, 3.0));
-            glUniform1i(glGetUniformLocation(shaderProgram, "blur"), config.ssaa_factor);
+            glUniform1i(glGetUniformLocation(shaderProgram, "blur"), (config.ssaa ? config.ssaa_factor : 1));
 
             glUniform1f(glGetUniformLocation(shaderProgram, "degree"), config.degree);
-            glUniform1d(glGetUniformLocation(shaderProgram, "const_coeff"), config.const_coeff);
 
             glUniform1f(glGetUniformLocation(shaderProgram, "angle"), config.angle);
             glUniform1f(glGetUniformLocation(shaderProgram, "height"), config.height);
@@ -515,8 +515,8 @@ public:
     }
 
 
-    void set_protocol(int p, bool override = false) {
-        if (p > protocol || override) protocol = p;
+    void set_op(int p, bool override = false) {
+        if (p > op || override) op = p;
     }
 
     static glm::dvec2 pixel_to_complex(glm::dvec2 pixelCoord, glm::ivec2 screenSize, double zoom, glm::dvec2 offset) {
@@ -525,7 +525,7 @@ public:
     }
     static glm::dvec2 pixel_to_complex(MV2* app, glm::dvec2 pixelCoord) {
         glm::ivec2 ss = (app->fullscreen ? monitorSize : app->config.screenSize);
-        return ((glm::dvec2(pixelCoord.x / ss.x, (ss.y - pixelCoord.y) / ss.y)) - glm::dvec2(0.5, 0.5)) *
+        return ((glm::dvec2(pixelCoord.x / ss.x, pixelCoord.y / ss.y)) - glm::dvec2(0.5, 0.5)) *
             glm::dvec2(app->config.zoom, (ss.y * app->config.zoom) / ss.x) + app->config.offset;
     }
     static int max_iters(double zoom, double zoom_co, double iter_co, double initial_zoom = 5.0) {
@@ -539,7 +539,7 @@ public:
         if (!app->fullscreen) app->config.screenSize = { width, height };
         if (app->shaderProgram)
             glUniform2i(glGetUniformLocation(app->shaderProgram, "screenSize"), width, height);
-        app->set_protocol(MV_COMPUTE);
+        app->set_op(MV_COMPUTE);
         int factor = (app->config.ssaa ? app->config.ssaa_factor : 1);
 
         glBindFramebuffer(GL_FRAMEBUFFER, app->mandelbrotFrameBuffer);
@@ -570,7 +570,7 @@ public:
                 app->config.offset += pos - center;
                 glUniform2d(glGetUniformLocation(app->shaderProgram, "offset"), app->config.offset.x, app->config.offset.y);
                 app->dragging = false;
-                app->set_protocol(MV_COMPUTE);
+                app->set_op(MV_COMPUTE);
             }
             else {
                 app->dragging = false;
@@ -600,10 +600,10 @@ public:
         if (app->dragging) {
             app->lastPresses = { -doubleClick_interval, 0 };
             app->config.offset.x -= ((x - app->oldPos.x) * app->config.zoom) / ss.x;
-            app->config.offset.y -= ((app->oldPos.y - y) * ((app->config.zoom * ss.y) / ss.x)) / ss.y;
+            app->config.offset.y -= ((y - app->oldPos.y) * ((app->config.zoom * ss.y) / ss.x)) / ss.y;
             glUniform2d(glGetUniformLocation(app->shaderProgram, "offset"), app->config.offset.x, app->config.offset.y);
             app->oldPos = { x, y };
-            app->set_protocol(MV_COMPUTE);
+            app->set_op(MV_COMPUTE);
         }
     }
 
@@ -620,7 +620,7 @@ public:
             glUniform1d(glGetUniformLocation(app->shaderProgram, "zoom"), app->config.zoom);
             glUniform1i(glGetUniformLocation(app->shaderProgram, "max_iters"),
                 max_iters(app->config.zoom, zoom_co, app->config.iter_co));
-            app->set_protocol(MV_COMPUTE);
+            app->set_op(MV_COMPUTE);
         }
     }
 
@@ -751,7 +751,7 @@ public:
                         recording = true;
                         progress = 0;
                         glfwSwapInterval(0);
-                        zsc.tcfg.zoom = 5.0f;
+                        zsc.tcfg.zoom = 8.0f;
                         int factor = (zsc.tcfg.ssaa ? zsc.tcfg.ssaa_factor : 1);
                         writer = cv::VideoWriter(zsc.path, cv::VideoWriter::fourcc('m', 'j', 'p', 'g'), zsc.fps, cv::Size(zsc.tcfg.screenSize.x, zsc.tcfg.screenSize.y));
 
@@ -803,14 +803,14 @@ public:
                 update |= ImGui::InputDouble("##im", &config.offset.y, 0.0, 0.0, "%.17g");
                 if (update) {
                     glUniform2d(glGetUniformLocation(shaderProgram, "offset"), config.offset.x, config.offset.y);
-                    set_protocol(MV_COMPUTE);
+                    set_op(MV_COMPUTE);
                 }
                 ImGui::SetCursorPosY(ImGui::GetCursorPosY() + 3.f);
                 ImGui::Text("Zoom"); ImGui::SetNextItemWidth(80); ImGui::SameLine();
                 ImGui::SetCursorPosY(ImGui::GetCursorPosY() - 3.f);
                 if (ImGui::InputDouble("##zoom", &config.zoom, 0.0, 0.0, "%.2e")) {
                     glUniform1d(glGetUniformLocation(shaderProgram, "zoom"), config.zoom);
-                    set_protocol(MV_COMPUTE);
+                    set_op(MV_COMPUTE);
                 }
                 ImGui::SameLine();
                 ImGui::SetCursorPosY(ImGui::GetCursorPosY() - 3.f);
@@ -854,7 +854,7 @@ public:
                         fin.close();
                         glUniform2d(glGetUniformLocation(shaderProgram, "offset"), config.offset.x, config.offset.y);
                         glUniform1d(glGetUniformLocation(shaderProgram, "zoom"), config.zoom);
-                        set_protocol(MV_COMPUTE);
+                        set_op(MV_COMPUTE);
                     }
                 }
 
@@ -863,15 +863,64 @@ public:
                 if (ImGui::SliderFloat("Iteration coeff.", &config.iter_co, 1.01, 1.1)) {
                     glUniform1i(glGetUniformLocation(shaderProgram, "max_iters"),
                         max_iters(config.zoom, zoom_co, config.iter_co));
-                    set_protocol(MV_COMPUTE);
+                    set_op(MV_COMPUTE);
                 }
-                if (ImGui::SliderFloat("Bailout radius", &config.bailout_radius, 2.0, 25.0)) {
-                    glUniform1d(glGetUniformLocation(shaderProgram, "bailout_radius"), pow(config.bailout_radius, 2));
-                    set_protocol(MV_COMPUTE);
-                }
-                if (ImGui::TreeNode("Experimental")) {
+                if (ImGui::TreeNode("Equation")) {
+                    static char infoLog[512]{'\0'};
+                    static int success;
+                    static GLuint shader = NULL;
+                    static char* fragmentSource = read_resource(IDR_RNDR);
+                    static bool reverted = false;
+                    ImGui::PushItemWidth(265);
+                    if (ImGui::InputText("##equation", config.equation.data(), 1024) || reverted) {
+                        char* modifiedSource = new char[strlen(fragmentSource) + 1024];
+                        if (shader) glDeleteShader(shader);
+                        shader = glCreateShader(GL_FRAGMENT_SHADER);
+                        sprintf(modifiedSource, fragmentSource, config.equation.data(), 1);
+                        glShaderSource(shader, 1, &modifiedSource, NULL);
+                        glCompileShader(shader);
+                        glGetShaderiv(shader, GL_COMPILE_STATUS, &success);
+                        if (!success) {
+                            glGetShaderInfoLog(shader, 512, NULL, infoLog);
+                        } else infoLog[0] = '\0';
+                        delete[] modifiedSource;
+                    }
+                    ImGui::PopItemWidth();
+                    ImGui::InputTextMultiline("##errorlist", infoLog, 512, ImVec2(265, 40), ImGuiInputTextFlags_ReadOnly);
+                    ImGui::BeginDisabled(!success);
+                    if (ImGui::Button("Apply", ImVec2(100.f, 0.f)) && success || reverted) {
+                        glDeleteProgram(shaderProgram);
+                        shaderProgram = glCreateProgram();
+                        glAttachShader(shaderProgram, vertexShader);
+                        glAttachShader(shaderProgram, shader);
+                        glLinkProgram(shaderProgram);
+                        glDeleteShader(vertexShader);
+                        glDeleteShader(shader);
+                        glUseProgram(shaderProgram);
+                        config.normal_map_effect = false;
+                        config.continuous_coloring = false;
+                        use_config(config, true, false);
+
+                        glDeleteBuffers(1, &paletteBuffer);
+                        glGenBuffers(1, &paletteBuffer);
+                        glBindBuffer(GL_SHADER_STORAGE_BUFFER, paletteBuffer);
+                        glBufferData(GL_SHADER_STORAGE_BUFFER, max_colors * sizeof(glm::fvec4), paletteData.data(), GL_DYNAMIC_COPY);
+                        glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 2, paletteBuffer);
+                        GLuint block_index = glGetProgramResourceIndex(shaderProgram, GL_SHADER_STORAGE_BLOCK, "spectrum");
+                        GLuint ssbo_binding_point_index = 2;
+                        glShaderStorageBlockBinding(shaderProgram, block_index, ssbo_binding_point_index);
+                        glUniform1i(glGetUniformLocation(shaderProgram, "span"), span);
+                        set_op(MV_COMPUTE, true);
+                        reverted = false;
+                    }
+                    ImGui::EndDisabled();
+                    ImGui::SameLine();
+                    if (ImGui::Button("Reset", ImVec2(100.f, 0.f))) {
+                        config.equation = Config().equation;
+                        reverted = true;
+                    }
                     int update = 0;
-                    auto experiment = [&]<typename type>(const char* label, type* ptr, const type def, const float speed, const float min) {
+                    auto experiment = [&]<typename type>(const char* label, type * ptr, const type def, const float speed, const float min) {
                         ImGui::PushID(*reinterpret_cast<const int*>(label));
                         if (ImGui::Button("Round##")) {
                             *ptr = round(*ptr);
@@ -889,14 +938,13 @@ public:
                         ImGui::PushItemWidth(90);
                         update |= ImGui::DragFloat(label, ptr, speed, min, min == 0.f ? 0.f : FLT_MAX, "%.5f", ImGuiSliderFlags_NoRoundToFormat | ImGuiSliderFlags_AlwaysClamp);
                         ImGui::PopItemWidth();
-                    };
-                    experiment("Coeff. of c", &config.const_coeff, 1.f, std::max(1e-4f, abs(1.f - config.const_coeff) / 40.f), 0.f);
-                    experiment("Order", &config.degree, 2.f, std::max(1e-3f, abs(round(config.degree) - config.degree)) * std::min(pow(1.2, config.degree), 1e+3) / 20.f, FLT_MIN);
+                    };  
+                    experiment("Order", &config.degree, 2.f, std::max(1e-3f, abs(round(config.degree) - config.degree))* std::min(pow(1.2, config.degree), 1e+3) / 20.f, FLT_MIN);
                     if (update) {
-                        glUniform1d(glGetUniformLocation(shaderProgram, "const_coeff"), static_cast<double>(config.const_coeff));
                         glUniform1f(glGetUniformLocation(shaderProgram, "degree"), config.degree);
-                        set_protocol(MV_COMPUTE);
+                        set_op(MV_COMPUTE);
                     }
+                    
                     ImGui::TreePop();
                 }
                 if (ImGui::Checkbox("SSAA", &config.ssaa)) {
@@ -918,42 +966,44 @@ public:
 
                     glUniform1i(glGetUniformLocation(shaderProgram, "blur"), factor);
 
-                    set_protocol(MV_COMPUTE);
+                    set_op(MV_COMPUTE);
                 }
                 ImGui::SameLine();
                 if (ImGui::Checkbox("Continuous coloring", reinterpret_cast<bool*>(&config.continuous_coloring))) {
                     glUniform1i(glGetUniformLocation(shaderProgram, "continuous_coloring"), config.continuous_coloring);
-                    set_protocol(MV_COMPUTE);
+                    set_op(MV_COMPUTE);
                 }
+                ImGui::BeginDisabled(config.equation != Config().equation);
                 ImGui::SameLine();
                 if (ImGui::Checkbox("Normal illum.", reinterpret_cast<bool*>(&config.normal_map_effect))) {
                     glUniform1i(glGetUniformLocation(shaderProgram, "normal_map_effect"), config.normal_map_effect);
-                    set_protocol(MV_COMPUTE);
+                    set_op(MV_COMPUTE);
                 }
+                ImGui::EndDisabled();
                 if (config.normal_map_effect) {
                     if (ImGui::DragFloat("Angle", &config.angle, 1.f, 0.f, 0.f, "%.1f deg")) {
                         if (config.angle > 360.f) config.angle = config.angle - 360.f;
                         if (config.angle < 0.f) config.angle = 360.f + config.angle;
                         glUniform1f(glGetUniformLocation(shaderProgram, "angle"), 360.f - config.angle);
-                        set_protocol(MV_COMPUTE);
+                        set_op(MV_COMPUTE);
                     }
                     if (ImGui::DragFloat("Height", &config.height, 0.1f, 0.f, FLT_MAX, "%.1f", ImGuiSliderFlags_AlwaysClamp)) {
                         glUniform1f(glGetUniformLocation(shaderProgram, "height"), config.height);
-                        set_protocol(MV_COMPUTE);
+                        set_op(MV_COMPUTE);
                     }
                 }
                 ImGui::SeparatorText("Coloring");
                 if (ImGui::ColorEdit3("Set color", &config.set_color.x)) {
                     glUniform3f(glGetUniformLocation(shaderProgram, "set_color"), config.set_color.r, config.set_color.g, config.set_color.b);
-                    set_protocol(MV_POSTPROC);
+                    set_op(MV_POSTPROC);
                 }
                 if (ImGui::SliderFloat("Multiplier", &config.iter_multiplier, 1, 128, "x%.4g", ImGuiSliderFlags_Logarithmic | ImGuiSliderFlags_NoRoundToFormat)) {
                     glUniform1f(glGetUniformLocation(shaderProgram, "iter_multiplier"), config.iter_multiplier);
-                    set_protocol(MV_POSTPROC);
+                    set_op(MV_POSTPROC);
                 }
                 if (ImGui::SliderFloat("Offset", &config.spectrum_offset, 0, span)) {
                     glUniform1f(glGetUniformLocation(shaderProgram, "spectrum_offset"), config.spectrum_offset);
-                    set_protocol(MV_POSTPROC);
+                    set_op(MV_POSTPROC);
                 }
                 ImGui::Dummy(ImVec2(0.0f, 3.0f));
                 bool isMarkerShown = true;
@@ -1050,7 +1100,7 @@ public:
                     memcpy(glMapBuffer(GL_SHADER_STORAGE_BUFFER, GL_WRITE_ONLY),
                         paletteData.data(), paletteData.size() * sizeof(glm::vec4));
                     glUnmapBuffer(GL_SHADER_STORAGE_BUFFER);
-                    set_protocol(MV_POSTPROC);
+                    set_op(MV_POSTPROC);
                 }
                 ImGui::PushStyleColor(ImGuiCol_Text, IM_COL32(80, 80, 80, 255));
                 ImGui::Text("(c) 2017-2024 Yilmaz Alpaslan");
@@ -1084,18 +1134,17 @@ public:
                 glm::dvec2 c = pixel_to_complex(this, { x, y });
                 glm::dvec2 z = c;
                 int i;
-                glm::dvec2 mc = static_cast<double>(config.const_coeff) * c;
                 for (i = 1; i < max_iters(config.zoom, zoom_co, config.iter_co); i++) {
                     double xx = z.x * z.x;
                     double yy = z.y * z.y;
-                    if (xx + yy > pow(config.bailout_radius, 2))
+                    if (xx + yy > 100)
                         goto display;
                     if (config.degree == 2.f)
-                        z = glm::dvec2(xx - yy, 2.0f * z.x * z.y) + mc;
+                        z = glm::dvec2(xx - yy, 2.0f * z.x * z.y) + c;
                     else {
                         float r = sqrt(z.x * z.x + z.y * z.y);
                         float theta = atan2(z.y, z.x);
-                        z = pow(glm::length(z), config.degree) * glm::dvec2(cos(config.degree * theta), sin(config.degree * theta)) + mc;
+                        z = pow(glm::length(z), config.degree) * glm::dvec2(cos(config.degree * theta), sin(config.degree * theta)) + c;
                     }
                 }
                 i = -1;
@@ -1106,7 +1155,7 @@ public:
                     ImGui::Text("Re: %.17g\nIm: %.17g\nPoint is in set", c.x, c.y);
                 glViewport(0, 0, julia_size * factor, julia_size * factor);
                 glBindFramebuffer(GL_FRAMEBUFFER, juliaFrameBuffer);
-                glUniform1i(glGetUniformLocation(shaderProgram, "protocol"), 4);
+                glUniform1i(glGetUniformLocation(shaderProgram, "op"), 4);
                 glUniform2d(glGetUniformLocation(shaderProgram, "mouseCoord"), c.x, c.y);
                 glUniform2i(glGetUniformLocation(shaderProgram, "screenSize"), julia_size * factor, julia_size * factor);
                 glDrawArrays(GL_TRIANGLES, 0, 6);
@@ -1124,41 +1173,41 @@ public:
                 glViewport(0, 0, zsc.tcfg.screenSize.x * factor, zsc.tcfg.screenSize.y * factor);
                 glUniform2i(glGetUniformLocation(shaderProgram, "screenSize"), zsc.tcfg.screenSize.x * factor, zsc.tcfg.screenSize.y * factor);
             }
-            switch (protocol) {
+            switch (op) {
             case MV_COMPUTE:
                 glBindFramebuffer(GL_FRAMEBUFFER, mandelbrotFrameBuffer);
-                glUniform1i(glGetUniformLocation(shaderProgram, "protocol"), MV_COMPUTE);
+                glUniform1i(glGetUniformLocation(shaderProgram, "op"), MV_COMPUTE);
                 glDrawArrays(GL_TRIANGLES, 0, 6);
                 [[fallthrough]];
             case MV_POSTPROC:
                 glBindTexture(GL_TEXTURE_2D, mandelbrotTexBuffer);
                 glBindFramebuffer(GL_FRAMEBUFFER, postprocFrameBuffer);
-                glUniform1i(glGetUniformLocation(shaderProgram, "protocol"), MV_POSTPROC);
+                glUniform1i(glGetUniformLocation(shaderProgram, "op"), MV_POSTPROC);
                 glDrawArrays(GL_TRIANGLES, 0, 6);
                 [[fallthrough]];
             case MV_RENDER:
                 glBindTexture(GL_TEXTURE_2D, postprocTexBuffer);
                 if (recording) {
                     glBindFramebuffer(GL_FRAMEBUFFER, finalFrameBuffer);
-                    glUniform1i(glGetUniformLocation(shaderProgram, "protocol"), MV_RENDER);
+                    glUniform1i(glGetUniformLocation(shaderProgram, "op"), MV_RENDER);
                     glViewport(0, 0, zsc.tcfg.screenSize.x, zsc.tcfg.screenSize.y);
                     glUniform2i(glGetUniformLocation(shaderProgram, "screenSize"), zsc.tcfg.screenSize.x, zsc.tcfg.screenSize.y);
                     glDrawArrays(GL_TRIANGLES, 0, 6);
 
                     glBindTexture(GL_TEXTURE_2D, finalTexBuffer);
                     glBindFramebuffer(GL_FRAMEBUFFER, NULL);
-                    glUniform1i(glGetUniformLocation(shaderProgram, "protocol"), MV_DISPLAY);
+                    glUniform1i(glGetUniformLocation(shaderProgram, "op"), MV_DISPLAY);
                     glViewport(0, 0, ss.x, ss.y);
                     glUniform2i(glGetUniformLocation(shaderProgram, "screenSize"), ss.x, ss.y);
                     glDrawArrays(GL_TRIANGLES, 0, 6);
                 } else {
                     glBindFramebuffer(GL_FRAMEBUFFER, NULL);
-                    glUniform1i(glGetUniformLocation(shaderProgram, "protocol"), MV_RENDER);
+                    glUniform1i(glGetUniformLocation(shaderProgram, "op"), MV_RENDER);
                     glViewport(0, 0, ss.x, ss.y);
                     glUniform2i(glGetUniformLocation(shaderProgram, "screenSize"), ss.x, ss.y);
                     glDrawArrays(GL_TRIANGLES, 0, 6);
                 }
-                set_protocol(MV_RENDER, true);
+                set_op(MV_RENDER, true);
             }
             if (recording && !paused) {
                 glBindTexture(GL_TEXTURE_2D, finalTexBuffer);
@@ -1181,12 +1230,12 @@ public:
                     //double x = static_cast<double>(progress) / framecount;
                     //double z = 2 * pow(x, 3) - 3 * pow(x, 2) + 1.f;
                     double coeff = pow(config.zoom / 5.0, 1.0 / framecount);
-                    zsc.tcfg.zoom = 5.0 * pow(coeff, progress);
+                    zsc.tcfg.zoom = 8.0 * pow(coeff, progress);
                     glUniform1i(glGetUniformLocation(shaderProgram, "max_iters"),
                         max_iters(zsc.tcfg.zoom, zoom_co, config.iter_co));
                     glUniform1d(glGetUniformLocation(shaderProgram, "zoom"), zsc.tcfg.zoom);
                 }
-                set_protocol(MV_COMPUTE);
+                set_op(MV_COMPUTE);
             }
             ImGui::Render();
             ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());

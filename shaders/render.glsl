@@ -17,7 +17,6 @@ uniform double zoom;
 uniform int    max_iters;
 uniform float  spectrum_offset;
 uniform float  iter_multiplier;
-uniform double bailout_radius;
 uniform int    continuous_coloring;
 uniform int    normal_map_effect;
 uniform vec3   set_color;
@@ -32,13 +31,209 @@ uniform float  angle;
 
 //experimental
 uniform float  degree;
-uniform double const_coeff;
 
 layout(binding = 0) uniform sampler2D mandelbrotTex;
 layout(binding = 1) uniform sampler2D postprocTex;
 layout(binding = 2) uniform sampler2D finalTex;
 
 uniform int op;
+
+double atan2(double y, double x) {
+    const double atan_tbl[] = {
+        -3.333333333333333333333333333303396520128e-1LF,
+         1.999999117496509842004185053319506031014e-1LF,
+        -1.428514132711481940637283859690014415584e-1LF,
+         1.110012236849539584126568416131750076191e-1LF,
+        -8.993611617787817334566922323958104463948e-2LF,
+         7.212338962134411520637759523226823838487e-2LF,
+        -5.205055255952184339031830383744136009889e-2LF,
+         2.938542391751121307313459297120064977888e-2LF,
+        -1.079891788348568421355096111489189625479e-2LF,
+         1.858552116405489677124095112269935093498e-3LF
+    };
+
+    double ax = abs(x);
+    double ay = abs(y);
+    double t0 = max(ax, ay);
+    double t1 = min(ax, ay);
+
+    double a = 1 / t0;
+    a *= t1;
+
+    double s = a * a;
+    double p = atan_tbl[9];
+
+    p = fma(fma(fma(fma(fma(fma(fma(fma(fma(fma(p, s,
+        atan_tbl[8]), s,
+        atan_tbl[7]), s,
+        atan_tbl[6]), s,
+        atan_tbl[5]), s,
+        atan_tbl[4]), s,
+        atan_tbl[3]), s,
+        atan_tbl[2]), s,
+        atan_tbl[1]), s,
+        atan_tbl[0]), s * a, a);
+
+    double r = ay > ax ? (1.57079632679489661923LF - p) : p;
+
+    r = x < 0 ? 3.14159265358979323846LF - r : r;
+    r = y < 0 ? -r : r;
+
+    return r;
+}
+
+double dsin(double x) {
+    int i;
+    int counter = 0;
+    double sum = x, t = x;
+    double s = x;
+
+    if (isnan(x) || isinf(x))
+        return 0.0LF;
+
+    while (abs(s) > 1.1) {
+        s = s / 3.0;
+        counter += 1;
+    }
+
+    sum = s;
+    t = s;
+
+    for (i = 1; i <= 3; i++)
+    {
+        t = (t * (-1.0) * s * s) / (2.0 * double(i) * (2.0 * double(i) + 1.0));
+        sum = sum + t;
+    }
+
+    for (i = 0; i < counter; i++)
+        sum = 3.0 * sum - 4.0 * sum * sum * sum;
+
+    return sum;
+}
+
+double dcos(double x) {
+    int i;
+    int counter = 0;
+    double sum = 1, t = 1;
+    double s = x;
+
+    if (isnan(x) || isinf(x))
+        return 0.0LF;
+
+    while (abs(s) > 1.1) {
+        s = s / 3.0;
+        counter += 1;
+    }
+
+    for (i = 1; i <= 3; i++)
+    {
+        t = t * (-1.0) * s * s / (2.0 * double(i) * (2.0 * double(i) - 1.0));
+        sum = sum + t;
+    }
+
+    for (i = 0; i < counter; i++)
+        sum = -3.0 * sum + 4.0 * sum * sum * sum;
+
+    return sum;
+}
+
+double dlog(double x) {
+    double
+        Ln2Hi = 6.93147180369123816490e-01LF, /* 3fe62e42 fee00000 */
+        Ln2Lo = 1.90821492927058770002e-10LF, /* 3dea39ef 35793c76 */
+        L0 = 7.0710678118654752440e-01LF,  /* 1/sqrt(2) */
+        L1 = 6.666666666666735130e-01LF,   /* 3FE55555 55555593 */
+        L2 = 3.999999999940941908e-01LF,   /* 3FD99999 9997FA04 */
+        L3 = 2.857142874366239149e-01LF,   /* 3FD24924 94229359 */
+        L4 = 2.222219843214978396e-01LF,   /* 3FCC71C5 1D8E78AF */
+        L5 = 1.818357216161805012e-01LF,   /* 3FC74664 96CB03DE */
+        L6 = 1.531383769920937332e-01LF,   /* 3FC39A09 D078C69F */
+        L7 = 1.479819860511658591e-01LF;   /* 3FC2F112 DF3E5244 */
+
+    if (isinf(x))
+        return 1.0 / 0.0; /* return +inf */
+    if (isnan(x) || x < 0)
+        return -0.0; /* nan */
+    if (x == 0)
+        return -1.0 / 0.0; /* return -inf */
+
+    int ki;
+    double f1 = frexp(x, ki);
+
+    if (f1 < L0) {
+        f1 *= 2.0;
+        ki--;
+    }
+
+    double f = f1 - 1.0;
+    double k = double(ki);
+
+    double s = f / (2.0 + f);
+    double s2 = s * s;
+    double s4 = s2 * s2;
+    double t1 = s2 * (L1 + s4 * (L3 + s4 * (L5 + s4 * L7)));
+    double t2 = s4 * (L2 + s4 * (L4 + s4 * L6));
+    double R = t1 + t2;
+    double hfsq = 0.5 * f * f;
+
+    return k * Ln2Hi - ((hfsq - (s * (hfsq + R) + k * Ln2Lo)) - f);
+}
+
+double exp_approx(double x) {
+    double u = 3.5438786726672135e-7LF;
+    u = u * x + 2.6579928825872315e-6LF;
+    u = u * x + 2.4868626682939294e-5LF;
+    u = u * x + 1.983843872760968e-4LF;
+    u = u * x + 1.3888965369092271e-3LF;
+    u = u * x + 8.3333320096674514e-3LF;
+    u = u * x + 4.1666666809276345e-2LF;
+    u = u * x + 1.6666666665771182e-1LF;
+    u = u * x + 5.0000000000028821e-1LF;
+    u = u * x + 9.9999999999999638e-1LF;
+    u = u * x + 1.0LF;
+    if (isnan(u) || isinf(u))
+        return 0.0LF;
+    return u;
+}
+
+double dexp(double x) {
+    int i;
+    int n;
+    double f;
+    double e_accum = M_E;
+    double answer = 1.0LF;
+    bool invert_answer = true;
+
+    if (x < 0.0) {
+        x = -x;
+        invert_answer = true;
+    }
+
+    n = int(x);
+    f = x - double(n);
+
+    if (f > 0.5) {
+        f -= 0.5;
+        answer = M_EHALF;
+    }
+
+    for (i = 0; i < 8; i++) {
+        if (((n >> i) & 1) == 1)
+            answer *= e_accum;
+        e_accum *= e_accum;
+    }
+
+    answer *= exp_approx(x);
+
+    if (invert_answer)
+        answer = 1.0 / answer;
+
+    return answer;
+}
+
+double dpow(double x, double y) {
+    return dexp(y * dlog(x));
+}
 
 dvec2 cexp(vec2 z) {
     return exp(z.x) * dvec2(cos(z.y), sin(z.y));
@@ -50,13 +245,21 @@ dvec2 cmultiply(dvec2 a, dvec2 b) {
     return dvec2(a.x * b.x - a.y * b.y, a.x * b.y + a.y * b.x);
 }
 dvec2 cdivide(dvec2 a, dvec2 b) {
-    return dvec2(a.x * b.x + a.y * b.y, a.y * b.x - a.x * b.y) / (b.x * b.x + b.y * b.y);
+    double denominator = b.x * b.x + b.y * b.y;
+    return dvec2((a.x * b.x + a.y * b.y), (a.y * b.x - a.x * b.y)) / denominator;
 }
 dvec2 cpow(dvec2 z, float p) {
     vec2 c = vec2(z);
-    float r = sqrt(c.x * c.x + c.y * c.y);
     float theta = atan(c.y, c.x);
-    return pow(r, p) * dvec2(cos(p * theta), sin(p * theta));
+    return pow(float(length(z)), p) * dvec2(cos(p * theta), sin(p * theta));
+}
+dvec2 csin(dvec2 z) {
+    vec2 c = vec2(z);
+    return dvec2(sin(c.x) * cosh(c.y), cos(c.x) * sinh(c.y));
+}
+dvec2 ccos(dvec2 z) {
+    vec2 c = vec2(z);
+    return dvec2(cos(c.x) * cosh(c.y), -sin(c.x) * sinh(c.y));
 }
 
 uniform mat3 weight = mat3(
@@ -86,9 +289,8 @@ vec3 color(float i) {
     return vec3(i, i, i);
 }
 
-dvec2 advance(dvec2 z, dvec2 c) {
-    if (degree == 2.f) z = dvec2(z.x * z.x - z.y * z.y, 2 * z.x * z.y) + const_coeff * c;
-    else z = cpow(z, degree) + const_coeff * c;
+dvec2 advance(dvec2 z, dvec2 c, double xx, double yy) {
+    z = %s;
     return z;
 }
 
@@ -98,10 +300,9 @@ dvec2 differentiate(dvec2 z, dvec2 der) {
 }
 
 bool is_experimental() {
-    int res = 0;
-    res |= int(const_coeff != 1.0);
+    int res = %i;
     res |= int(degree != 2.f);
-    return bool(res);
+    return true;
 }
 
 void main() {
@@ -117,7 +318,7 @@ void main() {
         double yy = z.y * z.y;
 
         for (int i = 1; i < julia_maxiters; i++) {
-            if (xx + yy >= bailout_radius) {
+            if (xx + yy >= 100) {
                 float t = 0;
                 if (normal_map_effect == 1) {
                     dvec2 u = cdivide(z, der);
@@ -130,7 +331,7 @@ void main() {
             }
             if (normal_map_effect == 1)
                 der = differentiate(z, der);
-            z = advance(z, mouseCoord);
+            z = advance(z, mouseCoord, xx, yy);
             xx = z.x * z.x;
             yy = z.y * z.y;
         }
@@ -138,7 +339,7 @@ void main() {
     }
 
     if (op == 3) {
-        dvec2 c = offset + (dvec2(gl_FragCoord.x / screenSize.x, (gl_FragCoord.y) / screenSize.y) - dvec2(0.5, 0.5)) * dvec2(zoom, (screenSize.y * zoom) / screenSize.x);
+        dvec2 c = offset + (dvec2(gl_FragCoord.x / screenSize.x, (screenSize.y - gl_FragCoord.y) / screenSize.y) - dvec2(0.5, 0.5)) * dvec2(zoom, (screenSize.y * zoom) / screenSize.x);
         dvec2 z = c;
 
         dvec2 dc = dvec2(1.0, 0.0);
@@ -148,9 +349,10 @@ void main() {
         double yy = z.y * z.y;
 
         double p = xx - z.x / 2.0 + 0.0625 + yy;
+        int i;
         if (is_experimental() || !is_experimental() && (4.0 * p * (p + (z.x - 0.25)) > yy && (xx + yy + 2 * z.x + 1) > 0.0625)) {
-            for (int i = 1; i < max_iters; i++) {
-                if (xx + yy > bailout_radius) {
+            for (i = 1; i < max_iters; i++) {
+                if ((z.x - c.x) * (z.x - c.x) + (z.y - c.y) * (z.y - c.y) > 100) {
                     double t = 0;
                     if (normal_map_effect == 1) {
                         dvec2 u = cdivide(z, der);
@@ -159,8 +361,8 @@ void main() {
                         if (t < 0) t = 0;
                     }
 
-                    if (continuous_coloring == 1) {
-                        fragColor = vec4(i + 2 - log2(log2(float(length(z)))) / log2(degree), i, t, 0.f);
+                    if (continuous_coloring == 1 && i > 1) {
+                        fragColor = vec4(i + 1 - log2(log2(float(length(z)))) / log2(degree), i, t, 0.f);
                     }
                     else {
                         fragColor = vec4(i, i, t, 0.f);
@@ -169,7 +371,7 @@ void main() {
                 }
                 if (normal_map_effect == 1)
                     der = differentiate(z, der);
-                z = advance(z, c);
+                z = advance(z, c, xx, yy);
                 xx = z.x * z.x;
                 yy = z.y * z.y;
             }
