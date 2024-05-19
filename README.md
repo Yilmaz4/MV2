@@ -20,7 +20,7 @@ Points inside the set are colored black, and points outside the set are colored 
 - GPU arbitrary precision for zooming without limits
 
 ## Custom equations
-The expression in the first input is directly substituted into the GLSL shader code. Because double-precision bivectors are used, most of the built-in GLSL functions are unavailable, therefore the following list of custom implemented functions must be used instead:
+The expression in the inputs are directly substituted into the GLSL shader code. Because double-precision bivectors are used, most of the built-in GLSL functions are unavailable, therefore the following list of custom implemented functions must be used instead:
 
 <details>
 <summary>Custom functions reference</summary>
@@ -66,6 +66,8 @@ The expression in the first input is directly substituted into the GLSL shader c
   | `max_iters` | Maximum number of iterations before point is considered inside the set |
   | `zoom` | Length of a single pixel in screen space in the complex plane |
 </details>
+
+The first input is the new value of $Z_{n+1}$ in each next iteration, it must be a `dvec2` type. The second input is the condition which when true the current pixel will be considered inside the set, it must be a `bool` type. The third input is $Z_0$ (the initial value of $Z$), it must be a `dvec2` type.
 
 ## Examples
 ![Screenshot 2024-05-18 165422](https://github.com/Yilmaz4/MV2/assets/77583632/d9fb9d98-52c5-44bc-aeed-2c875a807411)\
