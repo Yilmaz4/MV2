@@ -69,10 +69,13 @@ The expression in the first input is directly substituted into the GLSL shader c
 
 ## Examples
 ![Screenshot 2024-05-18 165422](https://github.com/Yilmaz4/MV2/assets/77583632/d9fb9d98-52c5-44bc-aeed-2c875a807411)\
-Burning ship fractal $Z_{n+1}=(|\Re(Z_n)| + i|\Im(Z_n)|)^2+c$
+Burning ship fractal $Z_{n+1}=(|\Re(Z_n)| + i|\Im(Z_n)|)^2+c \quad Z_0=c \quad \text{Bailout: } |Z_n-c| > 100$
+
+![image](https://github.com/Yilmaz4/MV2/assets/77583632/4859c5cc-42fe-4cf7-8b76-63c831ffa449)\
+Nova fractal $Z_{n+1}=Z_n-\frac{Z_n^3-1}{3Z_n^2}+c \quad Z_0=1 \quad \text{Bailout: } |Z_n-Z_{n-1}| < 10^{-4}$
 
 ![Screenshot 2024-05-18 170237](https://github.com/Yilmaz4/MV2/assets/77583632/6798c9d6-5fcc-4fb8-b767-88d4f29863f0)\
-Tricorn fractal $Z_{n+1}=\bar{Z_n}^2+c$
+Tricorn fractal $Z_{n+1}=\bar{Z_n}^2+c \quad Z_0=c \quad \text{Bailout: } |Z_n-c| > 100$
 
 ## Limitations
 - Any custom equation utilizing `dvec2 cpow(dvec2, float)` where the second argument $\neq 2$ will be limited to single-precision floating point, therefore limiting amount of zoom to $10^4$.
