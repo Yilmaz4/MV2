@@ -220,11 +220,20 @@ static void HelpMarker(const char* desc) { // code from imgui demo
 }
 
 struct Fractal {
+    std::string name = "Mandelbrot";
     std::string equation = "cpow(z, degree) + c";
     std::string condition = "distance(z, c) > 10";
     std::string initialz = "c";
+    float degree = 2.f;
+    bool continuous_compatible = true;
+};
 
-    float  degree = 2.f;
+std::vector<Fractal> fractals = {
+    Fractal({.name = "Mandelbrot", .equation = "cpow(z, degree) + c", .condition = "distance(z, c) > 10", .initialz = "c", .degree = 2.f, .continuous_compatible = true}),
+    Fractal({.name = "Nova", .equation = "z - cdivide(cpow(z, degree) - dvec2(1, 0), degree * cpow(z, degree - 1)) + c", .condition = "distance(z, prevz) < 10e-5", .initialz = "dvec2(1, 0)", .degree = 3.f, .continuous_compatible = false}),
+    Fractal({.name = "Burning ship", .equation = "cpow(dvec2(abs(z.x), abs(z.y)), degree) + c", .condition = "distance(z, c) > 10", .initialz = "c", .degree = 2.f, .continuous_compatible = true}),
+    Fractal({.name = "Tricorn", .equation = "cpow(cconj(z), degree) + c", .condition = "distance(z, c) > 10", .initialz = "c", .degree = 2.f, .continuous_compatible = true}),
+    Fractal({.name = "Custom"})
 };
 
 struct Config {
@@ -240,7 +249,7 @@ struct Config {
     bool   ssaa = true;
     int    ssaa_factor = 2;
     // experimental
-    
+    float  degree = 2.f;
     // normal mapping
     float  angle = 0.f;
     float  height = 1.5f;
@@ -271,7 +280,7 @@ class MV2 {
     glm::ivec2 screenPos = { 0, 0 };
     bool fullscreen = false;
     Config config;
-    Fractal fractal;
+    int fractal = 0;
     ZoomSequenceConfig zsc;
     int julia_size = 210;
     double julia_zoom = 3;
@@ -427,7 +436,7 @@ public:
         fragmentShader = glCreateShader(GL_FRAGMENT_SHADER);
         char* fragmentSource = read_resource(IDR_RNDR);
         char* modifiedSource = new char[strlen(fragmentSource) + 4096];
-        sprintf(modifiedSource, fragmentSource, fractal.equation.data(), 0, fractal.condition.data(), fractal.initialz.data(), fractal.condition.data());
+        sprintf(modifiedSource, fragmentSource, fractals[fractal].equation.data(), 0, fractals[fractal].condition.data(), fractals[fractal].initialz.data(), fractals[fractal].condition.data());
         glShaderSource(fragmentShader, 1, &modifiedSource, NULL);
         glCompileShader(fragmentShader);
         glGetShaderiv(fragmentShader, GL_COMPILE_STATUS, &success);
@@ -504,7 +513,7 @@ public:
                 max_iters(julia_zoom, zoom_co, config.iter_co, 3.0));
             glUniform1i(glGetUniformLocation(shaderProgram, "blur"), (config.ssaa ? config.ssaa_factor : 1));
 
-            glUniform1f(glGetUniformLocation(shaderProgram, "degree"), fractal.degree);
+            glUniform1f(glGetUniformLocation(shaderProgram, "degree"), config.degree);
 
             glUniform1f(glGetUniformLocation(shaderProgram, "angle"), config.angle);
             glUniform1f(glGetUniformLocation(shaderProgram, "height"), config.height);
@@ -878,16 +887,53 @@ public:
                     static GLuint shader = NULL;
                     static char* fragmentSource = read_resource(IDR_RNDR);
                     static bool reverted = false;
+                    bool compile = false;
                     bool reload = false;
-                    ImGui::PushItemWidth(265);
-                    if (ImGui::InputText("##equation", fractal.equation.data(), 1024) || reverted) reload = true;
-                    if (ImGui::InputText("##condition", fractal.condition.data(), 1024)) reload = true;
-                    if (ImGui::InputText("##initialz", fractal.initialz.data(), 1024)) reload = true;
-                    if (reload) {
+
+                    const char* preview = fractals[fractal].name.c_str();
+
+                    if (ImGui::BeginCombo("Presets", preview)) {
+                        for (int n = 0; n < fractals.size(); n++) {
+                            const bool is_selected = (fractal == n);
+                            if (ImGui::Selectable(fractals[n].name.c_str(), is_selected)) {
+                                if (n == 4) {
+                                    fractals[4].equation  = fractals[fractal].equation;
+                                    fractals[4].condition = fractals[fractal].condition;
+                                    fractals[4].initialz  = fractals[fractal].initialz;
+                                    fractals[4].degree = config.degree;
+                                } else {
+                                    config.degree = fractals[n].degree;
+                                    config.continuous_coloring = static_cast<int>(config.continuous_coloring && fractals[n].continuous_compatible);
+                                }
+                                fractal = n;
+                                reload = compile = update = true;
+                            }
+                            if (is_selected) ImGui::SetItemDefaultFocus();
+                        }
+                        ImGui::EndCombo();
+                    }
+                    if (fractal == 4) {
+                        ImGui::PushItemWidth(265);
+                        if (ImGui::InputText("##equation", fractals[4].equation.data(), 1024) || reverted) compile = true;
+                        if (ImGui::InputText("##condition", fractals[4].condition.data(), 1024)) compile = true;
+                        if (ImGui::InputText("##initialz", fractals[4].initialz.data(), 1024)) compile = true;
+                        
+                        ImGui::PopItemWidth();
+                        ImGui::InputTextMultiline("##errorlist", infoLog, 512, ImVec2(265, 40), ImGuiInputTextFlags_ReadOnly);
+                        ImGui::BeginDisabled(!success);
+                        if (ImGui::Button("Reload", ImVec2(129, 0.f)) || reverted) reload = true;
+                        ImGui::EndDisabled();
+                        ImGui::SameLine();
+                        if (ImGui::Button("Reset", ImVec2(129, 0.f))) {
+                            fractal = 0;
+                            reverted = true;
+                        }
+                    }
+                    if (compile) {
                         char* modifiedSource = new char[strlen(fragmentSource) + 4096];
                         if (shader) glDeleteShader(shader);
                         shader = glCreateShader(GL_FRAGMENT_SHADER);
-                        sprintf(modifiedSource, fragmentSource, fractal.equation.data(), 1, fractal.condition.data(), fractal.initialz.data(), fractal.condition.data());
+                        sprintf(modifiedSource, fragmentSource, fractals[fractal].equation.data(), 1, fractals[fractal].condition.data(), fractals[fractal].initialz.data(), fractals[fractal].condition.data());
                         glShaderSource(shader, 1, &modifiedSource, NULL);
                         glCompileShader(shader);
                         glGetShaderiv(shader, GL_COMPILE_STATUS, &success);
@@ -897,10 +943,7 @@ public:
                         else infoLog[0] = '\0';
                         delete[] modifiedSource;
                     }
-                    ImGui::PopItemWidth();
-                    ImGui::InputTextMultiline("##errorlist", infoLog, 512, ImVec2(265, 40), ImGuiInputTextFlags_ReadOnly);
-                    ImGui::BeginDisabled(!success);
-                    if (ImGui::Button("Reload", ImVec2(129, 0.f)) && success || reverted) {
+                    if (reload) {
                         glDeleteProgram(shaderProgram);
                         shaderProgram = glCreateProgram();
                         glAttachShader(shaderProgram, vertexShader);
@@ -924,12 +967,7 @@ public:
                         set_op(MV_COMPUTE, true);
                         reverted = false;
                     }
-                    ImGui::EndDisabled();
-                    ImGui::SameLine();
-                    if (ImGui::Button("Reset", ImVec2(129, 0.f))) {
-                        fractal.equation = Fractal().equation;
-                        reverted = true;
-                    }
+                    
                     int update = 0;
                     auto experiment = [&]<typename type>(const char* label, type * ptr, const type def, const float speed, const float min) {
                         ImGui::PushID(*reinterpret_cast<const int*>(label));
@@ -947,12 +985,12 @@ public:
                         ImGui::PopID();
                         ImGui::SameLine();
                         ImGui::PushItemWidth(90);
-                        update |= ImGui::DragFloat(label, ptr, speed, min, min == 0.f ? 0.f : FLT_MAX, "%.5f", ImGuiSliderFlags_NoRoundToFormat | ImGuiSliderFlags_AlwaysClamp);
+                        update |= ImGui::DragFloat(label, ptr, speed, min, min == 0.f ? 0.f : FLT_MAX, "%.5f", ImGuiSliderFlags_NoRoundToFormat);
                         ImGui::PopItemWidth();
                     };  
-                    experiment("Degree", &fractal.degree, 2.f, std::max(1e-4f, abs(round(fractal.degree) - fractal.degree)) * std::min(pow(1.2, fractal.degree), 1e+3) / 20.f, 2.f);
+                    experiment("Degree", &config.degree, 2.f, std::max(1e-4f, abs(round(config.degree) - config.degree)) * std::min(pow(1.2, config.degree), 1e+3) / 20.f, 2.f);
                     if (update) {
-                        glUniform1f(glGetUniformLocation(shaderProgram, "degree"), fractal.degree);
+                        glUniform1f(glGetUniformLocation(shaderProgram, "degree"), config.degree);
                         set_op(MV_COMPUTE);
                     }
                     
@@ -980,15 +1018,19 @@ public:
                     set_op(MV_COMPUTE);
                 }
                 ImGui::SameLine();
+                ImGui::BeginDisabled(!fractals[fractal].continuous_compatible);
                 if (ImGui::Checkbox("Continuous coloring", reinterpret_cast<bool*>(&config.continuous_coloring))) {
                     glUniform1i(glGetUniformLocation(shaderProgram, "continuous_coloring"), config.continuous_coloring);
                     set_op(MV_COMPUTE);
                 }
+                ImGui::EndDisabled();
                 ImGui::SameLine();
+                ImGui::BeginDisabled(fractal); // if fractal != 0
                 if (ImGui::Checkbox("Normal illum.", reinterpret_cast<bool*>(&config.normal_map_effect))) {
                     glUniform1i(glGetUniformLocation(shaderProgram, "normal_map_effect"), config.normal_map_effect);
                     set_op(MV_COMPUTE);
                 }
+                ImGui::EndDisabled();
                 if (config.normal_map_effect) {
                     if (ImGui::DragFloat("Angle", &config.angle, 1.f, 0.f, 0.f, "%.1f deg")) {
                         if (config.angle > 360.f) config.angle = config.angle - 360.f;
@@ -1148,12 +1190,12 @@ public:
                     double yy = z.y * z.y;
                     if (xx + yy > 100)
                         goto display;
-                    if (fractal.degree == 2.f)
+                    if (config.degree == 2.f)
                         z = glm::dvec2(xx - yy, 2.0f * z.x * z.y) + c;
                     else {
                         float r = sqrt(z.x * z.x + z.y * z.y);
                         float theta = atan2(z.y, z.x);
-                        z = pow(glm::length(z), fractal.degree) * glm::dvec2(cos(fractal.degree * theta), sin(fractal.degree * theta)) + c;
+                        z = pow(glm::length(z), config.degree) * glm::dvec2(cos(config.degree * theta), sin(config.degree * theta)) + c;
                     }
                 }
                 i = -1;
