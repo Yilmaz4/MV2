@@ -80,6 +80,6 @@ Nova fractal $Z_{n+1}=Z_n-\frac{Z_n^3-1}{3Z_n^2}+c \quad Z_0=1 \quad \text{Bailo
 Tricorn fractal $Z_{n+1}=\bar{Z_n}^2+c \quad Z_0=c \quad \text{Bailout: } |Z_n-c| > 100$
 
 ## Limitations
-- Any custom equation utilizing `dvec2 cpow(dvec2, float)` where the second argument $\neq 2$ will be limited to single-precision floating point, therefore limiting amount of zoom to $10^4$.
+- Any custom equation utilizing `dvec2 cpow(dvec2, float)` where the second argument $\not\in [1,4] \cap \mathbb{N}$ will be limited to single-precision floating point, therefore limiting amount of zoom to $10^4$.
 - Most of the double-precision transcendental functions are software emulated, which means performance will be severely impacted.
 - Maximum zoom is $10^{14}$ due to finite precision.
