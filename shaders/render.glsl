@@ -273,9 +273,6 @@ dvec2 cpow(dvec2 z, float p) {
     if (p == 5.f)
         return dvec2(xx * xx * z.x + 5 * z.x * yy * yy - 10 * xx * z.x * yy,
             5 * xx * xx * z.y + yy * yy * z.y - 10 * xx * yy * z.y);
-    if (p == 6.f)
-        return dvec2(xx * xx * xx - 15 * xx * xx * yy + 15 * xx * yy * yy - yy * yy * yy,
-            6 * xx * xx * z.x * z.y - 20 * xx * z.x * yy * z.y + 6 * z.x * yy * yy * z.y);
     vec2 c = vec2(z);
     float theta = atan(c.y, c.x);
     return pow(float(length(z)), p) * dvec2(cos(p * theta), sin(p * theta));
