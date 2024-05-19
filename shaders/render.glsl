@@ -31,6 +31,7 @@ uniform float  angle;
 
 //experimental
 uniform float  degree;
+uniform dvec2  initialz;
 
 layout(binding = 0) uniform sampler2D mandelbrotTex;
 layout(binding = 1) uniform sampler2D postprocTex;
@@ -254,8 +255,27 @@ dvec2 clog(dvec2 z) {
     return dvec2(dlog(length(z)), carg(z));
 }
 dvec2 cpow(dvec2 z, float p) {
+    double xx, yy;
+    if (p == 0.f)
+        return dvec2(1.f, 0.f);
+    if (p == 1.f)
+        return z;
+    if (floor(p) == p) {
+        xx = z.x * z.x;
+        yy = z.y * z.y;
+    }
     if (p == 2.f)
-        return dvec2(z.x * z.x - z.y * z.y, 2 * z.x * z.y);
+        return dvec2(xx - yy, 2 * z.x * z.y);
+    if (p == 3.f)
+        return dvec2(xx * z.x - 3 * z.x * yy, 3 * xx * z.y - yy * z.y);
+    if (p == 4.f)
+        return dvec2(xx * xx + yy * yy - 6 * xx * yy, 4 * xx * z.x * z.y - 4 * z.x * yy * z.y);
+    if (p == 5.f)
+        return dvec2(xx * xx * z.x + 5 * z.x * yy * yy - 10 * xx * z.x * yy,
+            5 * xx * xx * z.y + yy * yy * z.y - 10 * xx * yy * z.y);
+    if (p == 6.f)
+        return dvec2(xx * xx * xx - 15 * xx * xx * yy + 15 * xx * yy * yy - yy * yy * yy,
+            6 * xx * xx * z.x * z.y - 20 * xx * z.x * yy * z.y + 6 * z.x * yy * yy * z.y);
     vec2 c = vec2(z);
     float theta = atan(c.y, c.x);
     return pow(float(length(z)), p) * dvec2(cos(p * theta), sin(p * theta));
@@ -350,8 +370,8 @@ void main() {
 
     if (op == 3) {
         dvec2 c = offset + (dvec2(gl_FragCoord.x / screenSize.x, (screenSize.y - gl_FragCoord.y) / screenSize.y) - dvec2(0.5, 0.5)) * dvec2(zoom, (screenSize.y * zoom) / screenSize.x);
-        dvec2 z = c;
-        dvec2 prevz = z;
+        dvec2 z = %s%;
+        dvec2 prevz = dvec2(0.f, 0.f);
 
         dvec2 der = dvec2(1.0, 0.0);
 
