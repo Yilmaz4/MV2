@@ -1,4 +1,6 @@
-﻿#ifndef _DEBUG
+﻿#define VERSION "1.1"
+
+#ifndef _DEBUG
 #pragma comment(linker, "/SUBSYSTEM:windows /ENTRY:mainCRTStartup")
 #endif
 
@@ -243,11 +245,11 @@ struct Config {
     glm::dvec2 offset = { -0.4, 0 };
     glm::ivec2 screenSize = { 840, 590 };
     double zoom = 5.0;
-    float  spectrum_offset = 0.f;
-    float  iter_multiplier = 18.f;
+    float  spectrum_offset = 860.f;
+    float  iter_multiplier = 12.f;
     float  iter_co = 1.045f;
     int    continuous_coloring = 1;
-    int    normal_map_effect = 0;
+    int    normal_map_effect = 1;
     glm::fvec3 set_color = { 0.f, 0.f, 0.f };
     bool   ssaa = true;
     int    ssaa_factor = 2;
@@ -288,6 +290,9 @@ class MV2 {
     int julia_size = 180;
     double julia_zoom = 3;
     double fps_update_interval = 0.03;
+    bool juliaset = true;
+    bool orbit = true;
+    bool cmplxinfo = true;
 
     glm::dvec2 oldPos = { 0, 0 };
     glm::dvec2 lastPresses = { -doubleClick_interval, 0 };
@@ -825,6 +830,21 @@ public:
                 if (ImGui::Button("Create zoom sequence")) {
                     ImGui::OpenPopup("Zoom sequence creator");
                 }
+                ImGui::SameLine();
+                if (ImGui::Button("About"))
+                    ImGui::OpenPopup("About Mandelbrot Voyage II");
+                if (ImGui::BeginPopupModal("About Mandelbrot Voyage II", nullptr, ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoMove)) {
+                    ImGui::Text("Version v" VERSION " (Build date: " __DATE__ " " __TIME__ ")\n\nMV2 is a fully interactive open-source GPU-based fully customizable fractal zoom\nprogram aimed at creating artistic and high quality images & videos.");
+                    ImGui::PushStyleColor(ImGuiCol_Text, IM_COL32(150, 150, 150, 255));
+                    ImGui::Text("Copyright (c) 2017-2024 Yilmaz Alpaslan");
+                    ImGui::PopStyleColor();
+                    if (ImGui::Button("Open GitHub Page"))
+                        ShellExecuteW(0, 0, L"https://github.com/Yilmaz4/MV2", 0, 0, SW_SHOW);
+                    ImGui::SameLine();
+                    if (ImGui::Button("Close"))
+                        ImGui::CloseCurrentPopup();
+                    ImGui::EndPopup();
+                }
 
                 ImGui::SeparatorText("Parameters");
                 bool update = false;
@@ -1042,7 +1062,7 @@ public:
                 }
                 ImGui::EndDisabled();
                 ImGui::SameLine();
-                ImGui::BeginDisabled(fractal); // if fractal != 0
+                ImGui::BeginDisabled(fractal != 1);
                 if (ImGui::Checkbox("Normal illum.", reinterpret_cast<bool*>(&config.normal_map_effect))) {
                     glUniform1i(glGetUniformLocation(shaderProgram, "normal_map_effect"), config.normal_map_effect);
                     set_op(MV_COMPUTE);
@@ -1170,6 +1190,25 @@ public:
                     glUnmapBuffer(GL_SHADER_STORAGE_BUFFER);
                     set_op(MV_POSTPROC);
                 }
+                ImGui::SeparatorText("Preferences");
+                if (ImGui::TreeNode("Right-click")) {
+                    ImGui::Checkbox("Coordinate info", &cmplxinfo);
+                    ImGui::SameLine();
+                    ImGui::Checkbox("Julia set", &juliaset);
+                    ImGui::SameLine();
+                    ImGui::Checkbox("Orbit", &orbit);
+                    if (ImGui::InputInt("Julia set size", &julia_size, 1, 10)) {
+                        int factor = (config.ssaa ? config.ssaa_factor : 1);
+                        glBindTexture(GL_TEXTURE_2D, juliaTexBuffer);
+                        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA32F, julia_size * factor, julia_size * factor, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
+                    }
+                    ImGui::TreePop();
+                }
+                if (ImGui::TreeNode("Zoom & navigation")) {
+                    
+                    ImGui::TreePop();
+                }
+
                 ImGui::PushStyleColor(ImGuiCol_Text, IM_COL32(80, 80, 80, 255));
                 ImGui::Text("(c) 2017-2024 Yilmaz Alpaslan");
                 ImGui::PopStyleColor();
@@ -1183,22 +1222,24 @@ public:
                 double x, y;
                 glfwGetCursorPos(window, &x, &y);
 
-                ImGui::Begin("info", nullptr,
-                    ImGuiWindowFlags_NoCollapse |
-                    ImGuiWindowFlags_NoScrollbar |
-                    ImGuiWindowFlags_NoScrollWithMouse |
-                    ImGuiWindowFlags_AlwaysAutoResize |
-                    ImGuiWindowFlags_NoMove |
-                    ImGuiWindowFlags_NoTitleBar);
-                ImVec2 size = ImGui::GetWindowSize();
-                ImVec2 pos = { (float)x + 10.0f, (float)y };
-                if (size.x > ss.x - pos.x - 5)
-                    pos.x = ss.x - size.x - 5;
-                if (size.y > ss.y - pos.y - 5)
-                    pos.y = ss.y - size.y - 5;
-                if (pos.x < 5) pos.x = 5;
-                if (pos.y < 5) pos.y = 5;
-                ImGui::SetWindowPos(pos);
+                if (juliaset || cmplxinfo) {
+                    ImGui::Begin("info", nullptr,
+                        ImGuiWindowFlags_NoCollapse |
+                        ImGuiWindowFlags_NoScrollbar |
+                        ImGuiWindowFlags_NoScrollWithMouse |
+                        ImGuiWindowFlags_AlwaysAutoResize |
+                        ImGuiWindowFlags_NoMove |
+                        ImGuiWindowFlags_NoTitleBar);
+                    ImVec2 size = ImGui::GetWindowSize();
+                    ImVec2 pos = { (float)x + 10.0f, (float)y };
+                    if (size.x > ss.x - pos.x - 5)
+                        pos.x = ss.x - size.x - 5;
+                    if (size.y > ss.y - pos.y - 5)
+                        pos.y = ss.y - size.y - 5;
+                    if (pos.x < 5) pos.x = 5;
+                    if (pos.y < 5) pos.y = 5;
+                    ImGui::SetWindowPos(pos);
+                }
                 glm::dvec2 c = pixel_to_complex(this, { x, y });
                 glm::dvec2 z = c;
                 int i;
@@ -1220,26 +1261,28 @@ public:
                 }
                 i = -1;
             display:
-                if (i > 0)
-                    ImGui::Text("Re: %.17g\nIm: %.17g\nIterations before bailout: %d", c.x, c.y, i);
-                else
-                    ImGui::Text("Re: %.17g\nIm: %.17g\nPoint is in set", c.x, c.y);
+                if (cmplxinfo) {
+                    if (i > 0) ImGui::Text("Re: %.17g\nIm: %.17g\nIterations before bailout: %d", c.x, c.y, i);
+                    else ImGui::Text("Re: %.17g\nIm: %.17g\nPoint is in set", c.x, c.y);
+                }
                 glViewport(0, 0, julia_size * factor, julia_size * factor);
                 glBindFramebuffer(GL_FRAMEBUFFER, juliaFrameBuffer);
                 glUniform1i(glGetUniformLocation(shaderProgram, "op"), 4);
                 glUniform2d(glGetUniformLocation(shaderProgram, "mouseCoord"), c.x, c.y);
                 glUniform2i(glGetUniformLocation(shaderProgram, "screenSize"), julia_size * factor, julia_size * factor);
-                glDrawArrays(GL_TRIANGLES, 0, 6);
-                ImGui::SeparatorText("Julia Set");
-                ImGui::Image((void*)(intptr_t)juliaTexBuffer, ImVec2(julia_size, julia_size));
-                ImGui::End();
+                if (juliaset) {
+                    glDrawArrays(GL_TRIANGLES, 0, 6);
+                    if (cmplxinfo) ImGui::SeparatorText("Julia Set");
+                    ImGui::Image((void*)(intptr_t)juliaTexBuffer, ImVec2(julia_size, julia_size));
+                }
+                if (cmplxinfo || juliaset) ImGui::End();
 
                 glBindBuffer(GL_SHADER_STORAGE_BUFFER, orbitBuffer);
                 glUniform1i(glGetUniformLocation(shaderProgram, "numVertices"), maxiters);
                 glBufferData(GL_SHADER_STORAGE_BUFFER, maxiters * sizeof(glm::vec2), orbit, GL_DYNAMIC_COPY);
                 delete[] orbit;
             }
-            else {
+            if (!rightClickHold || !orbit) {
                 glUniform1i(glGetUniformLocation(shaderProgram, "numVertices"), 0);
             }
             ImGui::PopFont();
