@@ -28,10 +28,14 @@ uniform int    blur;
 //normal mapping (https://www.math.univ-toulouse.fr/~cheritat/wiki-draw/index.php/Mandelbrot_set#Normal_map_effect)
 uniform float  height;
 uniform float  angle;
-
 //experimental
 uniform float  degree;
 uniform dvec2  initialz;
+
+layout(std430, binding = 0) volatile buffer vertices {
+    vec2 orbit[];
+};
+uniform int numVertices = 0;
 
 layout(binding = 0) uniform sampler2D mandelbrotTex;
 layout(binding = 1) uniform sampler2D postprocTex;
@@ -423,7 +427,17 @@ void main() {
         fragColor = vec4(blurredColor, 1.f);
     }
     if (op == 1) {
-        fragColor = texture(postprocTex, vec2(gl_FragCoord.x / screenSize.x, gl_FragCoord.y / screenSize.y));
+        vec4 texel = texture(postprocTex, vec2(gl_FragCoord.x / screenSize.x, gl_FragCoord.y / screenSize.y));
+        for (int i = 1; i < numVertices - 1; i++) {
+            float m = (orbit[i].y - orbit[i-1].y) / (orbit[i].x - orbit[i-1].x);
+            float c = orbit[i-1].y - m * orbit[i-1].x;
+            if (pow(gl_FragCoord.x - orbit[i].x, 2) + pow(gl_FragCoord.y - orbit[i].y, 2) < 16.f ||
+                abs(m * gl_FragCoord.x - gl_FragCoord.y + c) / sqrt(m * m + 1) < 0.5f && dot(gl_FragCoord.xy - orbit[i], gl_FragCoord.xy - orbit[i-1]) < 0) {
+                fragColor = vec4(1.f);
+                return;
+            }
+        }
+        fragColor = texel;
     }
     if (op == 0) {
         fragColor = texture(finalTex, vec2(gl_FragCoord.x / screenSize.x, gl_FragCoord.y / screenSize.y));

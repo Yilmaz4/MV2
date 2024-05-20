@@ -285,7 +285,7 @@ class MV2 {
     Config config;
     int fractal = 1;
     ZoomSequenceConfig zsc;
-    int julia_size = 210;
+    int julia_size = 180;
     double julia_zoom = 3;
     double fps_update_interval = 0.03;
 
@@ -313,6 +313,7 @@ class MV2 {
     GLuint juliaTexBuffer = NULL;
 
     GLuint paletteBuffer = NULL;
+    GLuint orbitBuffer = NULL;
 
     int32_t stateID = 10;
     ImGradientHDRState state;
@@ -478,6 +479,11 @@ public:
         glShaderStorageBlockBinding(shaderProgram, block_index, ssbo_binding_point_index);
         glUniform1i(glGetUniformLocation(shaderProgram, "span"), span);
 
+        glGenBuffers(1, &orbitBuffer);
+        glBindBuffer(GL_SHADER_STORAGE_BUFFER, orbitBuffer);
+        glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, orbitBuffer);
+        glShaderStorageBlockBinding(shaderProgram, glGetProgramResourceIndex(shaderProgram, GL_SHADER_STORAGE_BLOCK, "orbit"), 0);
+
         use_config(config, true, false);
         on_windowResize(window, config.screenSize.x, config.screenSize.y);
 
@@ -546,6 +552,12 @@ public:
         glm::ivec2 ss = (app->fullscreen ? monitorSize : app->config.screenSize);
         return ((glm::dvec2(pixelCoord.x / ss.x, pixelCoord.y / ss.y)) - glm::dvec2(0.5, 0.5)) *
             glm::dvec2(app->config.zoom, (ss.y * app->config.zoom) / ss.x) + app->config.offset;
+    }
+    static glm::dvec2 complex_to_pixel(glm::dvec2 complexCoord, glm::ivec2 screenSize, double zoom, glm::dvec2 offset) {
+        glm::dvec2 normalizedCoord = (complexCoord - offset);
+        normalizedCoord /= glm::dvec2(zoom, (screenSize.y * zoom) / screenSize.x);
+        glm::dvec2 pixelCoordNormalized = normalizedCoord + glm::dvec2(0.5, 0.5);
+        return glm::dvec2(pixelCoordNormalized.x * screenSize.x, screenSize.y - pixelCoordNormalized.y * screenSize.y);
     }
     static int max_iters(double zoom, double zoom_co, double iter_co, double initial_zoom = 5.0) {
         return 100 * pow(iter_co, log2(zoom / initial_zoom) / log2(zoom_co));
@@ -1188,7 +1200,10 @@ public:
                 glm::dvec2 c = pixel_to_complex(this, { x, y });
                 glm::dvec2 z = c;
                 int i;
-                for (i = 1; i < max_iters(config.zoom, zoom_co, config.iter_co); i++) {
+                int maxiters = max_iters(config.zoom, zoom_co, config.iter_co);
+                float* orbit = new float[maxiters * 2];
+                for (i = 1; i < maxiters; i++) {
+                    *reinterpret_cast<glm::vec2*>(orbit + (i - 1) * 2) = static_cast<glm::vec2>(complex_to_pixel(z, ss, config.zoom, config.offset));
                     double xx = z.x * z.x;
                     double yy = z.y * z.y;
                     if (xx + yy > 100)
@@ -1216,6 +1231,13 @@ public:
                 ImGui::SeparatorText("Julia Set");
                 ImGui::Image((void*)(intptr_t)juliaTexBuffer, ImVec2(julia_size, julia_size));
                 ImGui::End();
+
+                glUniform1i(glGetUniformLocation(shaderProgram, "numVertices"), maxiters);
+                glBufferData(GL_SHADER_STORAGE_BUFFER, maxiters * sizeof(glm::vec2), orbit, GL_DYNAMIC_COPY);
+                delete[] orbit;
+            }
+            else {
+                glUniform1i(glGetUniformLocation(shaderProgram, "numVertices"), 0);
             }
             ImGui::PopFont();
             if (!recording) {
