@@ -229,11 +229,14 @@ struct Fractal {
 };
 
 std::vector<Fractal> fractals = {
+    Fractal({.name = "Custom"}),
     Fractal({.name = "Mandelbrot", .equation = "cpow(z, degree) + c", .condition = "distance(z, c) > 10", .initialz = "c", .degree = 2.f, .continuous_compatible = true}),
     Fractal({.name = "Nova", .equation = "z - cdivide(cpow(z, degree) - dvec2(1, 0), degree * cpow(z, degree - 1)) + c", .condition = "distance(z, prevz) < 10e-5", .initialz = "dvec2(1, 0)", .degree = 3.f, .continuous_compatible = false}),
     Fractal({.name = "Burning ship", .equation = "cpow(dvec2(abs(z.x), abs(z.y)), degree) + c", .condition = "distance(z, c) > 10", .initialz = "c", .degree = 2.f, .continuous_compatible = true}),
+    Fractal({.name = "Magnet 1", .equation = "cpow(cdivide(cpow(z, degree) + c - dvec2(1,0), degree * z + c - dvec2(2,0)), degree)", .condition = "distance(z, c) > 30", .initialz="dvec2(0)", .degree = 2.f, .continuous_compatible = true}),
+    Fractal({.name = "Magnet 2", .equation = "cpow(cdivide(cpow(z, degree + 1) + 3 * cmultiply(c - dvec2(1, 0), z) + cmultiply(c - dvec2(1, 0), c - dvec2(2, 0)),\
+        3 * cpow(z, degree) + 3 * cmultiply(c - dvec2(2, 0), z) + cmultiply(c - dvec2(1, 0), c - dvec2(2, 0)) + dvec2(1,0)), degree)", .condition = "distance(z, c) > 30", .initialz = "dvec2(0)", .degree = 2.f, .continuous_compatible = true}),
     Fractal({.name = "Tricorn", .equation = "cpow(cconj(z), degree) + c", .condition = "distance(z, c) > 10", .initialz = "c", .degree = 2.f, .continuous_compatible = true}),
-    Fractal({.name = "Custom"})
 };
 
 struct Config {
@@ -280,7 +283,7 @@ class MV2 {
     glm::ivec2 screenPos = { 0, 0 };
     bool fullscreen = false;
     Config config;
-    int fractal = 0;
+    int fractal = 1;
     ZoomSequenceConfig zsc;
     int julia_size = 210;
     double julia_zoom = 3;
@@ -896,11 +899,11 @@ public:
                         for (int n = 0; n < fractals.size(); n++) {
                             const bool is_selected = (fractal == n);
                             if (ImGui::Selectable(fractals[n].name.c_str(), is_selected)) {
-                                if (n == 4) {
-                                    fractals[4].equation  = fractals[fractal].equation;
-                                    fractals[4].condition = fractals[fractal].condition;
-                                    fractals[4].initialz  = fractals[fractal].initialz;
-                                    fractals[4].degree = config.degree;
+                                if (n == 0) {
+                                    fractals[0].equation  = fractals[fractal].equation;
+                                    fractals[0].condition = fractals[fractal].condition;
+                                    fractals[0].initialz  = fractals[fractal].initialz;
+                                    fractals[0].degree = config.degree;
                                 } else {
                                     config.degree = fractals[n].degree;
                                     config.continuous_coloring = static_cast<int>(config.continuous_coloring && fractals[n].continuous_compatible);
@@ -912,11 +915,11 @@ public:
                         }
                         ImGui::EndCombo();
                     }
-                    if (fractal == 4) {
+                    if (fractal == 0) {
                         ImGui::PushItemWidth(265);
-                        if (ImGui::InputText("##equation", fractals[4].equation.data(), 1024) || reverted) compile = true;
-                        if (ImGui::InputText("##condition", fractals[4].condition.data(), 1024)) compile = true;
-                        if (ImGui::InputText("##initialz", fractals[4].initialz.data(), 1024)) compile = true;
+                        if (ImGui::InputText("##equation", fractals[0].equation.data(), 1024) || reverted) compile = true;
+                        if (ImGui::InputText("##condition", fractals[0].condition.data(), 1024)) compile = true;
+                        if (ImGui::InputText("##initialz", fractals[0].initialz.data(), 1024)) compile = true;
                         
                         ImGui::PopItemWidth();
                         ImGui::InputTextMultiline("##errorlist", infoLog, 512, ImVec2(265, 40), ImGuiInputTextFlags_ReadOnly);
