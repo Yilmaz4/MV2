@@ -470,19 +470,18 @@ public:
 
         glUseProgram(shaderProgram);
 
-        glGenBuffers(1, &paletteBuffer);
-        glBindBuffer(GL_SHADER_STORAGE_BUFFER, paletteBuffer);
-        glBufferData(GL_SHADER_STORAGE_BUFFER, max_colors * sizeof(glm::fvec4), paletteData.data(), GL_DYNAMIC_COPY);
-        glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 2, paletteBuffer);
-        GLuint block_index = glGetProgramResourceIndex(shaderProgram, GL_SHADER_STORAGE_BLOCK, "spectrum");
-        GLuint ssbo_binding_point_index = 2;
-        glShaderStorageBlockBinding(shaderProgram, block_index, ssbo_binding_point_index);
-        glUniform1i(glGetUniformLocation(shaderProgram, "span"), span);
-
         glGenBuffers(1, &orbitBuffer);
         glBindBuffer(GL_SHADER_STORAGE_BUFFER, orbitBuffer);
         glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, orbitBuffer);
         glShaderStorageBlockBinding(shaderProgram, glGetProgramResourceIndex(shaderProgram, GL_SHADER_STORAGE_BLOCK, "orbit"), 0);
+        glUniform1i(glGetUniformLocation(shaderProgram, "numVertices"), 0);
+
+        glGenBuffers(1, &paletteBuffer);
+        glBindBuffer(GL_SHADER_STORAGE_BUFFER, paletteBuffer);
+        glBufferData(GL_SHADER_STORAGE_BUFFER, max_colors * sizeof(glm::fvec4), paletteData.data(), GL_DYNAMIC_COPY);
+        glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, paletteBuffer);
+        glShaderStorageBlockBinding(shaderProgram, glGetProgramResourceIndex(shaderProgram, GL_SHADER_STORAGE_BLOCK, "spectrum"), 1);
+        glUniform1i(glGetUniformLocation(shaderProgram, "span"), span);
 
         use_config(config, true, false);
         on_windowResize(window, config.screenSize.x, config.screenSize.y);
@@ -526,6 +525,9 @@ public:
 
             glUniform1f(glGetUniformLocation(shaderProgram, "angle"), config.angle);
             glUniform1f(glGetUniformLocation(shaderProgram, "height"), config.height);
+
+            glShaderStorageBlockBinding(shaderProgram, glGetProgramResourceIndex(shaderProgram, GL_SHADER_STORAGE_BLOCK, "orbit"), 0);
+            glShaderStorageBlockBinding(shaderProgram, glGetProgramResourceIndex(shaderProgram, GL_SHADER_STORAGE_BLOCK, "spectrum"), 1);
         }
         if (textures) {
             int factor = (config.ssaa ? config.ssaa_factor : 1);
@@ -1232,6 +1234,7 @@ public:
                 ImGui::Image((void*)(intptr_t)juliaTexBuffer, ImVec2(julia_size, julia_size));
                 ImGui::End();
 
+                glBindBuffer(GL_SHADER_STORAGE_BUFFER, orbitBuffer);
                 glUniform1i(glGetUniformLocation(shaderProgram, "numVertices"), maxiters);
                 glBufferData(GL_SHADER_STORAGE_BUFFER, maxiters * sizeof(glm::vec2), orbit, GL_DYNAMIC_COPY);
                 delete[] orbit;

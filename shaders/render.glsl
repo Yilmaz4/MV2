@@ -32,10 +32,15 @@ uniform float  angle;
 uniform float  degree;
 uniform dvec2  initialz;
 
-layout(std430, binding = 0) volatile buffer vertices {
+layout(std430, binding = 0) readonly buffer vertices {
     vec2 orbit[];
 };
 uniform int numVertices = 0;
+
+layout(std430, binding = 1) readonly buffer spectrum {
+    vec4 spec[];
+};
+uniform int span;
 
 layout(binding = 0) uniform sampler2D mandelbrotTex;
 layout(binding = 1) uniform sampler2D postprocTex;
@@ -299,11 +304,6 @@ mat3 weight = mat3(
     0.0751136, 0.123841, 0.0751136
 );
 
-layout(std430, binding = 1) readonly buffer spectrum {
-    vec4 spec[];
-};
-uniform int span;
-
 vec3 color(float i) {
     if (i < 0.f) return set_color;
     i = mod(i + spectrum_offset, span) / span;
@@ -432,7 +432,9 @@ void main() {
             float m = (orbit[i].y - orbit[i-1].y) / (orbit[i].x - orbit[i-1].x);
             float c = orbit[i-1].y - m * orbit[i-1].x;
             if (pow(gl_FragCoord.x - orbit[i].x, 2) + pow(gl_FragCoord.y - orbit[i].y, 2) < 16.f ||
-                abs(m * gl_FragCoord.x - gl_FragCoord.y + c) / sqrt(m * m + 1) < 0.5f && dot(gl_FragCoord.xy - orbit[i], gl_FragCoord.xy - orbit[i-1]) < 0) {
+                abs(m * gl_FragCoord.x - gl_FragCoord.y + c) / sqrt(m * m + 1) < 0.5f &&
+                dot(gl_FragCoord.xy - orbit[i], gl_FragCoord.xy - orbit[i-1]) < 0)
+            {
                 fragColor = vec4(1.f);
                 return;
             }
