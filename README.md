@@ -56,15 +56,15 @@ The expression in the inputs are directly substituted into the GLSL shader code.
   You can use these variables in the custom equation however you want
   | Name | Description |
   | --- | --- |
-  | `c` | Corresponding point in the complex plane of the current pixel |
-  | `z` | $Z_n$ |
-  | `prevz` | $Z_{n-1}$ |
-  | `i` | Number of iterations so far |
-  | `xx` | $\Re^2(Z_n)$, for optimization purposes |
-  | `yy` | $\Im^2(Z_n)$, for optimization purposes |
-  | `degree` | Uniform variable of type float, adjustable from the UI |
-  | `max_iters` | Maximum number of iterations before point is considered inside the set |
-  | `zoom` | Length of a single pixel in screen space in the complex plane |
+  | `dvec2 c` | Corresponding point in the complex plane of the current pixel |
+  | `dvec2 z` | $Z_n$ |
+  | `dvec2 prevz` | $Z_{n-1}$ |
+  | `int i` | Number of iterations so far |
+  | `dvec2 xsq` | $\Re^2(Z_n)$, for optimization purposes |
+  | `dvec2 ysq` | $\Im^2(Z_n)$, for optimization purposes |
+  | `float degree` | Uniform variable of type float, adjustable from the UI |
+  | `int max_iters` | Maximum number of iterations before point is considered inside the set |
+  | `double zoom` | Length of a single pixel in screen space in the complex plane |
 </details>
 
 The first input is the new value of $Z_{n+1}$ in each next iteration, it must be a `dvec2` type. The second input is the condition which when true the current pixel will be considered inside the set, it must be a `bool` type. The third input is $Z_0$ (the initial value of $Z$), it must be a `dvec2` type.
