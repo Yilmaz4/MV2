@@ -299,6 +299,9 @@ class MV2 {
     bool dragging = false;
     bool rightClickHold = false;
 
+    glm::dvec2 cmplxCoord;
+    int numIterations;
+
     bool recording = false;
     bool paused = false;
     int progress = 0;
@@ -622,6 +625,7 @@ public:
                 glUniform1d(glGetUniformLocation(app->shaderProgram, "julia_zoom"), app->julia_zoom);
                 glUniform1i(glGetUniformLocation(app->shaderProgram, "julia_maxiters"),
                     max_iters(app->julia_zoom, zoom_co, app->config.iter_co, 3.0));
+                app->refresh_rightclick();
                 break;
             case GLFW_RELEASE:
                 app->rightClickHold = false;
@@ -643,6 +647,47 @@ public:
             app->oldPos = { x, y };
             app->set_op(MV_COMPUTE);
         }
+        if (app->rightClickHold) {
+            app->refresh_rightclick();
+        }
+    }
+
+    void refresh_rightclick() {
+        double x, y;
+        glfwGetCursorPos(window, &x, &y);
+        glm::ivec2 ss = (fullscreen ? monitorSize : config.screenSize);
+
+        cmplxCoord = pixel_to_complex(this, { x, y });
+        glm::dvec2 z = cmplxCoord;
+        int maxiters = max_iters(config.zoom, zoom_co, config.iter_co);
+        float* orbit = new float[maxiters * 2];
+        numIterations = -1;
+        for (int i = 1; i < maxiters; i++) {
+            *reinterpret_cast<glm::vec2*>(orbit + (i - 1) * 2) = static_cast<glm::vec2>(complex_to_pixel(z, ss, config.zoom, config.offset));
+            double xx = z.x * z.x;
+            double yy = z.y * z.y;
+            if (xx + yy > 100) {
+                numIterations = i;
+            }
+            if (config.degree == 2.f)
+                z = glm::dvec2(xx - yy, 2.0f * z.x * z.y) + cmplxCoord;
+            else {
+                float r = sqrt(z.x * z.x + z.y * z.y);
+                float theta = atan2(z.y, z.x);
+                z = pow(glm::length(z), config.degree) * glm::dvec2(cos(config.degree * theta), sin(config.degree * theta)) + cmplxCoord;
+            }
+        }
+        int factor = (config.ssaa ? config.ssaa_factor : 1);
+        glViewport(0, 0, julia_size * factor, julia_size * factor);
+        glBindFramebuffer(GL_FRAMEBUFFER, juliaFrameBuffer);
+        glUniform1i(glGetUniformLocation(shaderProgram, "op"), 4);
+        glUniform2d(glGetUniformLocation(shaderProgram, "mouseCoord"), cmplxCoord.x, cmplxCoord.y);
+        glUniform2i(glGetUniformLocation(shaderProgram, "screenSize"), julia_size * factor, julia_size * factor);
+
+        glBindBuffer(GL_SHADER_STORAGE_BUFFER, orbitBuffer);
+        glUniform1i(glGetUniformLocation(shaderProgram, "numVertices"), maxiters);
+        glBufferData(GL_SHADER_STORAGE_BUFFER, maxiters * sizeof(glm::vec2), orbit, GL_DYNAMIC_COPY);
+        delete[] orbit;
     }
 
     static void on_mouseScroll(GLFWwindow* window, double x, double y) {
@@ -1240,47 +1285,16 @@ public:
                     if (pos.y < 5) pos.y = 5;
                     ImGui::SetWindowPos(pos);
                 }
-                glm::dvec2 c = pixel_to_complex(this, { x, y });
-                glm::dvec2 z = c;
-                int i;
-                int maxiters = max_iters(config.zoom, zoom_co, config.iter_co);
-                float* orbit = new float[maxiters * 2];
-                for (i = 1; i < maxiters; i++) {
-                    *reinterpret_cast<glm::vec2*>(orbit + (i - 1) * 2) = static_cast<glm::vec2>(complex_to_pixel(z, ss, config.zoom, config.offset));
-                    double xx = z.x * z.x;
-                    double yy = z.y * z.y;
-                    if (xx + yy > 100)
-                        goto display;
-                    if (config.degree == 2.f)
-                        z = glm::dvec2(xx - yy, 2.0f * z.x * z.y) + c;
-                    else {
-                        float r = sqrt(z.x * z.x + z.y * z.y);
-                        float theta = atan2(z.y, z.x);
-                        z = pow(glm::length(z), config.degree) * glm::dvec2(cos(config.degree * theta), sin(config.degree * theta)) + c;
-                    }
-                }
-                i = -1;
-            display:
                 if (cmplxinfo) {
-                    if (i > 0) ImGui::Text("Re: %.17g\nIm: %.17g\nIterations before bailout: %d", c.x, c.y, i);
-                    else ImGui::Text("Re: %.17g\nIm: %.17g\nPoint is in set", c.x, c.y);
+                    if (numIterations > 0) ImGui::Text("Re: %.17g\nIm: %.17g\nIterations before bailout: %d", cmplxCoord.x, cmplxCoord.y, numIterations);
+                    else ImGui::Text("Re: %.17g\nIm: %.17g\nPoint is in set", cmplxCoord.x, cmplxCoord.y);
                 }
-                glViewport(0, 0, julia_size * factor, julia_size * factor);
-                glBindFramebuffer(GL_FRAMEBUFFER, juliaFrameBuffer);
-                glUniform1i(glGetUniformLocation(shaderProgram, "op"), 4);
-                glUniform2d(glGetUniformLocation(shaderProgram, "mouseCoord"), c.x, c.y);
-                glUniform2i(glGetUniformLocation(shaderProgram, "screenSize"), julia_size * factor, julia_size * factor);
                 if (juliaset) {
                     glDrawArrays(GL_TRIANGLES, 0, 6);
                     if (cmplxinfo) ImGui::SeparatorText("Julia Set");
                     ImGui::Image((void*)(intptr_t)juliaTexBuffer, ImVec2(julia_size, julia_size));
                 }
                 if (cmplxinfo || juliaset) ImGui::End();
-
-                glBindBuffer(GL_SHADER_STORAGE_BUFFER, orbitBuffer);
-                glUniform1i(glGetUniformLocation(shaderProgram, "numVertices"), maxiters);
-                glBufferData(GL_SHADER_STORAGE_BUFFER, maxiters * sizeof(glm::vec2), orbit, GL_DYNAMIC_COPY);
-                delete[] orbit;
             }
             if (!rightClickHold || !orbit) {
                 glUniform1i(glGetUniformLocation(shaderProgram, "numVertices"), 0);
