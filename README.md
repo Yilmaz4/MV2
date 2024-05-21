@@ -45,7 +45,6 @@ The expression in the inputs are directly substituted into the GLSL shader code.
 | `dvec2 cdivide(dvec2, dvec2)` | $\{z}/{w} $|
 | `dvec2 clog(dvec2)` | $\ln{(z)}$ |
 | `dvec2 cpow(dvec2, float)` | $z^x, x \in \mathbb{R}$|
-| `dvec2 cpow(dvec2, dvec2)` | $z^w, w \in \mathbb{C}$|
 | `dvec2 csin(dvec2)` | $\sin(z)$|
 | `dvec2 ccos(dvec2)` | $\cos(z)$|
 </details>
