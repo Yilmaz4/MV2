@@ -19,6 +19,8 @@ Points inside the set are colored black, and points outside the set are colored 
 ### Planned features
 - GPU arbitrary precision for zooming without limits
 
+https://github.com/Yilmaz4/MV2/assets/77583632/b6c11774-b2cd-4895-8eef-0fd47954e4ff
+
 https://github.com/Yilmaz4/MV2/assets/77583632/184eff3b-f178-4c7e-9553-ed0c2de17da7
 
 ## Custom equations
