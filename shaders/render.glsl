@@ -264,30 +264,27 @@ dvec2 clog(dvec2 z) {
     return dvec2(dlog(length(z)), carg(z));
 }
 dvec2 cpow(dvec2 z, float p) {
-    double xx, yy;
+    double xsq, ysq;
     if (p == 0.f)
         return dvec2(1.f, 0.f);
     if (p == 1.f)
         return z;
     if (floor(p) == p) {
-        xx = z.x * z.x;
-        yy = z.y * z.y;
+        xsq = z.x * z.x;
+        ysq = z.y * z.y;
     }
     if (p == 2.f)
-        return dvec2(xx - yy, 2 * z.x * z.y);
+        return dvec2(xsq - ysq, 2 * z.x * z.y);
     if (p == 3.f)
-        return dvec2(xx * z.x - 3 * z.x * yy, 3 * xx * z.y - yy * z.y);
+        return dvec2(xsq * z.x - 3 * z.x * ysq, 3 * xsq * z.y - ysq * z.y);
     if (p == 4.f)
-        return dvec2(xx * xx + yy * yy - 6 * xx * yy, 4 * xx * z.x * z.y - 4 * z.x * yy * z.y);
+        return dvec2(xsq * xsq + ysq * ysq - 6 * xsq * ysq, 4 * xsq * z.x * z.y - 4 * z.x * ysq * z.y);
     if (p == 5.f)
-        return dvec2(xx * xx * z.x + 5 * z.x * yy * yy - 10 * xx * z.x * yy,
-            5 * xx * xx * z.y + yy * yy * z.y - 10 * xx * yy * z.y);
+        return dvec2(xsq * xsq * z.x + 5 * z.x * ysq * ysq - 10 * xsq * z.x * ysq,
+            5 * xsq * xsq * z.y + ysq * ysq * z.y - 10 * xsq * ysq * z.y);
     vec2 c = vec2(z);
     float theta = atan(c.y, c.x);
     return pow(float(length(z)), p) * dvec2(cos(p * theta), sin(p * theta));
-}
-dvec2 cpow(dvec2 z, dvec2 p) {
-    return cexp(cmultiply(p, clog(z)));
 }
 dvec2 csin(dvec2 z) {
     vec2 c = vec2(z);
@@ -320,7 +317,7 @@ vec3 color(float i) {
     return vec3(i, i, i);
 }
 
-dvec2 advance(dvec2 z, dvec2 c, dvec2 prevz, double xx, double yy) {
+dvec2 advance(dvec2 z, dvec2 c, dvec2 prevz, double xsq, double ysq) {
     return %s;
 }
 
@@ -344,8 +341,8 @@ void main() {
 
         dvec2 der = dvec2(1.0, 0.0);
 
-        double xx = z.x * z.x;
-        double yy = z.y * z.y;
+        double xsq = z.x * z.x;
+        double ysq = z.y * z.y;
 
         for (int i = 1; i < julia_maxiters; i++) {
             if (%s) {
@@ -362,9 +359,9 @@ void main() {
             if (normal_map_effect == 1)
                 der = differentiate(z, der);
             prevz = z;
-            z = advance(z, mouseCoord, prevz, xx, yy);
-            xx = z.x * z.x;
-            yy = z.y * z.y;
+            z = advance(z, mouseCoord, prevz, xsq, ysq);
+            xsq = z.x * z.x;
+            ysq = z.y * z.y;
         }
         fragColor = vec4(set_color, 1.0);
     }
@@ -376,12 +373,12 @@ void main() {
 
         dvec2 der = dvec2(1.0, 0.0);
 
-        double xx = z.x * z.x;
-        double yy = z.y * z.y;
+        double xsq = z.x * z.x;
+        double ysq = z.y * z.y;
 
-        double p = xx - z.x / 2.0 + 0.0625 + yy;
+        double p = xsq - z.x / 2.0 + 0.0625 + ysq;
         int i;
-        if (is_experimental() || !is_experimental() && (4.0 * p * (p + (z.x - 0.25)) > yy && (xx + yy + 2 * z.x + 1) > 0.0625)) {
+        if (is_experimental() || !is_experimental() && (4.0 * p * (p + (z.x - 0.25)) > ysq && (xsq + ysq + 2 * z.x + 1) > 0.0625)) {
             for (i = 1; i < max_iters; i++) {
                 if (%s) {
                     double t = 0;
@@ -403,9 +400,9 @@ void main() {
                 if (normal_map_effect == 1)
                     der = differentiate(z, der);
                 prevz = z;
-                z = advance(z, c, prevz, xx, yy);
-                xx = z.x * z.x;
-                yy = z.y * z.y;
+                z = advance(z, c, prevz, xsq, ysq);
+                xsq = z.x * z.x;
+                ysq = z.y * z.y;
             }
         }
         fragColor = vec4(-1.f, -1.f, 0.f, 0.f);
