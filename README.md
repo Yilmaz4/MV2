@@ -8,16 +8,18 @@ Mandelbrot set is a set defined in the complex plane, and consists of all comple
 Points inside the set are colored black, and points outside the set are colored based on $n$.
 
 ## Features
-- Continuous (smooth) coloring with $n^{\prime}=n-\log_P\left(\log|Z_n|\right)$ where $n$ is the first iteration number after $|Z_n| \geq 2$
+- Smooth coloring with $n^{\prime}=n-\log_P\left(\log|Z_n|\right)$ where $n$ is the first iteration number after $|Z_n| \geq 2$
 - Fully customizable equation in GLSL syntax, supporting 10 different complex defined functions
 - Normal vector calculation for Lambert lighting
 - Super-sampling anti aliasing (SSAA)
 - Customizable color palette with up to 16 colors
-- Hold right-click to see the corresponding Julia set for any point
+- Hold right-click to see the orbit and the corresponding Julia set for any point
 - Zoom sequence creation
 
 ### Planned features
 - GPU arbitrary precision for zooming without limits
+
+https://github.com/Yilmaz4/MV2/assets/77583632/149a8899-a4f0-4d22-8a9f-4943c5716c27
 
 ## Custom equations
 The expression in the inputs are directly substituted into the GLSL shader code. Because double-precision bivectors are used, most of the built-in GLSL functions are unavailable, therefore the following list of custom implemented functions must be used instead:
