@@ -19,7 +19,7 @@ Points inside the set are colored black, and points outside the set are colored 
 ### Planned features
 - GPU arbitrary precision for zooming without limits
 
-https://github.com/Yilmaz4/MV2/assets/77583632/149a8899-a4f0-4d22-8a9f-4943c5716c27
+https://github.com/Yilmaz4/MV2/assets/77583632/184eff3b-f178-4c7e-9553-ed0c2de17da7
 
 ## Custom equations
 The expression in the inputs are directly substituted into the GLSL shader code. Because double-precision bivectors are used, most of the built-in GLSL functions are unavailable, therefore the following list of custom implemented functions must be used instead:
