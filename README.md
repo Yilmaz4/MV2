@@ -16,9 +16,6 @@ Points inside the set are colored black, and points outside the set are colored 
 - Hold right-click to see the orbit and the corresponding Julia set for any point
 - Zoom sequence creation
 
-### Planned features
-- GPU arbitrary precision for zooming without limits
-
 https://github.com/Yilmaz4/MV2/assets/77583632/b6c11774-b2cd-4895-8eef-0fd47954e4ff
 
 https://github.com/Yilmaz4/MV2/assets/77583632/184eff3b-f178-4c7e-9553-ed0c2de17da7
@@ -86,3 +83,6 @@ Tricorn fractal $Z_{n+1}=\bar{Z_n}^2+c \quad Z_0=c \quad \text{Bailout: } |Z_n-c
 - Any custom equation utilizing `dvec2 cpow(dvec2, float)` where the second argument $\not\in [1,4] \cap \mathbb{N}$ will be limited to single-precision floating point, therefore limiting amount of zoom to $10^4$.
 - Most of the double-precision transcendental functions are software emulated, which means performance will be severely impacted.
 - Maximum zoom is $10^{14}$ due to finite precision.
+
+## Contributing
+Contributions are highly welcome, it could be anything from a typo correction to a completely new feature, feel free to create a pull request or raise an issue!
