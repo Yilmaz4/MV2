@@ -224,11 +224,6 @@ static void HelpMarker(const char* desc) { // code from imgui demo
 }
 
 namespace parser {
-    std::map<std::string, void*> fncs = {
-        { "cexp", &cexp },      { "cconj", &cconj }, { "carg", &carg }, { "cmultiply", &cmultiply },
-        { "cdivide", &cdivide}, { "clog", &clog },   { "cpow", &cpow }, { "csin", &csin }, { "ccos", &ccos },
-    };
-
     static dvec2 cexp(dvec2 z) {
         return exp(z.x) * dvec2(cos(z.y), sin(z.y));
     }
@@ -278,6 +273,11 @@ namespace parser {
         vec2 c = vec2(z);
         return dvec2(cos(c.x) * cosh(c.y), -sin(c.x) * sinh(c.y));
     }
+
+    std::map<std::string, void*> fncs = {
+        { "cexp", &cexp },      { "cconj", &cconj }, { "carg", &carg }, { "cmultiply", &cmultiply },
+        { "cdivide", &cdivide}, { "clog", &clog },   { "cpow", &cpow }, { "csin", &csin }, { "ccos", &ccos },
+    };
 
     static dvec2 parse_equation(std::string eq, dvec2 c, dvec2 z, dvec2 prevz, int i, dvec2 xsq, dvec2 ysq, float degree, int max_iters, double zoom) {
         // TO-DO
@@ -768,16 +768,20 @@ public:
 
         cmplxCoord = pixel_to_complex(this, { x, y });
         dvec2 z = cmplxCoord;
-        int maxiters = max_iters(config.zoom, zoom_co, config.iter_co);
-        float* orbit = new float[maxiters * 2];
-        numIterations = -1;
-        for (int i = 1; i < maxiters; i++) {
+        float* orbit = new float[800];
+      
+        int factor = (config.ssaa ? config.ssaa_factor : 1);
+        glActiveTexture(GL_TEXTURE0);
+        glBindTexture(GL_TEXTURE_2D, mandelbrotTexBuffer);
+        GLubyte texel[16];
+        glReadBuffer(GL_FRONT);
+        glReadPixels(x, y, 1, 1, GL_RGBA, GL_UNSIGNED_BYTE, texel);
+        numIterations = static_cast<int>(reinterpret_cast<float*>(texel)[1]);
+
+        for (int i = 1; i < 400; i++) {
             *reinterpret_cast<vec2*>(orbit + (i - 1) * 2) = static_cast<vec2>(complex_to_pixel(z, ss, config.zoom, config.offset));
             double xsq = z.x * z.x;
             double yy = z.y * z.y;
-            if (xsq + yy > 100) {
-                numIterations = i;
-            }
             if (config.degree == 2.f)
                 z = dvec2(xsq - yy, 2.0f * z.x * z.y) + cmplxCoord;
             else {
@@ -786,7 +790,6 @@ public:
                 z = pow(length(z), config.degree) * dvec2(cos(config.degree * theta), sin(config.degree * theta)) + cmplxCoord;
             }
         }
-        int factor = (config.ssaa ? config.ssaa_factor : 1);
         glViewport(0, 0, julia_size * factor, julia_size * factor);
         glBindFramebuffer(GL_FRAMEBUFFER, juliaFrameBuffer);
         glUniform1i(glGetUniformLocation(shaderProgram, "op"), 4);
@@ -795,8 +798,8 @@ public:
         if (juliaset) glDrawArrays(GL_TRIANGLES, 0, 6);
 
         glBindBuffer(GL_SHADER_STORAGE_BUFFER, orbitBuffer);
-        glUniform1i(glGetUniformLocation(shaderProgram, "numVertices"), maxiters);
-        glBufferData(GL_SHADER_STORAGE_BUFFER, maxiters * sizeof(vec2), orbit, GL_DYNAMIC_COPY);
+        glUniform1i(glGetUniformLocation(shaderProgram, "numVertices"), 400);
+        glBufferData(GL_SHADER_STORAGE_BUFFER, 400 * sizeof(vec2), orbit, GL_DYNAMIC_COPY);
         delete[] orbit;
     }
 
@@ -1196,115 +1199,125 @@ public:
                     }
                 }
                 ImGui::SeparatorText("Coloring");
-                if (ImGui::ColorEdit3("Set color", &config.set_color.x)) {
-                    glUniform3f(glGetUniformLocation(shaderProgram, "set_color"), config.set_color.r, config.set_color.g, config.set_color.b);
-                    set_op(MV_POSTPROC);
-                }
-                if (ImGui::SliderFloat("Multiplier", &config.iter_multiplier, 1, 128, "x%.4g", ImGuiSliderFlags_Logarithmic | ImGuiSliderFlags_NoRoundToFormat)) {
-                    glUniform1f(glGetUniformLocation(shaderProgram, "iter_multiplier"), config.iter_multiplier);
-                    set_op(MV_POSTPROC);
-                }
-                if (ImGui::SliderFloat("Offset", &config.spectrum_offset, 0, span)) {
-                    glUniform1f(glGetUniformLocation(shaderProgram, "spectrum_offset"), config.spectrum_offset);
-                    set_op(MV_POSTPROC);
-                }
-                ImGui::Dummy(ImVec2(0.0f, 3.0f));
-                bool isMarkerShown = true;
-                ImGui::SetCursorPosX(15.f);
-                ImGui::BeginGroup();
-                ImGradientHDR(stateID, state, tempState, isMarkerShown);
+                if (ImGui::BeginTabBar("MyTabBar")) {
+                    if (ImGui::BeginTabItem("Outside")) {
+                        if (ImGui::SliderFloat("Multiplier", &config.iter_multiplier, 1, 128, "x%.4g", ImGuiSliderFlags_Logarithmic | ImGuiSliderFlags_NoRoundToFormat)) {
+                            glUniform1f(glGetUniformLocation(shaderProgram, "iter_multiplier"), config.iter_multiplier);
+                            set_op(MV_POSTPROC);
+                        }
+                        if (ImGui::SliderFloat("Offset", &config.spectrum_offset, 0, span)) {
+                            glUniform1f(glGetUniformLocation(shaderProgram, "spectrum_offset"), config.spectrum_offset);
+                            set_op(MV_POSTPROC);
+                        }
+                        ImGui::Dummy(ImVec2(0.0f, 3.0f));
+                        bool isMarkerShown = true;
+                        ImGui::SetCursorPosX(15.f);
+                        ImGui::BeginGroup();
+                        ImGradientHDR(stateID, state, tempState, isMarkerShown);
 
-                if (tempState.selectedMarkerType == ImGradientHDRMarkerType::Color) {
-                    auto selectedColorMarker = state.GetColorMarker(tempState.selectedIndex);
-                    if (selectedColorMarker != nullptr) {
-                        ImGui::ColorEdit3("", selectedColorMarker->Color.data(), ImGuiColorEditFlags_Float);
-                    }
-                }
-                if (tempState.selectedMarkerType != ImGradientHDRMarkerType::Unknown) {
-                    ImGui::SameLine();
-                    if (tempState.selectedMarkerType == ImGradientHDRMarkerType::Color
-                        && (ImGui::Button("Delete") || glfwGetKey(window, GLFW_KEY_DELETE) == GLFW_PRESS)) {
-                        state.RemoveColorMarker(tempState.selectedIndex);
-                        tempState = ImGradientHDRTemporaryState{};
-                    }
-                }
-                ImGui::EndGroup();
-                bool resync = false;
-                paletteData.resize(state.ColorCount);
-                for (int i = 0; i < paletteData.size(); i++) {
-                    auto co = vec4(make_vec3(state.Colors[i].Color.data()), state.Colors[i].Position);
-                    if (update |= paletteData.at(i) != co) {
-                        paletteData[i] = co;
-                    }
-                }
-                if (ImGui::Button("Save##", ImVec2(90.f, 0.f))) {
-                    const char* lFilterPatterns[1] = { "*.mvcp" };
-                    auto t = std::time(nullptr);
-                    auto tm = *std::localtime(&t);
-                    std::ostringstream oss;
-                    oss << std::put_time(&tm, "MV2 %d-%m-%Y %H-%M-%S");
-                    const char* buf = tinyfd_saveFileDialog("Save color palette", oss.str().c_str(),
-                        1, lFilterPatterns, "MV2 Color Palette File (*.mvcp)");
-                    if (glfwGetWindowMonitor(window) != nullptr) glfwRestoreWindow(window);
-                    glfwShowWindow(window);
-                    if (buf != nullptr) {
-                        std::ofstream fout;
-                        fout.open(buf, std::ios::binary | std::ios::out | std::ofstream::trunc);
-                        for (const vec4& c : paletteData) {
-                            fout.write(reinterpret_cast<const char*>(value_ptr(c)), sizeof(float) * 4);
+                        if (tempState.selectedMarkerType == ImGradientHDRMarkerType::Color) {
+                            auto selectedColorMarker = state.GetColorMarker(tempState.selectedIndex);
+                            if (selectedColorMarker != nullptr) {
+                                ImGui::ColorEdit3("", selectedColorMarker->Color.data(), ImGuiColorEditFlags_Float);
+                            }
                         }
-                        fout.close();
-                    }
-                }
-                ImGui::SameLine();
-                if (ImGui::Button("Load##", ImVec2(90.f, 0.f))) {
-                    const char* lFilterPatterns[1] = { "*.mvcp" };
-                    char* buf = tinyfd_openFileDialog("Open color palette", nullptr,
-                        1, lFilterPatterns, "MV2 Color Palette File (*.mvcp)", false);
-                    if (glfwGetWindowMonitor(window) != nullptr) glfwRestoreWindow(window);
-                    glfwShowWindow(window);
-                    if (buf != nullptr) {
-                        std::ifstream fin;
-                        fin.open(buf, std::ios::binary | std::ios::in | std::ios::ate);
-                        int size = static_cast<int>(fin.tellg());
-                        if (size % 4 != 0 || (size /= 16) > 16) {
-                            throw Error("Palette file invalid");
+                        if (tempState.selectedMarkerType != ImGradientHDRMarkerType::Unknown) {
+                            ImGui::SameLine();
+                            if (tempState.selectedMarkerType == ImGradientHDRMarkerType::Color
+                                && (ImGui::Button("Delete") || glfwGetKey(window, GLFW_KEY_DELETE) == GLFW_PRESS)) {
+                                state.RemoveColorMarker(tempState.selectedIndex);
+                                tempState = ImGradientHDRTemporaryState{};
+                            }
                         }
-                        paletteData.resize(size);
-                        fin.seekg(0);
-                        for (int i = 0; i < size; i++) {
-                            fin.read(reinterpret_cast<char*>(value_ptr(paletteData[i])), 16);
+                        ImGui::EndGroup();
+                        bool resync = false;
+                        paletteData.resize(state.ColorCount);
+                        for (int i = 0; i < paletteData.size(); i++) {
+                            auto co = vec4(make_vec3(state.Colors[i].Color.data()), state.Colors[i].Position);
+                            if (update |= paletteData.at(i) != co) {
+                                paletteData[i] = co;
+                            }
                         }
-                        fin.close();
-                        resync = update = true;
+                        if (ImGui::Button("Save##", ImVec2(90.f, 0.f))) {
+                            const char* lFilterPatterns[1] = { "*.mvcp" };
+                            auto t = std::time(nullptr);
+                            auto tm = *std::localtime(&t);
+                            std::ostringstream oss;
+                            oss << std::put_time(&tm, "MV2 %d-%m-%Y %H-%M-%S");
+                            const char* buf = tinyfd_saveFileDialog("Save color palette", oss.str().c_str(),
+                                1, lFilterPatterns, "MV2 Color Palette File (*.mvcp)");
+                            if (glfwGetWindowMonitor(window) != nullptr) glfwRestoreWindow(window);
+                            glfwShowWindow(window);
+                            if (buf != nullptr) {
+                                std::ofstream fout;
+                                fout.open(buf, std::ios::binary | std::ios::out | std::ofstream::trunc);
+                                for (const vec4& c : paletteData) {
+                                    fout.write(reinterpret_cast<const char*>(value_ptr(c)), sizeof(float) * 4);
+                                }
+                                fout.close();
+                            }
+                        }
+                        ImGui::SameLine();
+                        if (ImGui::Button("Load##", ImVec2(90.f, 0.f))) {
+                            const char* lFilterPatterns[1] = { "*.mvcp" };
+                            char* buf = tinyfd_openFileDialog("Open color palette", nullptr,
+                                1, lFilterPatterns, "MV2 Color Palette File (*.mvcp)", false);
+                            if (glfwGetWindowMonitor(window) != nullptr) glfwRestoreWindow(window);
+                            glfwShowWindow(window);
+                            if (buf != nullptr) {
+                                std::ifstream fin;
+                                fin.open(buf, std::ios::binary | std::ios::in | std::ios::ate);
+                                int size = static_cast<int>(fin.tellg());
+                                if (size % 4 != 0 || (size /= 16) > 16) {
+                                    throw Error("Palette file invalid");
+                                }
+                                paletteData.resize(size);
+                                fin.seekg(0);
+                                for (int i = 0; i < size; i++) {
+                                    fin.read(reinterpret_cast<char*>(value_ptr(paletteData[i])), 16);
+                                }
+                                fin.close();
+                                resync = update = true;
+                            }
+                        }
+                        ImGui::SameLine();
+                        if (ImGui::Button("Reset", ImVec2(90.f, 0.f))) {
+                            paletteData = {
+                                { 0.0000f, 0.0274f, 0.3921f, 0.0000f },
+                                { 0.1254f, 0.4196f, 0.7960f, 0.1600f },
+                                { 0.9294f, 1.0000f, 1.0000f, 0.4200f },
+                                { 1.0000f, 0.6666f, 0.0000f, 0.6425f },
+                                { 0.0000f, 0.0078f, 0.0000f, 0.8575f },
+                                { 0.0000f, 0.0274f, 0.3921f, 1.0000f }
+                            };
+                            resync = update = true;
+                        }
+                        if (resync) {
+                            state.ColorCount = paletteData.size();
+                            for (int i = 0; i < state.ColorCount; i++) {
+                                state.Colors[i].Color = *reinterpret_cast<std::array<float, 3>*>(value_ptr(paletteData[i]));
+                                state.Colors[i].Position = paletteData[i][3];
+                            }
+                        }
+                        if (update) {
+                            glBindBuffer(GL_SHADER_STORAGE_BUFFER, paletteBuffer);
+                            memcpy(glMapBuffer(GL_SHADER_STORAGE_BUFFER, GL_WRITE_ONLY),
+                                paletteData.data(), paletteData.size() * sizeof(vec4));
+                            glUnmapBuffer(GL_SHADER_STORAGE_BUFFER);
+                            set_op(MV_POSTPROC);
+                        }
+                        ImGui::EndTabItem();
                     }
-                }
-                ImGui::SameLine();
-                if (ImGui::Button("Reset", ImVec2(90.f, 0.f))) {
-                    paletteData = {
-                        { 0.0000f, 0.0274f, 0.3921f, 0.0000f },
-                        { 0.1254f, 0.4196f, 0.7960f, 0.1600f },
-                        { 0.9294f, 1.0000f, 1.0000f, 0.4200f },
-                        { 1.0000f, 0.6666f, 0.0000f, 0.6425f },
-                        { 0.0000f, 0.0078f, 0.0000f, 0.8575f },
-                        { 0.0000f, 0.0274f, 0.3921f, 1.0000f }
-                    };
-                    resync = update = true;
-                }
-                if (resync) {
-                    state.ColorCount = paletteData.size();
-                    for (int i = 0; i < state.ColorCount; i++) {
-                        state.Colors[i].Color = *reinterpret_cast<std::array<float,3>*>(value_ptr(paletteData[i]));
-                        state.Colors[i].Position = paletteData[i][3];
+                    if (ImGui::BeginTabItem("Inside")) {
+                        if (ImGui::ColorEdit3("Set color", glm::value_ptr(config.set_color))) {
+                            glUniform3f(glGetUniformLocation(shaderProgram, "set_color"), config.set_color.r, config.set_color.g, config.set_color.b);
+                            set_op(MV_POSTPROC);
+                        }
+                        ImGui::EndTabItem();
                     }
+                    ImGui::EndTabBar();
                 }
-                if (update) {
-                    glBindBuffer(GL_SHADER_STORAGE_BUFFER, paletteBuffer);
-                    memcpy(glMapBuffer(GL_SHADER_STORAGE_BUFFER, GL_WRITE_ONLY),
-                        paletteData.data(), paletteData.size() * sizeof(vec4));
-                    glUnmapBuffer(GL_SHADER_STORAGE_BUFFER);
-                    set_op(MV_POSTPROC);
-                }
+                
                 ImGui::SeparatorText("Preferences");
                 if (ImGui::TreeNode("Right-click")) {
                     ImGui::Checkbox("Coordinate info", &cmplxinfo);
@@ -1356,7 +1369,7 @@ public:
                     ImGui::SetWindowPos(pos);
                 }
                 if (cmplxinfo) {
-                    if (numIterations > 0) ImGui::Text("Re: %.17g\nIm: %.17g\nIterations before bailout: %d", cmplxCoord.x, cmplxCoord.y, numIterations);
+                    if (true) ImGui::Text("Re: %.17g\nIm: %.17g\nIterations before bailout: %d", cmplxCoord.x, cmplxCoord.y, numIterations);
                     else ImGui::Text("Re: %.17g\nIm: %.17g\nPoint is in set", cmplxCoord.x, cmplxCoord.y);
                 }
                 if (juliaset) {
