@@ -1161,8 +1161,7 @@ public:
                         set_op(MV_COMPUTE, true);
                         reverted = false;
                     }
-                    
-                    ImGui::SeparatorText("Sliders");
+                    if (fractal == 0) ImGui::SeparatorText("Sliders");
                     int update = 0;
                     auto slider = [&]<typename type>(const char* label, type* ptr, const type def, const float speed, const float min, const float max) {
                         ImGui::PushID(*reinterpret_cast<const int*>(label));
@@ -1180,7 +1179,7 @@ public:
                         ImGui::PopID();
                         ImGui::SameLine();
                         ImGui::PushItemWidth(90);
-                        update |= ImGui::DragFloat(label, ptr, speed, min, min == 0.f ? 0.f : FLT_MAX, "%.5f", ImGuiSliderFlags_NoRoundToFormat);
+                        update |= ImGui::DragFloat(label, ptr, speed, min, max, "%.5f", ImGuiSliderFlags_NoRoundToFormat);
                         ImGui::PopItemWidth();
                     };
                     slider("Degree", &config.degree, 2.f, std::max(1e-4f, abs(round(config.degree) - config.degree)) * std::min(pow(1.2, config.degree), 1e+3) / 20.f, 2.f, FLT_MAX);
@@ -1206,12 +1205,12 @@ public:
                             ImGui::Checkbox("Upper limit", &upper_limit);
                             if (!upper_limit) ImGui::BeginDisabled();
                             ImGui::SameLine();
-                            ImGui::DragFloat("##max", &slider.max, std::max(1e-4f, slider.max / 20.f), 0.f, 0.f, "%.9g");
+                            ImGui::DragFloat("##max", &slider.max, std::max(1e-4f, abs(slider.max) / 20.f), 0.f, 0.f, "%.9g");
                             if (!upper_limit) ImGui::EndDisabled();
                             ImGui::Checkbox("Lower limit", &lower_limit);
                             if (!lower_limit) ImGui::BeginDisabled();
                             ImGui::SameLine();
-                            ImGui::DragFloat("##min", &slider.min, std::max(1e-4f, slider.min / 20.f), 0.f, 0.f, "%.9g");
+                            ImGui::DragFloat("##min", &slider.min, std::max(1e-4f, abs(slider.min) / 20.f), 0.f, 0.f, "%.9g");
                             if (!lower_limit) ImGui::EndDisabled();
                             if (ImGui::Button("Create", ImVec2(89, 0))) {
                                 if (!lower_limit) slider.min = 0.f;
