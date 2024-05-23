@@ -633,7 +633,7 @@ public:
         return dvec2(pixelCoordNormalized.x * screenSize.x, screenSize.y - pixelCoordNormalized.y * screenSize.y);
     }
     static int max_iters(double zoom, double zoom_co, double iter_co, double initial_zoom = 5.0) {
-        return 100 * pow(iter_co, log2(zoom / initial_zoom) / log2(zoom_co));
+        return 100 * std::max(1.0, pow(iter_co, log2(zoom / initial_zoom) / log2(zoom_co)));
     }
 
     static void on_windowResize(GLFWwindow* window, int width, int height) {
