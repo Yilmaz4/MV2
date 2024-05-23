@@ -42,6 +42,10 @@ layout(std430, binding = 1) readonly buffer spectrum {
 };
 uniform int span;
 
+layout(std430, binding = 2) readonly buffer variables {
+    float sliders[];
+};
+
 layout(binding = 0) uniform sampler2D mandelbrotTex;
 layout(binding = 1) uniform sampler2D postprocTex;
 layout(binding = 2) uniform sampler2D finalTex;

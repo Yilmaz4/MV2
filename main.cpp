@@ -36,6 +36,8 @@
 #include <string>
 #include <filesystem>
 #include <functional>
+#include <algorithm>
+#include <regex>
 
 #define MV_COMPUTE  3
 #define MV_POSTPROC 2
@@ -284,6 +286,13 @@ namespace parser {
     }
 }
 
+struct Slider {
+    std::string name;
+    float value = 0.f;
+    float min = 0.f, max = 0.f;
+    float step = 1.f;
+};
+
 struct Fractal {
     std::string name = "Mandelbrot";
     std::string equation = "cpow(z, degree) + c";
@@ -291,6 +300,8 @@ struct Fractal {
     std::string initialz = "c";
     float degree = 2.f;
     bool continuous_compatible = true;
+
+    std::vector<Slider> sliders;
 };
 
 std::vector<Fractal> fractals = {
@@ -385,6 +396,7 @@ class MV2 {
 
     GLuint paletteBuffer = NULL;
     GLuint orbitBuffer = NULL;
+    GLuint sliderBuffer = NULL;
 
     int32_t stateID = 10;
     ImGradientHDRState state;
@@ -553,6 +565,11 @@ public:
         glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, paletteBuffer);
         glShaderStorageBlockBinding(shaderProgram, glGetProgramResourceIndex(shaderProgram, GL_SHADER_STORAGE_BLOCK, "spectrum"), 1);
         glUniform1i(glGetUniformLocation(shaderProgram, "span"), span);
+
+        glGenBuffers(1, &sliderBuffer);
+        glBindBuffer(GL_SHADER_STORAGE_BUFFER, sliderBuffer);
+        glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 2, sliderBuffer);
+        glShaderStorageBlockBinding(shaderProgram, glGetProgramResourceIndex(shaderProgram, GL_SHADER_STORAGE_BLOCK, "variables"), 2);
 
         use_config(config, true, false);
         on_windowResize(window, config.screenSize.x, config.screenSize.y);
@@ -821,35 +838,6 @@ public:
                 ImGuiWindowFlags_AlwaysAutoResize |
                 ImGuiWindowFlags_NoMove
             )) {
-                if (ImGui::Button("Take screenshot")) {
-                    int w, h;
-                    if (fullscreen) {
-                        GLFWmonitor* monitor = glfwGetPrimaryMonitor();
-                        const GLFWvidmode* mode = glfwGetVideoMode(monitor);
-                        w = mode->width, h = mode->height;
-                    }
-                    else w = config.screenSize.x, h = config.screenSize.y;
-                    unsigned char* buffer = new unsigned char[4 * w * h];
-                    glBindFramebuffer(GL_FRAMEBUFFER, 0);
-                    glDrawArrays(GL_TRIANGLES, 0, 6);
-                    glReadBuffer(GL_BACK);
-                    glReadPixels(0, 0, w, h, GL_RGBA, GL_UNSIGNED_BYTE, buffer);
-
-                    char const* lFilterPatterns[1] = { "*.png" };
-                    auto t = std::time(nullptr);
-                    auto tm = *std::localtime(&t);
-                    std::ostringstream oss;
-                    oss << std::put_time(&tm, "MV2 %d-%m-%Y %H-%M-%S");
-                    const char* path = tinyfd_saveFileDialog("Save screenshot", oss.str().c_str(), 1, lFilterPatterns, "PNG (*.png)");
-                    if (glfwGetWindowMonitor(window) != nullptr) glfwRestoreWindow(window);
-                    glfwShowWindow(window);
-                    if (path) {
-                        stbi_flip_vertically_on_write(true);
-                        stbi_write_png(path, w, h, 4, buffer, 4 * w);
-                    }
-                    delete[] buffer;
-                }
-                ImGui::SameLine();
                 if (ImGui::BeginPopupModal("Zoom sequence creator", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
                     zsc.tcfg = config;
                     if (recording) ImGui::BeginDisabled();
@@ -883,7 +871,7 @@ public:
                     zsc.tcfg.screenSize = commonres[res];
                     auto vec_to_str = [commonres](int i) {
                         return std::format("{}x{}", commonres.at(i).x, commonres.at(i).y);
-                    };
+                        };
                     std::string preview = vec_to_str(res);
 
                     if (ImGui::BeginCombo("Resolution", preview.c_str())) {
@@ -895,7 +883,7 @@ public:
                                 glBindTexture(GL_TEXTURE_2D, finalTexBuffer);
                                 glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, zsc.tcfg.screenSize.x, zsc.tcfg.screenSize.y, 0, GL_RGB, GL_UNSIGNED_BYTE, NULL);
                                 res = i;
-                            } 
+                            }
                             if (is_selected) ImGui::SetItemDefaultFocus();
                         }
                         ImGui::EndCombo();
@@ -915,10 +903,10 @@ public:
                         use_config(zsc.tcfg, true, true);
                         ImGui::BeginDisabled();
                     }
+                    if ((strlen(zsc.path) == 0 && !recording) || recording) ImGui::EndDisabled();
                     else if (recording && ImGui::Button(paused ? "Resume" : "Pause", ImVec2(100, 0))) {
                         paused ^= 1;
                     }
-                    if ((strlen(zsc.path) == 0 && !recording) || recording) ImGui::EndDisabled();
                     ImGui::SameLine();
                     if (ImGui::Button("Cancel", ImVec2(100, 0))) {
                         if (recording && progress != 0) {
@@ -942,15 +930,9 @@ public:
                         ImGui::SetCursorPosY(ImGui::GetCursorPosY() + 5.f);
                         ImGui::BufferingBar("##buffer_bar", progress / static_cast<float>(zsc.fps * zsc.duration), ImVec2(182, 6), bg, col);
                     }
-
                     ImGui::EndPopup();
                 }
-                if (ImGui::Button("Create zoom sequence")) {
-                    ImGui::OpenPopup("Zoom sequence creator");
-                }
-                ImGui::SameLine();
-                if (ImGui::Button("About"))
-                    ImGui::OpenPopup("About Mandelbrot Voyage II");
+
                 if (ImGui::BeginPopupModal("About Mandelbrot Voyage II", nullptr, ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoMove)) {
                     ImGui::Text("Version v" VERSION " (Build date: " __DATE__ " " __TIME__ ")\n\nMV2 is a fully interactive open-source GPU-based fully customizable fractal zoom\nprogram aimed at creating artistic and high quality images & videos.");
                     ImGui::PushStyleColor(ImGuiCol_Text, IM_COL32(150, 150, 150, 255));
@@ -964,6 +946,41 @@ public:
                     ImGui::EndPopup();
                 }
 
+                if (ImGui::Button("Take screenshot")) {
+                    int w, h;
+                    if (fullscreen) {
+                        GLFWmonitor* monitor = glfwGetPrimaryMonitor();
+                        const GLFWvidmode* mode = glfwGetVideoMode(monitor);
+                        w = mode->width, h = mode->height;
+                    }
+                    else w = config.screenSize.x, h = config.screenSize.y;
+                    unsigned char* buffer = new unsigned char[4 * w * h];
+                    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+                    glDrawArrays(GL_TRIANGLES, 0, 6);
+                    glReadBuffer(GL_BACK);
+                    glReadPixels(0, 0, w, h, GL_RGBA, GL_UNSIGNED_BYTE, buffer);
+
+                    char const* lFilterPatterns[1] = { "*.png" };
+                    auto t = std::time(nullptr);
+                    auto tm = *std::localtime(&t);
+                    std::ostringstream oss;
+                    oss << std::put_time(&tm, "MV2 %d-%m-%Y %H-%M-%S");
+                    const char* path = tinyfd_saveFileDialog("Save screenshot", oss.str().c_str(), 1, lFilterPatterns, "PNG (*.png)");
+                    if (glfwGetWindowMonitor(window) != nullptr) glfwRestoreWindow(window);
+                    glfwShowWindow(window);
+                    if (path) {
+                        stbi_flip_vertically_on_write(true);
+                        stbi_write_png(path, w, h, 4, buffer, 4 * w);
+                    }
+                    delete[] buffer;
+                }
+                ImGui::SameLine();
+
+                if (ImGui::Button("Create zoom sequence"))
+                    ImGui::OpenPopup("Zoom sequence creator");
+                ImGui::SameLine();
+                if (ImGui::Button("About"))
+                    ImGui::OpenPopup("About Mandelbrot Voyage II");
                 ImGui::SeparatorText("Parameters");
                 bool update = false;
                 ImGui::Text("Re"); ImGui::SetNextItemWidth(270); ImGui::SameLine();
@@ -1056,6 +1073,7 @@ public:
                                     fractals[0].condition = fractals[fractal].condition;
                                     fractals[0].initialz  = fractals[fractal].initialz;
                                     fractals[0].degree = config.degree;
+                                    fractals[0].equation.resize(1024);
                                 } else {
                                     config.degree = fractals[n].degree;
                                     config.continuous_coloring = static_cast<int>(config.continuous_coloring && fractals[n].continuous_compatible);
@@ -1088,7 +1106,22 @@ public:
                         char* modifiedSource = new char[strlen(fragmentSource) + 4096];
                         if (shader) glDeleteShader(shader);
                         shader = glCreateShader(GL_FRAGMENT_SHADER);
-                        sprintf(modifiedSource, fragmentSource, fractals[fractal].equation.data(), 1, fractals[fractal].condition.data(), fractals[fractal].initialz.data(), fractals[fractal].condition.data());
+
+                        auto replace_variables = [&](std::string& str) {
+                            for (int i = 0; i < fractals[fractal].sliders.size(); i++) {
+                                std::string pattern = "\\b";
+                                pattern.append(fractals[fractal].sliders[i].name.c_str());
+                                pattern.append("\\b");
+                                str = std::regex_replace(str, std::regex(pattern), std::format("sliders[{}]", i));
+                            }
+                        };
+
+                        std::string eq = fractals[fractal].equation.data(), cond = fractals[fractal].condition.data(), init = fractals[fractal].initialz.data();
+                        replace_variables(eq);
+                        replace_variables(cond);
+                        replace_variables(init);
+
+                        sprintf(modifiedSource, fragmentSource, eq.data(), 1, cond.data(), init.data(), cond.data());
                         glShaderSource(shader, 1, &modifiedSource, NULL);
                         glCompileShader(shader);
                         glGetShaderiv(shader, GL_COMPILE_STATUS, &success);
@@ -1096,6 +1129,7 @@ public:
                             glGetShaderInfoLog(shader, 512, NULL, infoLog);
                         }
                         else infoLog[0] = '\0';
+                        
                         delete[] modifiedSource;
                     }
                     if (reload) {
@@ -1110,21 +1144,27 @@ public:
                         config.normal_map_effect = false;
                         use_config(config, true, false);
 
-                        glDeleteBuffers(1, &paletteBuffer);
-                        glGenBuffers(1, &paletteBuffer);
+                        glBindBuffer(GL_SHADER_STORAGE_BUFFER, orbitBuffer);
+                        glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, orbitBuffer);
+                        glShaderStorageBlockBinding(shaderProgram, glGetProgramResourceIndex(shaderProgram, GL_SHADER_STORAGE_BLOCK, "orbit"), 0);
+                        glUniform1i(glGetUniformLocation(shaderProgram, "numVertices"), 0);
+
                         glBindBuffer(GL_SHADER_STORAGE_BUFFER, paletteBuffer);
-                        glBufferData(GL_SHADER_STORAGE_BUFFER, max_colors * sizeof(fvec4), paletteData.data(), GL_DYNAMIC_COPY);
-                        glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 2, paletteBuffer);
-                        GLuint block_index = glGetProgramResourceIndex(shaderProgram, GL_SHADER_STORAGE_BLOCK, "spectrum");
-                        GLuint ssbo_binding_point_index = 2;
-                        glShaderStorageBlockBinding(shaderProgram, block_index, ssbo_binding_point_index);
+                        glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, paletteBuffer);
+                        glShaderStorageBlockBinding(shaderProgram, glGetProgramResourceIndex(shaderProgram, GL_SHADER_STORAGE_BLOCK, "spectrum"), 1);
                         glUniform1i(glGetUniformLocation(shaderProgram, "span"), span);
+
+                        glBindBuffer(GL_SHADER_STORAGE_BUFFER, sliderBuffer);
+                        glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 2, sliderBuffer);
+                        glShaderStorageBlockBinding(shaderProgram, glGetProgramResourceIndex(shaderProgram, GL_SHADER_STORAGE_BLOCK, "variables"), 2);
+
                         set_op(MV_COMPUTE, true);
                         reverted = false;
                     }
                     
+                    ImGui::SeparatorText("Sliders");
                     int update = 0;
-                    auto experiment = [&]<typename type>(const char* label, type * ptr, const type def, const float speed, const float min) {
+                    auto slider = [&]<typename type>(const char* label, type* ptr, const type def, const float speed, const float min, const float max) {
                         ImGui::PushID(*reinterpret_cast<const int*>(label));
                         if (ImGui::Button("Round##")) {
                             *ptr = round(*ptr);
@@ -1142,10 +1182,58 @@ public:
                         ImGui::PushItemWidth(90);
                         update |= ImGui::DragFloat(label, ptr, speed, min, min == 0.f ? 0.f : FLT_MAX, "%.5f", ImGuiSliderFlags_NoRoundToFormat);
                         ImGui::PopItemWidth();
-                    };  
-                    experiment("Degree", &config.degree, 2.f, std::max(1e-4f, abs(round(config.degree) - config.degree)) * std::min(pow(1.2, config.degree), 1e+3) / 20.f, 2.f);
+                    };
+                    slider("Degree", &config.degree, 2.f, std::max(1e-4f, abs(round(config.degree) - config.degree)) * std::min(pow(1.2, config.degree), 1e+3) / 20.f, 2.f, FLT_MAX);
+                    if (fractal == 0) {
+                        for (Slider& s : fractals[0].sliders) {
+                            slider(s.name.c_str(), &s.value, 0.f, std::max(1e-4f, abs(s.value) / 20.f), s.min, s.max);
+                        }
+                        if (ImGui::Button("New slider", ImVec2(129, 0))) {
+                            fractals[0].sliders.push_back(Slider());
+                            ImGui::OpenPopup("Create new slider");
+                        }
+                        ImGui::SameLine();
+                        if (ImGui::Button("Reset", ImVec2(129, 0))) {
+                            
+                        }
+
+                        if (ImGui::BeginPopupModal("Create new slider", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+                            Slider& slider = fractals[0].sliders[fractals[0].sliders.size() - 1];
+                            static bool upper_limit, lower_limit;
+                            ImGui::PushItemWidth(154);
+                            ImGui::InputText("Name", slider.name.data(), 16);
+                            ImGui::PushItemWidth(90);
+                            ImGui::Checkbox("Upper limit", &upper_limit);
+                            if (!upper_limit) ImGui::BeginDisabled();
+                            ImGui::SameLine();
+                            ImGui::DragFloat("##max", &slider.max, std::max(1e-4f, slider.max / 20.f), 0.f, 0.f, "%.9g");
+                            if (!upper_limit) ImGui::EndDisabled();
+                            ImGui::Checkbox("Lower limit", &lower_limit);
+                            if (!lower_limit) ImGui::BeginDisabled();
+                            ImGui::SameLine();
+                            ImGui::DragFloat("##min", &slider.min, std::max(1e-4f, slider.min / 20.f), 0.f, 0.f, "%.9g");
+                            if (!lower_limit) ImGui::EndDisabled();
+                            if (ImGui::Button("Create", ImVec2(89, 0))) {
+                                if (!lower_limit) slider.min = 0.f;
+                                if (!upper_limit) slider.max = 0.f;
+                                ImGui::CloseCurrentPopup();
+                            }
+                            ImGui::SameLine();
+                            if (ImGui::Button("Cancel", ImVec2(89, 0))) {
+                                fractals[0].sliders.pop_back();
+                                ImGui::CloseCurrentPopup();
+                            }
+                            ImGui::EndPopup();
+                        }
+                    }
                     if (update) {
                         glUniform1f(glGetUniformLocation(shaderProgram, "degree"), config.degree);
+                        glBindBuffer(GL_SHADER_STORAGE_BUFFER, sliderBuffer);
+                        std::vector<float> values(fractals[fractal].sliders.size());
+                        for (int i = 0; i < values.size(); i++) {
+                            values[i] = fractals[fractal].sliders[i].value;
+                        }
+                        glBufferData(GL_SHADER_STORAGE_BUFFER, values.size() * sizeof(float), values.data(), GL_DYNAMIC_DRAW);
                         set_op(MV_COMPUTE);
                     }
                     
