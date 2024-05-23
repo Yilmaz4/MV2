@@ -1091,10 +1091,10 @@ public:
                     if (fractal == 0) {
                         ImGui::PushItemWidth(265);
                         if (ImGui::InputText("##equation", fractals[0].equation.data(), 1024) || reverted) compile = true;
-                        if (ImGui::InputText("##condition", fractals[0].condition.data(), 1024)) compile = true;
-                        if (ImGui::InputText("##initialz", fractals[0].initialz.data(), 1024)) compile = true;
-                        
                         ImGui::PopItemWidth();
+                        if (ImGui::InputText("Bailout cond.", fractals[0].condition.data(), 1024)) compile = true;
+                        if (ImGui::InputText("Initial Z", fractals[0].initialz.data(), 1024)) compile = true;
+                        
                         ImGui::InputTextMultiline("##errorlist", infoLog, 512, ImVec2(265, 40), ImGuiInputTextFlags_ReadOnly);
                         ImGui::BeginDisabled(!success);
                         if (ImGui::Button("Reload", ImVec2(129, 0.f)) || reverted) reload = true;
@@ -1270,7 +1270,7 @@ public:
                 }
                 ImGui::EndDisabled();
                 ImGui::SameLine();
-                ImGui::BeginDisabled(fractal != 1);
+                ImGui::BeginDisabled(fractal != 1 && fractal != 2);
                 if (ImGui::Checkbox("Normal illum.", reinterpret_cast<bool*>(&config.normal_map_effect))) {
                     glUniform1i(glGetUniformLocation(shaderProgram, "normal_map_effect"), config.normal_map_effect);
                     set_op(MV_COMPUTE);
