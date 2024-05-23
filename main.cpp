@@ -307,6 +307,8 @@ struct Fractal {
 std::vector<Fractal> fractals = {
     Fractal({.name = "Custom"}),
     Fractal({.name = "Mandelbrot", .equation = "cpow(z, degree) + c", .condition = "distance(z, c) > 10", .initialz = "c", .degree = 2.f, .continuous_compatible = true}),
+    Fractal({.name = "Julia Set", .equation = "cpow(z, degree) + dvec2(Re, Im)", .condition = "distance(z, c) > 10", .initialz = "c", .degree = 2.f, .continuous_compatible = true,
+        .sliders = { Slider({.name = "Re", .value = 0.f}), Slider({.name = "Im", .value = 0.f})}}),
     Fractal({.name = "Nova", .equation = "z - cdivide(cpow(z, degree) - dvec2(1, 0), degree * cpow(z, degree - 1)) + c", .condition = "distance(z, prevz) < 10e-5", .initialz = "dvec2(1, 0)", .degree = 3.f, .continuous_compatible = false}),
     Fractal({.name = "Burning ship", .equation = "cpow(dvec2(abs(z.x), abs(z.y)), degree) + c", .condition = "distance(z, c) > 10", .initialz = "c", .degree = 2.f, .continuous_compatible = true}),
     Fractal({.name = "Magnet 1", .equation = "cpow(cdivide(cpow(z, degree) + c - dvec2(1,0), degree * z + c - dvec2(2,0)), degree)", .condition = "distance(z, c) > 30", .initialz="dvec2(0)", .degree = 2.f, .continuous_compatible = true}),
@@ -1070,10 +1072,11 @@ public:
                             if (ImGui::Selectable(fractals[n].name.c_str(), is_selected)) {
                                 if (n == 0) {
                                     fractals[0].equation  = fractals[fractal].equation;
+                                    fractals[0].equation.resize(1024);
                                     fractals[0].condition = fractals[fractal].condition;
                                     fractals[0].initialz  = fractals[fractal].initialz;
-                                    fractals[0].degree = config.degree;
-                                    fractals[0].equation.resize(1024);
+                                    fractals[0].degree    = config.degree;
+                                    fractals[0].sliders   = fractals[fractal].sliders;
                                 } else {
                                     config.degree = fractals[n].degree;
                                     config.continuous_coloring = static_cast<int>(config.continuous_coloring && fractals[n].continuous_compatible);
@@ -1161,7 +1164,7 @@ public:
                         set_op(MV_COMPUTE, true);
                         reverted = false;
                     }
-                    if (fractal == 0) ImGui::SeparatorText("Sliders");
+                    if (fractals[fractal].sliders.size() > 0) ImGui::SeparatorText("Sliders");
                     int update = 0;
                     auto slider = [&]<typename type>(const char* label, type* ptr, const type def, const float speed, const float min, const float max) {
                         ImGui::PushID(*reinterpret_cast<const int*>(label));
@@ -1183,10 +1186,10 @@ public:
                         ImGui::PopItemWidth();
                     };
                     slider("Degree", &config.degree, 2.f, std::max(1e-4f, abs(round(config.degree) - config.degree)) * std::min(pow(1.2, config.degree), 1e+3) / 20.f, 2.f, FLT_MAX);
+                    for (Slider& s : fractals[fractal].sliders) {
+                        slider(s.name.c_str(), &s.value, 0.f, std::max(1e-4f, abs(s.value) / 20.f), s.min, s.max);
+                    }
                     if (fractal == 0) {
-                        for (Slider& s : fractals[0].sliders) {
-                            slider(s.name.c_str(), &s.value, 0.f, std::max(1e-4f, abs(s.value) / 20.f), s.min, s.max);
-                        }
                         if (ImGui::Button("New slider", ImVec2(129, 0))) {
                             fractals[0].sliders.push_back(Slider());
                             ImGui::OpenPopup("Create new slider");
