@@ -365,17 +365,19 @@ class MV2 {
     Config config;
     int fractal = 1;
     ZoomSequenceConfig zsc;
-    int julia_size = 180;
+    int julia_size = 215;
     double julia_zoom = 3;
     double fps_update_interval = 0.03;
     bool juliaset = true;
-    bool orbit = true;
+    bool orbit = false;
     bool cmplxinfo = true;
 
     dvec2 oldPos = { 0, 0 };
     dvec2 lastPresses = { -doubleClick_interval, 0 };
     bool dragging = false;
     bool rightClickHold = false;
+    dvec2 tempOffset;
+    double tempZoom;
 
     dvec2 cmplxCoord;
     int numIterations;
@@ -582,7 +584,7 @@ public:
             state.AddColorMarker(c.w, { c.r, c.g, c.b }, 1.0f);
         }
     }
-
+private:
     static inline char* read_resource(int name) {
         HMODULE handle = GetModuleHandleW(NULL);
         HRSRC rc = FindResourceW(handle, MAKEINTRESOURCE(name), MAKEINTRESOURCE(TEXTFILE));
@@ -689,11 +691,40 @@ public:
                 glfwGetCursorPos(window, &app->oldPos.x, &app->oldPos.y);
             }
             else if (app->lastPresses.y - app->lastPresses.x < doubleClick_interval) {
-                glfwGetCursorPos(window, &app->oldPos.x, &app->oldPos.y);
-                dvec2 pos = pixel_to_complex(app, app->oldPos);
-                dvec2 center = pixel_to_complex(app, static_cast<dvec2>(ss) / 2.0);
-                app->config.offset += pos - center;
-                glUniform2d(glGetUniformLocation(app->shaderProgram, "offset"), app->config.offset.x, app->config.offset.y);
+                auto switch_shader = [&]() {
+                    GLuint shader = NULL;
+                    GLint success = false;
+                    char infoLog[512];
+                    static char* fragmentSource = read_resource(IDR_RNDR);
+                    app->compile_shader(shader, &success, infoLog, fragmentSource);
+                    app->reload_shader(shader);
+                    app->update_shader();
+                    app->set_op(MV_COMPUTE, true);
+                };
+                if (app->rightClickHold && app->fractal == 1 && app->juliaset) {
+                    app->fractal = 2;
+                    double x, y;
+                    glfwGetCursorPos(window, &x, &y);
+                    dvec2 cmplx = app->pixel_to_complex(app, dvec2(x, y));
+                    fractals[2].sliders[0].value = cmplx.x;
+                    fractals[2].sliders[1].value = cmplx.y;
+                    switch_shader();
+                    app->tempOffset = app->config.offset;
+                    app->tempZoom = app->config.zoom;
+                }
+                else if (app->rightClickHold && app->fractal == 2) {
+                    app->fractal = 1;
+                    app->config.offset = app->tempOffset;
+                    app->config.zoom = app->tempZoom;
+                    switch_shader();
+                }
+                else {
+                    glfwGetCursorPos(window, &app->oldPos.x, &app->oldPos.y);
+                    dvec2 pos = pixel_to_complex(app, app->oldPos);
+                    dvec2 center = pixel_to_complex(app, static_cast<dvec2>(ss) / 2.0);
+                    app->config.offset += pos - center;
+                    glUniform2d(glGetUniformLocation(app->shaderProgram, "offset"), app->config.offset.x, app->config.offset.y);
+                }
                 app->dragging = false;
                 app->set_op(MV_COMPUTE);
             }
@@ -823,6 +854,74 @@ public:
         delete[] orbit;
     }
 
+    void compile_shader(GLuint& shader, GLint* success, char* infoLog, char* fragmentSource) const {
+        char* modifiedSource = new char[strlen(fragmentSource) + 4096];
+        if (shader) glDeleteShader(shader);
+        shader = glCreateShader(GL_FRAGMENT_SHADER);
+
+        auto replace_variables = [&](std::string& str) {
+            for (int i = 0; i < fractals[fractal].sliders.size(); i++) {
+                std::string pattern = "\\b";
+                pattern.append(fractals[fractal].sliders[i].name.c_str());
+                pattern.append("\\b");
+                str = std::regex_replace(str, std::regex(pattern), std::format("sliders[{}]", i));
+            }
+        };
+
+        std::string eq = fractals[fractal].equation.data(), cond = fractals[fractal].condition.data(), init = fractals[fractal].initialz.data();
+        replace_variables(eq);
+        replace_variables(cond);
+        replace_variables(init);
+
+        sprintf(modifiedSource, fragmentSource, eq.data(), 1, cond.data(), init.data(), cond.data());
+        glShaderSource(shader, 1, &modifiedSource, NULL);
+        glCompileShader(shader);
+        glGetShaderiv(shader, GL_COMPILE_STATUS, success);
+        if (!success) {
+            glGetShaderInfoLog(shader, 512, NULL, infoLog);
+        }
+        else infoLog[0] = '\0';
+
+        delete[] modifiedSource;
+    }
+
+    void reload_shader(GLuint shader) {
+        glDeleteProgram(shaderProgram);
+        shaderProgram = glCreateProgram();
+        glAttachShader(shaderProgram, vertexShader);
+        glAttachShader(shaderProgram, shader);
+        glLinkProgram(shaderProgram);
+        glDeleteShader(vertexShader);
+        glDeleteShader(shader);
+        glUseProgram(shaderProgram);
+        config.normal_map_effect = false;
+        use_config(config, true, false);
+
+        glBindBuffer(GL_SHADER_STORAGE_BUFFER, orbitBuffer);
+        glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, orbitBuffer);
+        glShaderStorageBlockBinding(shaderProgram, glGetProgramResourceIndex(shaderProgram, GL_SHADER_STORAGE_BLOCK, "orbit"), 0);
+        glUniform1i(glGetUniformLocation(shaderProgram, "numVertices"), 0);
+
+        glBindBuffer(GL_SHADER_STORAGE_BUFFER, paletteBuffer);
+        glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, paletteBuffer);
+        glShaderStorageBlockBinding(shaderProgram, glGetProgramResourceIndex(shaderProgram, GL_SHADER_STORAGE_BLOCK, "spectrum"), 1);
+        glUniform1i(glGetUniformLocation(shaderProgram, "span"), span);
+
+        glBindBuffer(GL_SHADER_STORAGE_BUFFER, sliderBuffer);
+        glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 2, sliderBuffer);
+        glShaderStorageBlockBinding(shaderProgram, glGetProgramResourceIndex(shaderProgram, GL_SHADER_STORAGE_BLOCK, "variables"), 2);
+    }
+
+    void update_shader() const {
+        glUniform1f(glGetUniformLocation(shaderProgram, "degree"), config.degree);
+        glBindBuffer(GL_SHADER_STORAGE_BUFFER, sliderBuffer);
+        std::vector<float> values(fractals[fractal].sliders.size());
+        for (int i = 0; i < values.size(); i++) {
+            values[i] = fractals[fractal].sliders[i].value;
+        }
+        glBufferData(GL_SHADER_STORAGE_BUFFER, values.size() * sizeof(float), values.data(), GL_DYNAMIC_DRAW);
+    }
+public:
     void mainloop() {
         do {
             glfwPollEvents();
@@ -1109,61 +1208,10 @@ public:
                         }
                     }
                     if (compile) {
-                        char* modifiedSource = new char[strlen(fragmentSource) + 4096];
-                        if (shader) glDeleteShader(shader);
-                        shader = glCreateShader(GL_FRAGMENT_SHADER);
-
-                        auto replace_variables = [&](std::string& str) {
-                            for (int i = 0; i < fractals[fractal].sliders.size(); i++) {
-                                std::string pattern = "\\b";
-                                pattern.append(fractals[fractal].sliders[i].name.c_str());
-                                pattern.append("\\b");
-                                str = std::regex_replace(str, std::regex(pattern), std::format("sliders[{}]", i));
-                            }
-                        };
-
-                        std::string eq = fractals[fractal].equation.data(), cond = fractals[fractal].condition.data(), init = fractals[fractal].initialz.data();
-                        replace_variables(eq);
-                        replace_variables(cond);
-                        replace_variables(init);
-
-                        sprintf(modifiedSource, fragmentSource, eq.data(), 1, cond.data(), init.data(), cond.data());
-                        glShaderSource(shader, 1, &modifiedSource, NULL);
-                        glCompileShader(shader);
-                        glGetShaderiv(shader, GL_COMPILE_STATUS, &success);
-                        if (!success) {
-                            glGetShaderInfoLog(shader, 512, NULL, infoLog);
-                        }
-                        else infoLog[0] = '\0';
-                        
-                        delete[] modifiedSource;
+                        compile_shader(shader, &success, infoLog, fragmentSource);
                     }
                     if (reload) {
-                        glDeleteProgram(shaderProgram);
-                        shaderProgram = glCreateProgram();
-                        glAttachShader(shaderProgram, vertexShader);
-                        glAttachShader(shaderProgram, shader);
-                        glLinkProgram(shaderProgram);
-                        glDeleteShader(vertexShader);
-                        glDeleteShader(shader);
-                        glUseProgram(shaderProgram);
-                        config.normal_map_effect = false;
-                        use_config(config, true, false);
-
-                        glBindBuffer(GL_SHADER_STORAGE_BUFFER, orbitBuffer);
-                        glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, orbitBuffer);
-                        glShaderStorageBlockBinding(shaderProgram, glGetProgramResourceIndex(shaderProgram, GL_SHADER_STORAGE_BLOCK, "orbit"), 0);
-                        glUniform1i(glGetUniformLocation(shaderProgram, "numVertices"), 0);
-
-                        glBindBuffer(GL_SHADER_STORAGE_BUFFER, paletteBuffer);
-                        glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, paletteBuffer);
-                        glShaderStorageBlockBinding(shaderProgram, glGetProgramResourceIndex(shaderProgram, GL_SHADER_STORAGE_BLOCK, "spectrum"), 1);
-                        glUniform1i(glGetUniformLocation(shaderProgram, "span"), span);
-
-                        glBindBuffer(GL_SHADER_STORAGE_BUFFER, sliderBuffer);
-                        glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 2, sliderBuffer);
-                        glShaderStorageBlockBinding(shaderProgram, glGetProgramResourceIndex(shaderProgram, GL_SHADER_STORAGE_BLOCK, "variables"), 2);
-
+                        reload_shader(shader);
                         set_op(MV_COMPUTE, true);
                         reverted = false;
                     }
@@ -1233,13 +1281,7 @@ public:
                         }
                     }
                     if (update) {
-                        glUniform1f(glGetUniformLocation(shaderProgram, "degree"), config.degree);
-                        glBindBuffer(GL_SHADER_STORAGE_BUFFER, sliderBuffer);
-                        std::vector<float> values(fractals[fractal].sliders.size());
-                        for (int i = 0; i < values.size(); i++) {
-                            values[i] = fractals[fractal].sliders[i].value;
-                        }
-                        glBufferData(GL_SHADER_STORAGE_BUFFER, values.size() * sizeof(float), values.data(), GL_DYNAMIC_DRAW);
+                        update_shader();
                         set_op(MV_COMPUTE);
                     }
                     
