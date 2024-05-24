@@ -26,6 +26,7 @@
 #include <tinyfiledialogs/tinyfiledialogs.h>
 #include <opencv.hpp>
 #include <chromium/cubic_bezier.h>
+#include <boost/multiprecision/cpp_complex.hpp>
 
 #include <iostream>
 #include <fstream>
@@ -318,7 +319,8 @@ std::vector<Fractal> fractals = {
 };
 
 struct Config {
-    dvec2  offset = { -0.4, 0 };
+    //boost::multiprecision::cpp_complex_100 offset{ -0.4, 0.0 };
+    dvec2  offset = { -0.4, 0.0 };
     ivec2  screenSize = { 840, 590 };
     double zoom = 5.0;
     float  spectrum_offset = 860.f;
@@ -1074,7 +1076,9 @@ public:
                                     fractals[0].equation  = fractals[fractal].equation;
                                     fractals[0].equation.resize(1024);
                                     fractals[0].condition = fractals[fractal].condition;
+                                    fractals[0].condition.resize(1024);
                                     fractals[0].initialz  = fractals[fractal].initialz;
+                                    fractals[0].initialz.resize(1024);
                                     fractals[0].degree    = config.degree;
                                     fractals[0].sliders   = fractals[fractal].sliders;
                                 } else {
@@ -1187,7 +1191,7 @@ public:
                     };
                     slider("Degree", &config.degree, 2.f, std::max(1e-4f, abs(round(config.degree) - config.degree)) * std::min(pow(1.2, config.degree), 1e+3) / 20.f, 2.f, FLT_MAX);
                     for (Slider& s : fractals[fractal].sliders) {
-                        slider(s.name.c_str(), &s.value, 0.f, std::max(1e-4f, abs(s.value) / 20.f), s.min, s.max);
+                        slider(s.name.c_str(), &s.value, 0.f, std::max(1e-4f, abs(s.value) * static_cast<float>(config.zoom) / 40.f), s.min, s.max);
                     }
                     if (fractal == 0) {
                         if (ImGui::Button("New slider", ImVec2(129, 0))) {
@@ -1556,6 +1560,6 @@ public:
 int main() {
     MV2 app;
     app.mainloop();
-    
+
     return 0;
 }
