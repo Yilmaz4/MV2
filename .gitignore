@@ -37,3 +37,5 @@
 /test.png
 /MV2/x64/Release
 /MV2/x64/Debug
+/libs/include/boost/doc
+/libs/include/boost/example
