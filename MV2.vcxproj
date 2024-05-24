@@ -71,7 +71,7 @@
   </ImportGroup>
   <PropertyGroup Label="UserMacros" />
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
-    <IncludePath>imgui;libs\include;libs\include\opencv2</IncludePath>
+    <IncludePath>imgui;libs\include;libs\include\boost;libs\include\opencv2</IncludePath>
     <LibraryPath>libs\lib;$(LibraryPath)</LibraryPath>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
@@ -79,7 +79,7 @@
     <LibraryPath>libs\lib;$(LibraryPath)</LibraryPath>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
-    <IncludePath>imgui;libs\include;libs\include\opencv2</IncludePath>
+    <IncludePath>imgui;libs\include;libs\include\boost;libs\include\opencv2</IncludePath>
     <LibraryPath>libs\lib;$(LibraryPath)</LibraryPath>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
