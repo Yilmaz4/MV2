@@ -307,11 +307,11 @@ struct Fractal {
 
 std::vector<Fractal> fractals = {
     Fractal({.name = "Custom"}),
-    Fractal({.name = "Mandelbrot", .equation = "cpow(z, degree) + c", .condition = "distance(z, c) > 10", .initialz = "c", .degree = 2.f, .continuous_compatible = true}),
-    Fractal({.name = "Julia Set", .equation = "cpow(z, degree) + dvec2(Re, Im)", .condition = "distance(z, c) > 10", .initialz = "c", .degree = 2.f, .continuous_compatible = true,
+    Fractal({.name = "Mandelbrot", .equation = "cpow(z, degree) + c", .condition = "xsq + ysq > 100", .initialz = "c", .degree = 2.f, .continuous_compatible = true}),
+    Fractal({.name = "Julia Set", .equation = "cpow(z, degree) + dvec2(Re, Im)", .condition = "xsq + ysq > 100", .initialz = "c", .degree = 2.f, .continuous_compatible = true,
         .sliders = { Slider({.name = "Re", .value = 0.f}), Slider({.name = "Im", .value = 0.f})}}),
     Fractal({.name = "Nova", .equation = "z - cdivide(cpow(z, degree) - dvec2(1, 0), degree * cpow(z, degree - 1)) + c", .condition = "distance(z, prevz) < 10e-5", .initialz = "dvec2(1, 0)", .degree = 3.f, .continuous_compatible = false}),
-    Fractal({.name = "Burning ship", .equation = "cpow(dvec2(abs(z.x), abs(z.y)), degree) + c", .condition = "distance(z, c) > 10", .initialz = "c", .degree = 2.f, .continuous_compatible = true}),
+    Fractal({.name = "Burning ship", .equation = "cpow(dvec2(abs(z.x), abs(z.y)), degree) + c", .condition = "xsq + ysq > 100", .initialz = "c", .degree = 2.f, .continuous_compatible = true}),
     Fractal({.name = "Magnet 1", .equation = "cpow(cdivide(cpow(z, degree) + c - dvec2(1,0), degree * z + c - dvec2(2,0)), degree)", .condition = "distance(z, c) > 30", .initialz="dvec2(0)", .degree = 2.f, .continuous_compatible = true}),
     Fractal({.name = "Magnet 2", .equation = "cpow(cdivide(cpow(z, degree + 1) + 3 * cmultiply(c - dvec2(1, 0), z) + cmultiply(c - dvec2(1, 0), c - dvec2(2, 0)),\
         3 * cpow(z, degree) + 3 * cmultiply(c - dvec2(2, 0), z) + cmultiply(c - dvec2(1, 0), c - dvec2(2, 0)) + dvec2(1,0)), degree)", .condition = "distance(z, c) > 30", .initialz = "dvec2(0)", .degree = 2.f, .continuous_compatible = true}),
@@ -792,12 +792,11 @@ public:
         float* orbit = new float[800];
       
         int factor = (config.ssaa ? config.ssaa_factor : 1);
-        glActiveTexture(GL_TEXTURE0);
-        glBindTexture(GL_TEXTURE_2D, mandelbrotTexBuffer);
-        GLubyte texel[16];
+        float texel[4];
+        glBindFramebuffer(GL_FRAMEBUFFER, mandelbrotFrameBuffer);
         glReadBuffer(GL_FRONT);
-        glReadPixels(x, y, 1, 1, GL_RGBA, GL_UNSIGNED_BYTE, texel);
-        numIterations = static_cast<int>(reinterpret_cast<float*>(texel)[1]);
+        glReadPixels(factor * x, (ss.y - y) * factor, 1, 1, GL_RGBA, GL_FLOAT, texel);
+        numIterations = static_cast<int>(texel[1]);
 
         for (int i = 1; i < 400; i++) {
             *reinterpret_cast<vec2*>(orbit + (i - 1) * 2) = static_cast<vec2>(complex_to_pixel(z, ss, config.zoom, config.offset));
@@ -1189,9 +1188,10 @@ public:
                         update |= ImGui::DragFloat(label, ptr, speed, min, max, "%.5f", ImGuiSliderFlags_NoRoundToFormat);
                         ImGui::PopItemWidth();
                     };
-                    slider("Degree", &config.degree, 2.f, std::max(1e-4f, abs(round(config.degree) - config.degree)) * std::min(pow(1.2, config.degree), 1e+3) / 20.f, 2.f, FLT_MAX);
+                    float mouseSpeed = cbrt(pow(ImGui::GetIO().MouseDelta.x, 2) + pow(ImGui::GetIO().MouseDelta.y, 2));
+                    slider("Degree", &config.degree, 2.f, std::max(1e-4f, abs(round(config.degree) - config.degree)) * mouseSpeed * std::min(pow(1.2, config.degree), 1e+3) / 40.f, 2.f, FLT_MAX);
                     for (Slider& s : fractals[fractal].sliders) {
-                        slider(s.name.c_str(), &s.value, 0.f, std::max(1e-4f, abs(s.value) * static_cast<float>(config.zoom) / 40.f), s.min, s.max);
+                        slider(s.name.c_str(), &s.value, 0.f, std::max(1e-4f, abs(s.value) * mouseSpeed / 40.f), s.min, s.max);
                     }
                     if (fractal == 0) {
                         if (ImGui::Button("New slider", ImVec2(129, 0))) {
@@ -1463,7 +1463,7 @@ public:
                     ImGui::SetWindowPos(pos);
                 }
                 if (cmplxinfo) {
-                    if (true) ImGui::Text("Re: %.17g\nIm: %.17g\nIterations before bailout: %d", cmplxCoord.x, cmplxCoord.y, numIterations);
+                    if (numIterations >= 0) ImGui::Text("Re: %.17g\nIm: %.17g\nIterations before bailout: %d", cmplxCoord.x, cmplxCoord.y, numIterations);
                     else ImGui::Text("Re: %.17g\nIm: %.17g\nPoint is in set", cmplxCoord.x, cmplxCoord.y);
                 }
                 if (juliaset) {
