@@ -333,6 +333,7 @@ struct Config {
     fvec3 set_color = { 0.f, 0.f, 0.f };
     bool   ssaa = true;
     int    ssaa_factor = 2;
+    int    transfer_function = 0;
     // experimental
     float  degree = 2.f;
     // normal mapping
@@ -618,6 +619,7 @@ private:
             glUniform1d(glGetUniformLocation(shaderProgram, "julia_zoom"), julia_zoom);
             glUniform1i(glGetUniformLocation(shaderProgram, "julia_maxiters"), max_iters(julia_zoom, zoom_co, config.iter_co, 3.0));
             glUniform1i(glGetUniformLocation(shaderProgram, "blur"), (config.ssaa ? config.ssaa_factor : 1));
+            glUniform1i(glGetUniformLocation(shaderProgram, "transfer_function"), config.transfer_function);
 
             glUniform1f(glGetUniformLocation(shaderProgram, "degree"), config.degree);
 
@@ -1156,12 +1158,10 @@ public:
 
                 ImGui::BeginGroup();
                 ImGui::SeparatorText("Computation");
-                ImGui::BeginDisabled(config.auto_adjust_iter);
                 if (ImGui::DragInt("Maximum iterations", &config.max_iters, abs(config.max_iters) / 20.f, 10, INT_MAX, "%d", ImGuiSliderFlags_AlwaysClamp)) {
                     glUniform1i(glGetUniformLocation(shaderProgram, "max_iters"), config.max_iters);
                     set_op(MV_COMPUTE);
                 }
-                if (config.auto_adjust_iter) ImGui::EndDisabled();
                 if (ImGui::Checkbox("Adjust automatically", &config.auto_adjust_iter) || config.auto_adjust_iter && ImGui::SliderFloat("Iteration coeff.", &config.iter_co, 1.01, 1.1)) {
                     config.max_iters = max_iters(config.zoom, zoom_co, config.iter_co);
                     glUniform1i(glGetUniformLocation(shaderProgram, "max_iters"), config.max_iters);
@@ -1349,7 +1349,22 @@ public:
                 ImGui::SeparatorText("Coloring");
                 if (ImGui::BeginTabBar("MyTabBar")) {
                     if (ImGui::BeginTabItem("Outside")) {
-                        if (ImGui::SliderFloat("Multiplier", &config.iter_multiplier, 1, 128, "x%.4g", ImGuiSliderFlags_Logarithmic | ImGuiSliderFlags_NoRoundToFormat)) {
+                        std::vector<std::string> functions = { "Linear", "Square root", "Cubic root", "Logarithmic" };
+                        const char* preview = functions[config.transfer_function].c_str();
+
+                        if (ImGui::BeginCombo("Transfer function", preview)) {
+                            for (int n = 0; n < functions.size(); n++) {
+                                const bool is_selected = (config.transfer_function == n);
+                                if (ImGui::Selectable(functions[n].c_str(), is_selected)) {
+                                    config.transfer_function = n;
+                                    glUniform1i(glGetUniformLocation(shaderProgram, "transfer_function"), config.transfer_function);
+                                    set_op(MV_POSTPROC);
+                                }
+                                if (is_selected) ImGui::SetItemDefaultFocus();
+                            }
+                            ImGui::EndCombo();
+                        }
+                        if (ImGui::SliderFloat("Density", &config.iter_multiplier, 1, 256, "x%.4g", ImGuiSliderFlags_Logarithmic | ImGuiSliderFlags_NoRoundToFormat)) {
                             glUniform1f(glGetUniformLocation(shaderProgram, "iter_multiplier"), config.iter_multiplier);
                             set_op(MV_POSTPROC);
                         }

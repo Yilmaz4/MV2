@@ -25,6 +25,7 @@ uniform dvec2  mouseCoord; // position in the complex plane
 uniform double julia_zoom;
 uniform int    julia_maxiters;
 uniform int    blur;
+uniform int    transfer_function;
 //normal mapping (https://www.math.univ-toulouse.fr/~cheritat/wiki-draw/index.php/Mandelbrot_set#Normal_map_effect)
 uniform float  height;
 uniform float  angle;
@@ -307,7 +308,18 @@ mat3 weight = mat3(
 
 vec3 color(float i) {
     if (i < 0.f) return set_color;
-    i = mod(i + spectrum_offset, span) / span;
+    switch (transfer_function) {
+    case 1:
+        i = sqrt(i);
+        break;
+    case 2:
+        i = pow(i, 1.f/3.f);
+        break;
+    case 3:
+        i = log(i);
+        break;
+    }
+    i = mod(i * iter_multiplier + spectrum_offset, span) / span;
     for (int v = 0; v < spec.length(); v++) {
         if (spec[v].w >= i) {
             vec4 v2 = spec[v];
@@ -357,7 +369,7 @@ void main() {
                     t = float(u.x * nv.x + u.y * nv.y + height) / (1.f + height);
                     if (t < 0) t = 0;
                 }
-                fragColor = vec4(mix(vec3(0.f), vec3(color(iter_multiplier * (continuous_coloring == 1 ? i + 1 - log2(log2(float(length(z)))) / log2(degree) : i))), normal_map_effect == 1 ? pow(t, 1.f / 1.8f) : 1.f), 1.f);
+                fragColor = vec4(mix(vec3(0.f), vec3(color((continuous_coloring == 1 ? i + 1 - log2(log2(float(length(z)))) / log2(degree) : i))), normal_map_effect == 1 ? pow(t, 1.f / 1.8f) : 1.f), 1.f);
                 return;
             }
             if (normal_map_effect == 1)
@@ -414,14 +426,14 @@ void main() {
     if (op == 2) {
         vec4 data = texture(mandelbrotTex, vec2(gl_FragCoord.x / screenSize.x, gl_FragCoord.y / screenSize.y));
         if (blur == 1) {
-            fragColor = vec4(mix(vec3(0.f), color(data.x * iter_multiplier), normal_map_effect == 1 ? pow(data.z, 1.f / 1.8f) : 1.f), 1.f);
+            fragColor = vec4(mix(vec3(0.f), color(data.x), normal_map_effect == 1 ? pow(data.z, 1.f / 1.8f) : 1.f), 1.f);
             return;
         }
         vec3 blurredColor = vec3(0.0);
         for (int i = -1; i <= 1; i++) {
             for (int j = -1; j <= 1; j++) {
                 vec4 d = texture(mandelbrotTex, vec2((gl_FragCoord.x + float(i)) / screenSize.x, (gl_FragCoord.y + float(j)) / screenSize.y));
-                vec3 s = color(d.x * iter_multiplier);
+                vec3 s = color(d.x);
                 blurredColor += mix(vec3(0.f), s, normal_map_effect == 1 ? pow(data.z, 1.f / 1.8f) : 1.f) * weight[i + 1][j + 1];
             }
         }
