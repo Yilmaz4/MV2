@@ -325,6 +325,8 @@ struct Config {
     double zoom = 5.0;
     float  spectrum_offset = 860.f;
     float  iter_multiplier = 12.f;
+    bool   auto_adjust_iter = true;
+    int    max_iters = 100;
     float  iter_co = 1.045f;
     int    continuous_coloring = 1;
     int    normal_map_effect = 1;
@@ -604,15 +606,17 @@ private:
             glUniform2d(glGetUniformLocation(shaderProgram, "offset"), config.offset.x, config.offset.y);
             glUniform1f(glGetUniformLocation(shaderProgram, "iter_multiplier"), config.iter_multiplier);
             glUniform1d(glGetUniformLocation(shaderProgram, "zoom"), config.zoom);
-            glUniform1i(glGetUniformLocation(shaderProgram, "max_iters"),
-                max_iters(config.zoom, zoom_co, config.iter_co));
+            if (!config.auto_adjust_iter) {
+                glUniform1i(glGetUniformLocation(shaderProgram, "max_iters"), config.max_iters);
+            } else {
+                glUniform1i(glGetUniformLocation(shaderProgram, "max_iters"), max_iters(config.zoom, zoom_co, config.iter_co));
+            }
             glUniform1f(glGetUniformLocation(shaderProgram, "spectrum_offset"), config.spectrum_offset);
             glUniform1i(glGetUniformLocation(shaderProgram, "continuous_coloring"), config.continuous_coloring);
             glUniform1i(glGetUniformLocation(shaderProgram, "normal_map_effect"), config.normal_map_effect);
             glUniform3f(glGetUniformLocation(shaderProgram, "set_color"), config.set_color.x, config.set_color.y, config.set_color.z);
             glUniform1d(glGetUniformLocation(shaderProgram, "julia_zoom"), julia_zoom);
-            glUniform1i(glGetUniformLocation(shaderProgram, "julia_maxiters"),
-                max_iters(julia_zoom, zoom_co, config.iter_co, 3.0));
+            glUniform1i(glGetUniformLocation(shaderProgram, "julia_maxiters"), max_iters(julia_zoom, zoom_co, config.iter_co, 3.0));
             glUniform1i(glGetUniformLocation(shaderProgram, "blur"), (config.ssaa ? config.ssaa_factor : 1));
 
             glUniform1f(glGetUniformLocation(shaderProgram, "degree"), config.degree);
@@ -772,8 +776,7 @@ private:
         if (app->rightClickHold) {
             app->julia_zoom *= pow(zoom_co, y * 1.5);
             glUniform1d(glGetUniformLocation(app->shaderProgram, "julia_zoom"), app->julia_zoom);
-            glUniform1i(glGetUniformLocation(app->shaderProgram, "julia_maxiters"),
-                max_iters(app->julia_zoom, zoom_co, app->config.iter_co, 3.0));
+            glUniform1i(glGetUniformLocation(app->shaderProgram, "julia_maxiters"), max_iters(app->julia_zoom, zoom_co, app->config.iter_co, 3.0));
             int factor = (app->config.ssaa ? app->config.ssaa_factor : 1);
             glBindFramebuffer(GL_FRAMEBUFFER, app->juliaFrameBuffer);
             glViewport(0, 0, app->julia_size * factor, app->julia_size * factor);
@@ -784,8 +787,10 @@ private:
         else if (!ImGui::GetIO().WantCaptureMouse) {
             app->config.zoom *= pow(zoom_co, y * 1.5);
             glUniform1d(glGetUniformLocation(app->shaderProgram, "zoom"), app->config.zoom);
-            glUniform1i(glGetUniformLocation(app->shaderProgram, "max_iters"),
-                max_iters(app->config.zoom, zoom_co, app->config.iter_co));
+            if (app->config.auto_adjust_iter) {
+                app->config.max_iters = max_iters(app->config.zoom, zoom_co, app->config.iter_co);
+                glUniform1i(glGetUniformLocation(app->shaderProgram, "max_iters"), app->config.max_iters);
+            }
             app->set_op(MV_COMPUTE);
         }
     }
@@ -1005,8 +1010,9 @@ public:
                         use_config(zsc.tcfg, true, true);
                         ImGui::BeginDisabled();
                     }
-                    if ((strlen(zsc.path) == 0 && !recording) || recording) ImGui::EndDisabled();
-                    else if (recording && ImGui::Button(paused ? "Resume" : "Pause", ImVec2(100, 0))) {
+                    if ((strlen(zsc.path) == 0 && !recording) || recording)
+                        ImGui::EndDisabled();
+                    if (recording && ImGui::Button(paused ? "Resume" : "Pause", ImVec2(100, 0))) {
                         paused ^= 1;
                     }
                     ImGui::SameLine();
@@ -1150,9 +1156,15 @@ public:
 
                 ImGui::BeginGroup();
                 ImGui::SeparatorText("Computation");
-                if (ImGui::SliderFloat("Iteration coeff.", &config.iter_co, 1.01, 1.1)) {
-                    glUniform1i(glGetUniformLocation(shaderProgram, "max_iters"),
-                        max_iters(config.zoom, zoom_co, config.iter_co));
+                ImGui::BeginDisabled(config.auto_adjust_iter);
+                if (ImGui::DragInt("Maximum iterations", &config.max_iters, abs(config.max_iters) / 20.f, 10, INT_MAX, "%d", ImGuiSliderFlags_AlwaysClamp)) {
+                    glUniform1i(glGetUniformLocation(shaderProgram, "max_iters"), config.max_iters);
+                    set_op(MV_COMPUTE);
+                }
+                if (config.auto_adjust_iter) ImGui::EndDisabled();
+                if (ImGui::Checkbox("Adjust automatically", &config.auto_adjust_iter) || config.auto_adjust_iter && ImGui::SliderFloat("Iteration coeff.", &config.iter_co, 1.01, 1.1)) {
+                    config.max_iters = max_iters(config.zoom, zoom_co, config.iter_co);
+                    glUniform1i(glGetUniformLocation(shaderProgram, "max_iters"), config.max_iters);
                     set_op(MV_COMPUTE);
                 }
                 if (ImGui::TreeNode("Equation")) {
@@ -1540,8 +1552,9 @@ public:
                 glDrawArrays(GL_TRIANGLES, 0, 6);
                 [[fallthrough]];
             case MV_RENDER:
-                glBindTexture(GL_TEXTURE_2D, postprocTexBuffer);
+                
                 if (recording) {
+                    glBindTexture(GL_TEXTURE_2D, postprocTexBuffer);
                     glBindFramebuffer(GL_FRAMEBUFFER, finalFrameBuffer);
                     glUniform1i(glGetUniformLocation(shaderProgram, "op"), MV_RENDER);
                     glViewport(0, 0, zsc.tcfg.screenSize.x, zsc.tcfg.screenSize.y);
@@ -1555,6 +1568,7 @@ public:
                     glUniform2i(glGetUniformLocation(shaderProgram, "screenSize"), ss.x, ss.y);
                     glDrawArrays(GL_TRIANGLES, 0, 6);
                 } else {
+                    glBindTexture(GL_TEXTURE_2D, finalTexBuffer);
                     glBindFramebuffer(GL_FRAMEBUFFER, NULL);
                     glUniform1i(glGetUniformLocation(shaderProgram, "op"), MV_RENDER);
                     glViewport(0, 0, ss.x, ss.y);
