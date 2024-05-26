@@ -328,8 +328,8 @@ struct Config {
     bool   auto_adjust_iter = true;
     int    max_iters = 100;
     float  iter_co = 1.045f;
-    int    continuous_coloring = 1;
-    int    normal_map_effect = 1;
+    bool   continuous_coloring = true;
+    bool   normal_map_effect = false;
     fvec3 set_color = { 0.f, 0.f, 0.f };
     bool   ssaa = true;
     int    ssaa_factor = 2;
@@ -1329,7 +1329,7 @@ public:
                 ImGui::EndDisabled();
                 ImGui::SameLine();
                 ImGui::BeginDisabled(fractal != 1 && fractal != 2);
-                if (ImGui::Checkbox("Normal illum.", reinterpret_cast<bool*>(&config.normal_map_effect))) {
+                if (ImGui::Checkbox("Normal illum.", &config.normal_map_effect)) {
                     glUniform1i(glGetUniformLocation(shaderProgram, "normal_map_effect"), config.normal_map_effect);
                     set_op(MV_COMPUTE);
                 }
@@ -1364,7 +1364,7 @@ public:
                             }
                             ImGui::EndCombo();
                         }
-                        if (ImGui::SliderFloat("Density", &config.iter_multiplier, 1, 256, "x%.4g", ImGuiSliderFlags_Logarithmic | ImGuiSliderFlags_NoRoundToFormat)) {
+                        if (ImGui::SliderFloat("Multiplier", &config.iter_multiplier, 1, 256, "x%.4g", ImGuiSliderFlags_Logarithmic | ImGuiSliderFlags_NoRoundToFormat)) {
                             glUniform1f(glGetUniformLocation(shaderProgram, "iter_multiplier"), config.iter_multiplier);
                             set_op(MV_POSTPROC);
                         }
@@ -1532,8 +1532,9 @@ public:
                     ImGui::SetWindowPos(pos);
                 }
                 if (cmplxinfo) {
-                    if (numIterations >= 0) ImGui::Text("Re: %.17g\nIm: %.17g\nIterations before bailout: %d", cmplxCoord.x, cmplxCoord.y, numIterations);
-                    else ImGui::Text("Re: %.17g\nIm: %.17g\nPoint is in set", cmplxCoord.x, cmplxCoord.y);
+                    if (numIterations > 0) ImGui::Text("Re: %.17g\nIm: %.17g\nIterations before bailout: %d", cmplxCoord.x, cmplxCoord.y, numIterations);
+                    else if (numIterations == -1) ImGui::Text("Re: %.17g\nIm: %.17g\nPoint is in set", cmplxCoord.x, cmplxCoord.y);
+                    else ImGui::Text("Re: %.17g\nIm: %.17g\nPoint out of bounds", cmplxCoord.x, cmplxCoord.y);
                 }
                 if (juliaset) {
                     if (cmplxinfo) ImGui::SeparatorText("Julia Set");
