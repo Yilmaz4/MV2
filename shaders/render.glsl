@@ -351,7 +351,7 @@ bool is_experimental() {
 void main() {
     dvec2 nv = cexp(dvec2(0.f, angle * 2.f * M_PI / 360.f));
     if (op == 4) {
-        dvec2 c = dvec2(julia_zoom, julia_zoom) * (dvec2(gl_FragCoord.x / screenSize.x, (screenSize.y - gl_FragCoord.y) / screenSize.y) - dvec2(0.5, 0.5));
+        dvec2 c = dvec2(julia_zoom, julia_zoom) * (dvec2(gl_FragCoord.x / screenSize.x, gl_FragCoord.y / screenSize.y) - dvec2(0.5, 0.5));
         dvec2 z = c;
         dvec2 prevz = z;
 
