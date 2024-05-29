@@ -828,6 +828,7 @@ private:
             glUniform2i(glGetUniformLocation(app->shaderProgram, "screenSize"), app->julia_size * factor, app->julia_size * factor);
             glUniform1i(glGetUniformLocation(app->shaderProgram, "op"), 4);
             if (app->juliaset) glDrawArrays(GL_TRIANGLES, 0, 6);
+            app->refresh_rightclick();
         }
         else if (!ImGui::GetIO().WantCaptureMouse) {
             app->config.zoom *= pow(zoom_co, y * 1.5);
