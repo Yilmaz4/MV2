@@ -320,7 +320,7 @@ vec3 color(float i) {
     }
     i = mod(i * iter_multiplier + spectrum_offset, span) / span;
     for (int v = 0; v < spec.length(); v++) {
-        if (spec[v].w >= i) {
+        if (spec[v].w > i) {
             vec4 v2 = spec[v];
             vec4 v1;
             if (v > 0.f) v1 = spec[v - 1];
@@ -329,7 +329,7 @@ vec3 color(float i) {
             return v1.rgb + (dv.rgb * (i - v1.w)) / dv.w;
         }
     }
-    return vec3(i, i, i);
+    return vec3(0.f);
 }
 
 dvec2 advance(dvec2 z, dvec2 c, dvec2 prevz, double xsq, double ysq) {
