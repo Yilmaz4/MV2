@@ -47,6 +47,11 @@ layout(std430, binding = 2) readonly buffer variables {
     float sliders[];
 };
 
+layout(std430, binding = 3) readonly buffer kernel {
+    float weights[];
+};
+uniform int radius;
+
 layout(binding = 0) uniform sampler2D mandelbrotTex;
 layout(binding = 1) uniform sampler2D postprocTex;
 layout(binding = 2) uniform sampler2D finalTex;
@@ -300,12 +305,6 @@ dvec2 ccos(dvec2 z) {
     return dvec2(cos(c.x) * cosh(c.y), -sin(c.x) * sinh(c.y));
 }
 
-mat3 weight = mat3(
-    0.0751136, 0.123841, 0.0751136,
-    0.1238410, 0.204180, 0.1238410,
-    0.0751136, 0.123841, 0.0751136
-);
-
 vec3 color(float i) {
     if (i < 0.f) return set_color;
     switch (transfer_function) {
@@ -430,11 +429,12 @@ void main() {
             return;
         }
         vec3 blurredColor = vec3(0.0);
-        for (int i = -1; i <= 1; i++) {
-            for (int j = -1; j <= 1; j++) {
-                vec4 d = texture(mandelbrotTex, vec2((gl_FragCoord.x + float(i)) / screenSize.x, (gl_FragCoord.y + float(j)) / screenSize.y));
+        int kernelSize = 2 * radius + 1;
+        for (int i = -radius; i <= radius; i++) {
+            for (int j = -radius; j <= radius; j++) {
+                vec4 d = texture(mandelbrotTex, (gl_FragCoord.xy + vec2(i, j)) / screenSize);
                 vec3 s = color(d.x);
-                blurredColor += mix(vec3(0.f), s, normal_map_effect == 1 ? pow(data.z, 1.f / 1.8f) : 1.f) * weight[i + 1][j + 1];
+                blurredColor += s * weights[(i + radius) * kernelSize + (j + radius)];
             }
         }
         fragColor = vec4(blurredColor, 1.f);

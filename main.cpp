@@ -331,7 +331,7 @@ struct Config {
     bool   normal_map_effect = false;
     fvec3 set_color = { 0.f, 0.f, 0.f };
     bool   ssaa = true;
-    int    ssaa_factor = 2;
+    int    ssaa_factor = 4;
     int    transfer_function = 0;
     // experimental
     float  degree = 2.f;
@@ -344,6 +344,7 @@ struct ZoomSequenceConfig {
     Config tcfg;
     int fps = 30;
     int duration = 30;
+    int direction = 0;
     char path[256]{};
 };
 
@@ -405,6 +406,7 @@ class MV2 {
     GLuint paletteBuffer = NULL;
     GLuint orbitBuffer = NULL;
     GLuint sliderBuffer = NULL;
+    GLuint kernelBuffer = NULL;
 
     int32_t stateID = 10;
     ImGradientHDRState state;
@@ -580,6 +582,12 @@ public:
         glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 2, sliderBuffer);
         glShaderStorageBlockBinding(shaderProgram, glGetProgramResourceIndex(shaderProgram, GL_SHADER_STORAGE_BLOCK, "variables"), 2);
 
+        glGenBuffers(1, &kernelBuffer);
+        glBindBuffer(GL_SHADER_STORAGE_BUFFER, kernelBuffer);
+        glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 3, kernelBuffer);
+        glShaderStorageBlockBinding(shaderProgram, glGetProgramResourceIndex(shaderProgram, GL_SHADER_STORAGE_BLOCK, "kernel"), 3);
+        upload_kernel(config.ssaa_factor);
+
         use_config(config, true, false);
         on_windowResize(window, config.screenSize.x, config.screenSize.y);
 
@@ -663,6 +671,37 @@ private:
     }
     static int max_iters(double zoom, double zoom_co, double iter_co, double initial_zoom = 5.0) {
         return 100 * std::max(1.0, pow(iter_co, log2(zoom / initial_zoom) / log2(zoom_co)));
+    }
+
+    // https://stackoverflow.com/a/8204886/15514474
+    static std::vector<float> generate_kernel(int radius) {  
+        auto gaussian = [](float x, float mu, float sigma) -> float {
+            const float a = (x - mu) / sigma;
+            return std::exp(-0.5 * a * a);
+        };
+        const float sigma = radius / 2.f;
+        int rowLength = 2 * radius + 1;
+        std::vector<float> kernel(rowLength * rowLength);
+        float sum = 0;
+        for (uint64_t row = 0; row < rowLength; row++) {
+            for (uint64_t col = 0; col < rowLength; col++) {
+                float x = gaussian(row, radius, sigma) * gaussian(col, radius, sigma);
+                kernel[row * rowLength + col] = x;
+                sum += x;
+            }
+        }
+        for (uint64_t row = 0; row < rowLength; row++) {
+            for (uint64_t col = 0; col < rowLength; col++) {
+                kernel[row * rowLength + col] /= sum;
+            }
+        }
+        return kernel;
+    }
+    void upload_kernel(int radius) {
+        std::vector<float> kernel = generate_kernel(radius);
+        glBindBuffer(GL_SHADER_STORAGE_BUFFER, kernelBuffer);
+        glBufferData(GL_SHADER_STORAGE_BUFFER, kernel.size() * sizeof(float), kernel.data(), GL_STATIC_DRAW);
+        glUniform1i(glGetUniformLocation(shaderProgram, "radius"), radius);
     }
 
     static void on_windowResize(GLFWwindow* window, int width, int height) {
@@ -921,6 +960,11 @@ private:
         glBindBuffer(GL_SHADER_STORAGE_BUFFER, sliderBuffer);
         glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 2, sliderBuffer);
         glShaderStorageBlockBinding(shaderProgram, glGetProgramResourceIndex(shaderProgram, GL_SHADER_STORAGE_BLOCK, "variables"), 2);
+
+        glBindBuffer(GL_SHADER_STORAGE_BUFFER, kernelBuffer);
+        glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 3, kernelBuffer);
+        glShaderStorageBlockBinding(shaderProgram, glGetProgramResourceIndex(shaderProgram, GL_SHADER_STORAGE_BLOCK, "kernel"), 3);
+        glUniform1i(glGetUniformLocation(shaderProgram, "radius"), 2);
     }
 
     void update_shader() const {
@@ -952,7 +996,6 @@ public:
                 ImGuiWindowFlags_NoMove
             )) {
                 if (ImGui::BeginPopupModal("Zoom sequence creator", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
-                    zsc.tcfg = config;
                     if (recording) ImGui::BeginDisabled();
                     if (ImGui::Button("Browse...")) {
                         char const* lFilterPatterns[1] = { "*.avi" };
@@ -1001,6 +1044,21 @@ public:
                         }
                         ImGui::EndCombo();
                     }
+                    const char* dirs[] = { "Zoom in", "Zoom out" };
+                    preview = dirs[zsc.direction];
+
+                    if (ImGui::BeginCombo("Direction", preview.c_str())) {
+                        for (int i = 0; i < 2; i++) {
+                            const bool is_selected = (zsc.direction == i);
+                            if (ImGui::Selectable(dirs[i], is_selected)) {
+                                zsc.direction = i;
+                            }
+                            if (is_selected) ImGui::SetItemDefaultFocus();
+                        }
+                        ImGui::EndCombo();
+                    }
+                    ImGui::SameLine();
+                    ImGui::Checkbox("SSAA", &zsc.tcfg.ssaa);
                     ImGui::PopItemWidth();
 
                     if (strlen(zsc.path) == 0 && !recording) ImGui::BeginDisabled();
@@ -1090,8 +1148,10 @@ public:
                 }
                 ImGui::SameLine();
 
-                if (ImGui::Button("Create zoom sequence"))
+                if (ImGui::Button("Create zoom sequence")) {
+                    zsc.tcfg = config;
                     ImGui::OpenPopup("Zoom sequence creator");
+                }
                 ImGui::SameLine();
                 if (ImGui::Button("About"))
                     ImGui::OpenPopup("About Mandelbrot Voyage II");
@@ -1600,10 +1660,12 @@ public:
                 unsigned char* buffer = new unsigned char[4 * w * h];
                 glGetTexImage(GL_TEXTURE_2D, 0, GL_RGB, GL_UNSIGNED_BYTE, buffer);
 
-                cv::Mat frame(cv::Size(w, h), CV_8UC3, buffer);
-                cv::cvtColor(frame, frame, cv::COLOR_RGB2BGR);
-                cv::flip(frame, frame, 0);
-                writer.write(frame);
+                if (progress > 0) {
+                    cv::Mat frame(cv::Size(w, h), CV_8UC3, buffer);
+                    cv::cvtColor(frame, frame, cv::COLOR_RGB2BGR);
+                    cv::flip(frame, frame, 0);
+                    writer.write(frame);
+                }
                 progress++;
                 if (zsc.fps * zsc.duration == progress) {
                     use_config(config);
@@ -1612,10 +1674,11 @@ public:
                     glfwSwapInterval(1);
                 } else {
                     int framecount = (zsc.fps * zsc.duration);
-                    //double x = static_cast<double>(progress) / framecount;
-                    //double z = 2 * pow(x, 3) - 3 * pow(x, 2) + 1.f;
+                    double x = static_cast<double>(progress) / framecount;
+                    double z = 3 * pow(x, 2) - 2 * pow(x, 3);
+                    if (zsc.direction == 1) z = -z + 1;
                     double coeff = pow(config.zoom / 5.0, 1.0 / framecount);
-                    zsc.tcfg.zoom = 8.0 * pow(coeff, progress);
+                    zsc.tcfg.zoom = 8.0 * pow(coeff, z * framecount);
                     glUniform1i(glGetUniformLocation(shaderProgram, "max_iters"),
                         max_iters(zsc.tcfg.zoom, zoom_co, config.iter_co));
                     glUniform1d(glGetUniformLocation(shaderProgram, "zoom"), zsc.tcfg.zoom);
