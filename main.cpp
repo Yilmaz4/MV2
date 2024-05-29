@@ -40,10 +40,9 @@
 #include <algorithm>
 #include <regex>
 
-#define MV_COMPUTE  3
-#define MV_POSTPROC 2
-#define MV_RENDER   1
-#define MV_DISPLAY  0
+#define MV_COMPUTE  2
+#define MV_POSTPROC 1
+#define MV_RENDER   0
 
 float vertices[] = {
     -1.0f, -1.0f,
@@ -475,6 +474,7 @@ public:
             config.screenSize.y * factor, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+        
 
         glGenTextures(1, &postprocTexBuffer);
         glActiveTexture(GL_TEXTURE1);
@@ -667,6 +667,10 @@ private:
 
     static void on_windowResize(GLFWwindow* window, int width, int height) {
         MV2* app = static_cast<MV2*>(glfwGetWindowUserPointer(window));
+        if (app->config.screenSize.x == width && app->config.screenSize.y == height && app->fullscreen) {
+            app->set_op(MV_RENDER);
+            return;
+        }
         glViewport(0, 0, width, height);
 
         if (!app->fullscreen) app->config.screenSize = { width, height };
@@ -850,7 +854,7 @@ private:
         }
         glViewport(0, 0, julia_size * factor, julia_size * factor);
         glBindFramebuffer(GL_FRAMEBUFFER, juliaFrameBuffer);
-        glUniform1i(glGetUniformLocation(shaderProgram, "op"), 4);
+        glUniform1i(glGetUniformLocation(shaderProgram, "op"), 3);
         glUniform2d(glGetUniformLocation(shaderProgram, "mouseCoord"), cmplxCoord.x, cmplxCoord.y);
         glUniform2i(glGetUniformLocation(shaderProgram, "screenSize"), julia_size * factor, julia_size * factor);
         if (juliaset) glDrawArrays(GL_TRIANGLES, 0, 6);
@@ -1568,7 +1572,6 @@ public:
                 glDrawArrays(GL_TRIANGLES, 0, 6);
                 [[fallthrough]];
             case MV_RENDER:
-                
                 if (recording) {
                     glBindTexture(GL_TEXTURE_2D, postprocTexBuffer);
                     glBindFramebuffer(GL_FRAMEBUFFER, finalFrameBuffer);
@@ -1579,22 +1582,20 @@ public:
 
                     glBindTexture(GL_TEXTURE_2D, finalTexBuffer);
                     glBindFramebuffer(GL_FRAMEBUFFER, NULL);
-                    glUniform1i(glGetUniformLocation(shaderProgram, "op"), MV_DISPLAY);
                     glViewport(0, 0, ss.x, ss.y);
                     glUniform2i(glGetUniformLocation(shaderProgram, "screenSize"), ss.x, ss.y);
                     glDrawArrays(GL_TRIANGLES, 0, 6);
                 } else {
-                    glBindTexture(GL_TEXTURE_2D, finalTexBuffer);
+                    glBindTexture(GL_TEXTURE_2D, postprocTexBuffer);
                     glBindFramebuffer(GL_FRAMEBUFFER, NULL);
                     glUniform1i(glGetUniformLocation(shaderProgram, "op"), MV_RENDER);
                     glViewport(0, 0, ss.x, ss.y);
                     glUniform2i(glGetUniformLocation(shaderProgram, "screenSize"), ss.x, ss.y);
                     glDrawArrays(GL_TRIANGLES, 0, 6);
+                    set_op(MV_RENDER, true);
                 }
-                set_op(MV_RENDER, true);
             }
             if (recording && !paused) {
-                glBindTexture(GL_TEXTURE_2D, finalTexBuffer);
                 int w = zsc.tcfg.screenSize.x, h = zsc.tcfg.screenSize.y;
                 unsigned char* buffer = new unsigned char[4 * w * h];
                 glGetTexImage(GL_TEXTURE_2D, 0, GL_RGB, GL_UNSIGNED_BYTE, buffer);
@@ -1619,7 +1620,8 @@ public:
                         max_iters(zsc.tcfg.zoom, zoom_co, config.iter_co));
                     glUniform1d(glGetUniformLocation(shaderProgram, "zoom"), zsc.tcfg.zoom);
                 }
-                set_op(MV_COMPUTE);
+                delete[] buffer;
+                set_op(MV_COMPUTE, true);
             }
             ImGui::Render();
             ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
