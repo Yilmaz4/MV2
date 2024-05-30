@@ -311,9 +311,9 @@ std::vector<Fractal> fractals = {
         .sliders = { Slider({.name = "Re", .value = 0.f}), Slider({.name = "Im", .value = 0.f})}}),
     Fractal({.name = "Nova", .equation = "z - cdivide(cpow(z, degree) - dvec2(1, 0), degree * cpow(z, degree - 1)) + c", .condition = "distance(z, prevz) < 10e-5", .initialz = "dvec2(1, 0)", .degree = 3.f, .continuous_compatible = false}),
     Fractal({.name = "Burning ship", .equation = "cpow(dvec2(abs(z.x), abs(z.y)), degree) + c", .condition = "xsq + ysq > 100", .initialz = "c", .degree = 2.f, .continuous_compatible = true}),
-    Fractal({.name = "Magnet 1", .equation = "cpow(cdivide(cpow(z, degree) + c - dvec2(1,0), degree * z + c - dvec2(2,0)), degree)", .condition = "distance(z, c) > 30", .initialz="dvec2(0)", .degree = 2.f, .continuous_compatible = true}),
+    Fractal({.name = "Magnet 1", .equation = "cpow(cdivide(cpow(z, degree) + c - dvec2(1,0), degree * z + c - dvec2(2,0)), degree)", .condition = "length(z) >= 100 || length(z - dvec2(1,0)) <= 1e-5", .initialz="dvec2(0)", .degree = 2.f, .continuous_compatible = false}),
     Fractal({.name = "Magnet 2", .equation = "cpow(cdivide(cpow(z, degree + 1) + 3 * cmultiply(c - dvec2(1, 0), z) + cmultiply(c - dvec2(1, 0), c - dvec2(2, 0)),\
-        3 * cpow(z, degree) + 3 * cmultiply(c - dvec2(2, 0), z) + cmultiply(c - dvec2(1, 0), c - dvec2(2, 0)) + dvec2(1,0)), degree)", .condition = "distance(z, c) > 30", .initialz = "dvec2(0)", .degree = 2.f, .continuous_compatible = true}),
+        3 * cpow(z, degree) + 3 * cmultiply(c - dvec2(2, 0), z) + cmultiply(c - dvec2(1, 0), c - dvec2(2, 0)) + dvec2(1,0)), degree)", .condition = "length(z) >= 100 || length(z - dvec2(1,0)) <= 1e-5", .initialz = "dvec2(0)", .degree = 2.f, .continuous_compatible = false}),
     Fractal({.name = "Tricorn", .equation = "cpow(cconj(z), degree) + c", .condition = "distance(z, c) > 10", .initialz = "c", .degree = 2.f, .continuous_compatible = true}),
 };
 
