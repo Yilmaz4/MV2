@@ -314,6 +314,7 @@ std::vector<Fractal> fractals = {
     Fractal({.name = "Magnet 1", .equation = "cpow(cdivide(cpow(z, degree) + c - dvec2(1, 0), degree * z + c - dvec2(degree, 0)), degree)", .condition = "length(z) >= 100 || length(z - dvec2(1,0)) <= 1e-5", .initialz="dvec2(0)", .degree = 2.f, .continuous_compatible = false}),
     Fractal({.name = "Magnet 2", .equation = "cpow(cdivide(cpow(z, degree + 1) + 3 * cmultiply(c - dvec2(1, 0), z) + cmultiply(c - dvec2(1, 0), c - dvec2(2, 0)), "
         "3 * cpow(z, degree) + 3 * cmultiply(c - dvec2(2, 0), z) + cmultiply(c - dvec2(1, 0), c - dvec2(degree, 0)) + dvec2(1, 0)), degree)", .condition = "length(z) >= 100 || length(z - dvec2(1,0)) <= 1e-5", .initialz = "dvec2(0)", .degree = 2.f, .continuous_compatible = false}),
+    Fractal({.name = "Lambda", .equation = "cmultiply(c, cmultiply(z, cpow(dvec2(1, 0) - z, degree - 1)))", .condition = "xsq + ysq > 100", .initialz = "dvec2(0.5f, 0.f)", .degree = 2.f, .continuous_compatible=true}),
     Fractal({.name = "Tricorn", .equation = "cpow(cconj(z), degree) + c", .condition = "distance(z, c) > 10", .initialz = "c", .degree = 2.f, .continuous_compatible = true}),
 };
 
@@ -1251,6 +1252,7 @@ public:
 
                     const char* preview = fractals[fractal].name.c_str();
 
+                    ImGui::PushItemWidth(191);
                     if (ImGui::BeginCombo("Presets", preview)) {
                         for (int n = 0; n < fractals.size(); n++) {
                             const bool is_selected = (fractal == n);
@@ -1276,6 +1278,7 @@ public:
                         }
                         ImGui::EndCombo();
                     }
+                    ImGui::PopItemWidth();
                     if (fractal == 0) {
                         ImGui::PushItemWidth(265);
                         if (ImGui::InputText("##equation", fractals[0].equation.data(), 1024) || reverted) compile = true;
