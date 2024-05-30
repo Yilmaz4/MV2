@@ -1269,6 +1269,7 @@ public:
                                     config.continuous_coloring = static_cast<int>(config.continuous_coloring && fractals[n].continuous_compatible);
                                 }
                                 fractal = n;
+                                update_shader();
                                 reload = compile = update = true;
                             }
                             if (is_selected) ImGui::SetItemDefaultFocus();
@@ -1310,11 +1311,11 @@ public:
                             update = 1;
                         }
                         ImGui::SameLine();
-                        if (index != -1 && ImGui::Button("Delete##", ImVec2(48, 0))) {
+                        if (index != -1 && ImGui::Button("Delete", ImVec2(48, 0))) {
                             to_delete.push_back(index);
                             update = 1;
                         }
-                        else if (index == -1 && ImGui::Button("Reset##", ImVec2(48, 0))) {
+                        else if (index == -1 && ImGui::Button("Reset", ImVec2(48, 0))) {
                             *ptr = def;
                             update = 1;
                         }
@@ -1331,7 +1332,7 @@ public:
                         ImGui::BeginChild("sliders", ImVec2(0, 40));
                     for (int i = 0; i < numSliders; i++) {
                         Slider& s = fractals[fractal].sliders[i];
-                        slider(s.name.c_str(), &s.value, i, 0.f, std::max(1e-4f, abs(s.value) * mouseSpeed / 40.f), s.min, s.max);
+                        slider(s.name.c_str(), &s.value, i, 0.f, std::max(1e-2f, abs(s.value) * mouseSpeed / 40.f), s.min, s.max);
                     }
                     for (const int& i : to_delete) {
                         fractals[fractal].sliders.erase(fractals[fractal].sliders.begin() + i);
