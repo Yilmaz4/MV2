@@ -330,13 +330,12 @@ struct Config {
     bool   continuous_coloring = true;
     bool   normal_map_effect = false;
     fvec3 set_color = { 0.f, 0.f, 0.f };
-    bool   ssaa = true;
-    int    ssaa_factor = 4;
+    int    ssaa = 2;
     int    transfer_function = 0;
     // experimental
     float  degree = 2.f;
     // normal mapping
-    float  angle = 0.f;
+    float  angle = 180.f;
     float  height = 1.5f;
 };
 
@@ -466,14 +465,12 @@ public:
             return;
         }
 
-        int factor = (config.ssaa ? config.ssaa_factor : 1);
-
         glGenTextures(1, &mandelbrotTexBuffer);
         glActiveTexture(GL_TEXTURE0);
         glBindTexture(GL_TEXTURE_2D, mandelbrotTexBuffer);
         glUniform1i(glGetUniformLocation(shaderProgram, "mandelbrotTex"), 0);
-        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA32F, config.screenSize.x * factor,
-            config.screenSize.y * factor, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA32F, config.screenSize.x * config.ssaa,
+            config.screenSize.y * config.ssaa, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
         
@@ -482,8 +479,8 @@ public:
         glActiveTexture(GL_TEXTURE1);
         glBindTexture(GL_TEXTURE_2D, postprocTexBuffer);
         glUniform1i(glGetUniformLocation(shaderProgram, "postprocTex"), 1);
-        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA32F, config.screenSize.x * factor,
-            config.screenSize.y * factor, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA32F, config.screenSize.x * config.ssaa,
+            config.screenSize.y * config.ssaa, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
 
@@ -497,8 +494,8 @@ public:
 
         glGenTextures(1, &juliaTexBuffer);
         glBindTexture(GL_TEXTURE_2D, juliaTexBuffer);
-        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA32F, julia_size * factor,
-            julia_size * factor, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA32F, julia_size * config.ssaa,
+            julia_size * config.ssaa, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
 
@@ -586,7 +583,7 @@ public:
         glBindBuffer(GL_SHADER_STORAGE_BUFFER, kernelBuffer);
         glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 3, kernelBuffer);
         glShaderStorageBlockBinding(shaderProgram, glGetProgramResourceIndex(shaderProgram, GL_SHADER_STORAGE_BLOCK, "kernel"), 3);
-        upload_kernel(config.ssaa_factor);
+        upload_kernel(config.ssaa);
 
         use_config(config, true, false);
         on_windowResize(window, config.screenSize.x, config.screenSize.y);
@@ -626,7 +623,7 @@ private:
             glUniform3f(glGetUniformLocation(shaderProgram, "set_color"), config.set_color.x, config.set_color.y, config.set_color.z);
             glUniform1d(glGetUniformLocation(shaderProgram, "julia_zoom"), julia_zoom);
             glUniform1i(glGetUniformLocation(shaderProgram, "julia_maxiters"), max_iters(julia_zoom, zoom_co, config.iter_co, 3.0));
-            glUniform1i(glGetUniformLocation(shaderProgram, "blur"), (config.ssaa ? config.ssaa_factor : 1));
+            glUniform1i(glGetUniformLocation(shaderProgram, "blur"), (config.ssaa ? config.ssaa : 1));
             glUniform1i(glGetUniformLocation(shaderProgram, "transfer_function"), config.transfer_function);
 
             glUniform1f(glGetUniformLocation(shaderProgram, "degree"), config.degree);
@@ -638,14 +635,13 @@ private:
             glShaderStorageBlockBinding(shaderProgram, glGetProgramResourceIndex(shaderProgram, GL_SHADER_STORAGE_BLOCK, "spectrum"), 1);
         }
         if (textures) {
-            int factor = (config.ssaa ? config.ssaa_factor : 1);
             glBindFramebuffer(GL_FRAMEBUFFER, mandelbrotFrameBuffer);
             glBindTexture(GL_TEXTURE_2D, mandelbrotTexBuffer);
-            glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA32F, config.screenSize.x * factor, config.screenSize.y * factor, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
+            glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA32F, config.screenSize.x * config.ssaa, config.screenSize.y * config.ssaa, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
 
             glBindFramebuffer(GL_FRAMEBUFFER, postprocFrameBuffer);
             glBindTexture(GL_TEXTURE_2D, postprocTexBuffer);
-            glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, config.screenSize.x * factor, config.screenSize.y * factor, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
+            glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, config.screenSize.x * config.ssaa, config.screenSize.y * config.ssaa, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
         }
     }
 
@@ -716,15 +712,14 @@ private:
         if (app->shaderProgram)
             glUniform2i(glGetUniformLocation(app->shaderProgram, "screenSize"), width, height);
         app->set_op(MV_COMPUTE);
-        int factor = (app->config.ssaa ? app->config.ssaa_factor : 1);
 
         glBindFramebuffer(GL_FRAMEBUFFER, app->mandelbrotFrameBuffer);
         glBindTexture(GL_TEXTURE_2D, app->mandelbrotTexBuffer);
-        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA32F, width * factor, height * factor, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA32F, width * app->config.ssaa, height * app->config.ssaa, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
 
         glBindFramebuffer(GL_FRAMEBUFFER, app->postprocFrameBuffer);
         glBindTexture(GL_TEXTURE_2D, app->postprocTexBuffer);
-        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, width * factor, height * factor, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, width * app->config.ssaa, height * app->config.ssaa, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
     }
 
     static void on_mouseButton(GLFWwindow* window, int button, int action, int mod) {
@@ -822,10 +817,9 @@ private:
             app->julia_zoom *= pow(zoom_co, y * 1.5);
             glUniform1d(glGetUniformLocation(app->shaderProgram, "julia_zoom"), app->julia_zoom);
             glUniform1i(glGetUniformLocation(app->shaderProgram, "julia_maxiters"), max_iters(app->julia_zoom, zoom_co, app->config.iter_co, 3.0));
-            int factor = (app->config.ssaa ? app->config.ssaa_factor : 1);
             glBindFramebuffer(GL_FRAMEBUFFER, app->juliaFrameBuffer);
-            glViewport(0, 0, app->julia_size * factor, app->julia_size * factor);
-            glUniform2i(glGetUniformLocation(app->shaderProgram, "screenSize"), app->julia_size * factor, app->julia_size * factor);
+            glViewport(0, 0, app->julia_size * app->config.ssaa, app->julia_size * app->config.ssaa);
+            glUniform2i(glGetUniformLocation(app->shaderProgram, "screenSize"), app->julia_size * app->config.ssaa, app->julia_size * app->config.ssaa);
             glUniform1i(glGetUniformLocation(app->shaderProgram, "op"), 4);
             if (app->juliaset) glDrawArrays(GL_TRIANGLES, 0, 6);
             app->refresh_rightclick();
@@ -873,11 +867,10 @@ private:
         dvec2 z = cmplxCoord;
         float* orbit = new float[800];
       
-        int factor = (config.ssaa ? config.ssaa_factor : 1);
         float texel[4];
         glBindFramebuffer(GL_FRAMEBUFFER, mandelbrotFrameBuffer);
         glReadBuffer(GL_FRONT);
-        glReadPixels(factor * x, (ss.y - y) * factor, 1, 1, GL_RGBA, GL_FLOAT, texel);
+        glReadPixels(config.ssaa * x, (ss.y - y) * config.ssaa, 1, 1, GL_RGBA, GL_FLOAT, texel);
         numIterations = static_cast<int>(texel[1]);
 
         for (int i = 1; i < 400; i++) {
@@ -892,11 +885,11 @@ private:
                 z = pow(length(z), config.degree) * dvec2(cos(config.degree * theta), sin(config.degree * theta)) + cmplxCoord;
             }
         }
-        glViewport(0, 0, julia_size * factor, julia_size * factor);
+        glViewport(0, 0, julia_size * config.ssaa, julia_size * config.ssaa);
         glBindFramebuffer(GL_FRAMEBUFFER, juliaFrameBuffer);
         glUniform1i(glGetUniformLocation(shaderProgram, "op"), 3);
         glUniform2d(glGetUniformLocation(shaderProgram, "mouseCoord"), cmplxCoord.x, cmplxCoord.y);
-        glUniform2i(glGetUniformLocation(shaderProgram, "screenSize"), julia_size * factor, julia_size * factor);
+        glUniform2i(glGetUniformLocation(shaderProgram, "screenSize"), julia_size * config.ssaa, julia_size * config.ssaa);
         if (juliaset) glDrawArrays(GL_TRIANGLES, 0, 6);
 
         glBindBuffer(GL_SHADER_STORAGE_BUFFER, orbitBuffer);
@@ -965,7 +958,7 @@ private:
         glBindBuffer(GL_SHADER_STORAGE_BUFFER, kernelBuffer);
         glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 3, kernelBuffer);
         glShaderStorageBlockBinding(shaderProgram, glGetProgramResourceIndex(shaderProgram, GL_SHADER_STORAGE_BLOCK, "kernel"), 3);
-        glUniform1i(glGetUniformLocation(shaderProgram, "radius"), 2);
+        glUniform1i(glGetUniformLocation(shaderProgram, "radius"), config.ssaa);
     }
 
     void update_shader() const {
@@ -1059,7 +1052,21 @@ public:
                         ImGui::EndCombo();
                     }
                     ImGui::SameLine();
-                    ImGui::Checkbox("SSAA", &zsc.tcfg.ssaa);
+
+                    const char* factors[] = { "None", "2X", "4X", "8X" };
+                    int idx = static_cast<int>(log2(static_cast<float>(zsc.tcfg.ssaa)));
+                    preview = factors[idx];
+
+                    if (ImGui::BeginCombo("SSAA", preview.c_str())) {
+                        for (int i = 0; i < 4; i++) {
+                            const bool is_selected = (idx == i);
+                            if (ImGui::Selectable(factors[i], is_selected)) {
+                                zsc.tcfg.ssaa = pow(2, i);
+                            }
+                            if (is_selected) ImGui::SetItemDefaultFocus();
+                        }
+                        ImGui::EndCombo();
+                    }
                     ImGui::PopItemWidth();
 
                     if (strlen(zsc.path) == 0 && !recording) ImGui::BeginDisabled();
@@ -1068,11 +1075,11 @@ public:
                         progress = 0;
                         glfwSwapInterval(0);
                         zsc.tcfg.zoom = 8.0f;
-                        int factor = (zsc.tcfg.ssaa ? zsc.tcfg.ssaa_factor : 1);
                         writer = cv::VideoWriter(zsc.path, cv::VideoWriter::fourcc('m', 'j', 'p', 'g'), zsc.fps, cv::Size(zsc.tcfg.screenSize.x, zsc.tcfg.screenSize.y));
 
                         if (!writer.isOpened()) throw Error("Failed to initialize sequencer");
                         use_config(zsc.tcfg, true, true);
+                        upload_kernel(zsc.tcfg.ssaa);
                         ImGui::BeginDisabled();
                     }
                     if ((strlen(zsc.path) == 0 && !recording) || recording)
@@ -1090,6 +1097,7 @@ public:
                         recording = false;
                         progress = 0;
                         use_config(config, true, true);
+                        upload_kernel(config.ssaa);
                         ImGui::CloseCurrentPopup();
                     }
                     ImGui::SameLine();
@@ -1294,45 +1302,63 @@ public:
                     }
                     if (fractals[fractal].sliders.size() > 0) ImGui::SeparatorText("Sliders");
                     int update = 0;
-                    auto slider = [&]<typename type>(const char* label, type* ptr, const type def, const float speed, const float min, const float max) {
-                        ImGui::PushID(*reinterpret_cast<const int*>(label));
+                    std::vector<int> to_delete;
+                    auto slider = [&]<typename type>(const char* label, type* ptr, int index, const type def, float speed, float min, float max) {
+                        ImGui::PushID(ptr);
                         if (ImGui::Button("Round##")) {
                             *ptr = round(*ptr);
                             update = 1;
                         }
-                        ImGui::PopID();
-                        ImGui::PushID(*reinterpret_cast<const int*>(label));
                         ImGui::SameLine();
-                        if (ImGui::Button("Reset##")) {
+                        if (index != -1 && ImGui::Button("Delete##", ImVec2(48, 0))) {
+                            to_delete.push_back(index);
+                            update = 1;
+                        }
+                        else if (index == -1 && ImGui::Button("Reset##", ImVec2(48, 0))) {
                             *ptr = def;
                             update = 1;
                         }
-                        ImGui::PopID();
                         ImGui::SameLine();
                         ImGui::PushItemWidth(90);
                         update |= ImGui::DragFloat(label, ptr, speed, min, max, "%.5f", ImGuiSliderFlags_NoRoundToFormat);
+                        ImGui::PopID();
                         ImGui::PopItemWidth();
                     };
                     float mouseSpeed = cbrt(pow(ImGui::GetIO().MouseDelta.x, 2) + pow(ImGui::GetIO().MouseDelta.y, 2));
-                    slider("Degree", &config.degree, 2.f, std::max(1e-4f, abs(round(config.degree) - config.degree)) * mouseSpeed * std::min(pow(1.2, config.degree), 1e+3) / 40.f, 2.f, FLT_MAX);
-                    for (Slider& s : fractals[fractal].sliders) {
-                        slider(s.name.c_str(), &s.value, 0.f, std::max(1e-4f, abs(s.value) * mouseSpeed / 40.f), s.min, s.max);
+                    slider("Degree", &config.degree, -1, 2.f, std::max(1e-4f, abs(round(config.degree) - config.degree)) * mouseSpeed * std::min(pow(1.1, config.degree), 1e+3) / 40.f, 2.f, FLT_MAX);
+                    int numSliders = fractals[fractal].sliders.size();
+                    if (fractal == 0 && numSliders != 0)
+                        ImGui::BeginChild("sliders", ImVec2(0, 40));
+                    for (int i = 0; i < numSliders; i++) {
+                        Slider& s = fractals[fractal].sliders[i];
+                        slider(s.name.c_str(), &s.value, i, 0.f, std::max(1e-4f, abs(s.value) * mouseSpeed / 40.f), s.min, s.max);
+                    }
+                    for (const int& i : to_delete) {
+                        fractals[fractal].sliders.erase(fractals[fractal].sliders.begin() + i);
                     }
                     if (fractal == 0) {
+                        if (numSliders != 0) ImGui::EndChild();
                         if (ImGui::Button("New slider", ImVec2(129, 0))) {
-                            fractals[0].sliders.push_back(Slider());
+                            Slider s;
+                            s.name.resize(12);
+                            fractals[0].sliders.push_back(s);
                             ImGui::OpenPopup("Create new slider");
                         }
                         ImGui::SameLine();
-                        if (ImGui::Button("Reset", ImVec2(129, 0))) {
-                            
+                        if (ImGui::Button("Delete all", ImVec2(129, 0))) {
+                            fractals[0].sliders.clear();
                         }
 
                         if (ImGui::BeginPopupModal("Create new slider", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
                             Slider& slider = fractals[0].sliders[fractals[0].sliders.size() - 1];
                             static bool upper_limit, lower_limit;
                             ImGui::PushItemWidth(154);
-                            ImGui::InputText("Name", slider.name.data(), 16);
+                            auto charFilter = [](ImGuiInputTextCallbackData* data) -> int {
+                                const char* forbiddenChars = "!'^+%&/()=?_*-<>£#$½{[]}\\|.:,;\" ";
+                                if (strchr(forbiddenChars, data->EventChar)) return 1;
+                                return 0;
+                            };
+                            ImGui::InputText("Name", slider.name.data(), 12, ImGuiInputTextFlags_CallbackCharFilter, charFilter);
                             ImGui::PushItemWidth(90);
                             ImGui::Checkbox("Upper limit", &upper_limit);
                             if (!upper_limit) ImGui::BeginDisabled();
@@ -1344,11 +1370,13 @@ public:
                             ImGui::SameLine();
                             ImGui::DragFloat("##min", &slider.min, std::max(1e-4f, abs(slider.min) / 20.f), 0.f, 0.f, "%.9g");
                             if (!lower_limit) ImGui::EndDisabled();
+                            if (strlen(slider.name.c_str()) == 0) ImGui::BeginDisabled();
                             if (ImGui::Button("Create", ImVec2(89, 0))) {
                                 if (!lower_limit) slider.min = 0.f;
                                 if (!upper_limit) slider.max = 0.f;
                                 ImGui::CloseCurrentPopup();
                             }
+                            if (strlen(slider.name.c_str()) == 0) ImGui::EndDisabled();
                             ImGui::SameLine();
                             if (ImGui::Button("Cancel", ImVec2(89, 0))) {
                                 fractals[0].sliders.pop_back();
@@ -1364,37 +1392,52 @@ public:
                     
                     ImGui::TreePop();
                 }
-                if (ImGui::Checkbox("SSAA", &config.ssaa)) {
-                    int factor = (config.ssaa ? config.ssaa_factor : 1);
-                    glBindFramebuffer(GL_FRAMEBUFFER, mandelbrotFrameBuffer);
-                    glBindTexture(GL_TEXTURE_2D, mandelbrotTexBuffer);
-                    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA32F, ss.x * factor,
-                        ss.y * factor, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
+                ImGui::PushItemWidth(50);
+                const char* factors[] = { "None", "2X", "4X", "8X" };
+                int idx = static_cast<int>(log2(static_cast<float>(config.ssaa)));
+                const char* preview = factors[idx];
 
-                    glBindFramebuffer(GL_FRAMEBUFFER, postprocFrameBuffer);
-                    glBindTexture(GL_TEXTURE_2D, postprocTexBuffer);
-                    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA32F, ss.x * factor,
-                        ss.y * factor, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
+                if (ImGui::BeginCombo("SSAA", preview)) {
+                    for (int i = 0; i < 4; i++) {
+                        const bool is_selected = (idx == i);
+                        if (ImGui::Selectable(factors[i], is_selected)) {
+                            config.ssaa = i != 0;
+                            config.ssaa = pow(2, i);
+                            
+                            glBindFramebuffer(GL_FRAMEBUFFER, mandelbrotFrameBuffer);
+                            glBindTexture(GL_TEXTURE_2D, mandelbrotTexBuffer);
+                            glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA32F, ss.x * config.ssaa,
+                                ss.y * config.ssaa, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
 
-                    glBindFramebuffer(GL_FRAMEBUFFER, juliaFrameBuffer);
-                    glBindTexture(GL_TEXTURE_2D, juliaTexBuffer);
-                    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA32F, julia_size * factor,
-                        julia_size * factor, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
+                            glBindFramebuffer(GL_FRAMEBUFFER, postprocFrameBuffer);
+                            glBindTexture(GL_TEXTURE_2D, postprocTexBuffer);
+                            glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA32F, ss.x * config.ssaa,
+                                ss.y * config.ssaa, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
 
-                    glUniform1i(glGetUniformLocation(shaderProgram, "blur"), factor);
+                            glBindFramebuffer(GL_FRAMEBUFFER, juliaFrameBuffer);
+                            glBindTexture(GL_TEXTURE_2D, juliaTexBuffer);
+                            glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA32F, julia_size * config.ssaa,
+                                julia_size * config.ssaa, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
 
-                    set_op(MV_COMPUTE);
+                            glUniform1i(glGetUniformLocation(shaderProgram, "blur"), config.ssaa);
+                            upload_kernel(config.ssaa);
+                            set_op(MV_COMPUTE);
+                        }
+                        if (is_selected) ImGui::SetItemDefaultFocus();
+                    }
+                    ImGui::EndCombo();
                 }
+                ImGui::PopItemWidth();
                 ImGui::SameLine();
                 ImGui::BeginDisabled(!fractals[fractal].continuous_compatible);
-                if (ImGui::Checkbox("Continuous coloring", reinterpret_cast<bool*>(&config.continuous_coloring))) {
+                if (ImGui::Checkbox("Smooth coloring", reinterpret_cast<bool*>(&config.continuous_coloring))) {
                     glUniform1i(glGetUniformLocation(shaderProgram, "continuous_coloring"), config.continuous_coloring);
                     set_op(MV_COMPUTE);
                 }
                 ImGui::EndDisabled();
                 ImGui::SameLine();
                 ImGui::BeginDisabled(fractal != 1 && fractal != 2);
-                if (ImGui::Checkbox("Normal illum.", &config.normal_map_effect)) {
+                if (ImGui::Checkbox("Normal map", &config.normal_map_effect)) {
                     glUniform1i(glGetUniformLocation(shaderProgram, "normal_map_effect"), config.normal_map_effect);
                     set_op(MV_COMPUTE);
                 }
@@ -1554,9 +1597,8 @@ public:
                     ImGui::SameLine();
                     ImGui::Checkbox("Orbit", &orbit);
                     if (ImGui::InputInt("Julia set size", &julia_size, 1, 10)) {
-                        int factor = (config.ssaa ? config.ssaa_factor : 1);
                         glBindTexture(GL_TEXTURE_2D, juliaTexBuffer);
-                        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA32F, julia_size * factor, julia_size * factor, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
+                        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA32F, julia_size * config.ssaa, julia_size * config.ssaa, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
                     }
                     ImGui::TreePop();
                 }
@@ -1571,8 +1613,6 @@ public:
                 ImGui::EndGroup();
             }
             ImGui::End();
-
-            int factor = (config.ssaa ? config.ssaa_factor : 1);
 
             if (rightClickHold) {
                 double x, y;
@@ -1612,13 +1652,12 @@ public:
             }
             ImGui::PopFont();
             if (!recording) {
-                glViewport(0, 0, ss.x * factor, ss.y * factor);
-                glUniform2i(glGetUniformLocation(shaderProgram, "screenSize"), ss.x * factor, ss.y * factor);
+                glViewport(0, 0, ss.x * config.ssaa, ss.y * config.ssaa);
+                glUniform2i(glGetUniformLocation(shaderProgram, "screenSize"), ss.x * config.ssaa, ss.y * config.ssaa);
             }
             else {
-                factor = (zsc.tcfg.ssaa ? zsc.tcfg.ssaa_factor : 1);
-                glViewport(0, 0, zsc.tcfg.screenSize.x * factor, zsc.tcfg.screenSize.y * factor);
-                glUniform2i(glGetUniformLocation(shaderProgram, "screenSize"), zsc.tcfg.screenSize.x * factor, zsc.tcfg.screenSize.y * factor);
+                glViewport(0, 0, zsc.tcfg.screenSize.x * zsc.tcfg.ssaa, zsc.tcfg.screenSize.y * zsc.tcfg.ssaa);
+                glUniform2i(glGetUniformLocation(shaderProgram, "screenSize"), zsc.tcfg.screenSize.x * zsc.tcfg.ssaa, zsc.tcfg.screenSize.y * zsc.tcfg.ssaa);
             }
             switch (op) {
             case MV_COMPUTE:
