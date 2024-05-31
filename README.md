@@ -67,7 +67,7 @@ The expression in the inputs are directly substituted into the GLSL shader code.
   | `double zoom` | Length of a single pixel in screen space in the complex plane |
 </details>
 
-The first input (`dvec2`) is the new value of $Z_{n+1}$ in each next iteration. The second input (`bool`) is the condition which when true the current pixel will be considered inside the set. The third input (`dvec2`) is $Z_0$ (the initial value of $Z$).
+The first input (`dvec2`) is the new value of $Z_{n+1}$ in each next iteration. The second input (`bool`) is the condition which when true the current pixel will be considered inside the set. The third input (`dvec2`) is $Z_0$.
 
 ## Examples
 ![Screenshot 2024-05-18 165422](https://github.com/Yilmaz4/MV2/assets/77583632/d9fb9d98-52c5-44bc-aeed-2c875a807411)\
