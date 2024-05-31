@@ -319,6 +319,9 @@ vec3 color(float i) {
         break;
     }
     i = mod(i * iter_multiplier + spectrum_offset, span) / span;
+    if (i < 1e-3 || i > 0.999) {
+        return spec[0].rgb;
+    }
     for (int v = 0; v < spec.length(); v++) {
         if (spec[v].w > i) {
             vec4 v2 = spec[v];
