@@ -852,9 +852,8 @@ private:
                 glfwSetWindowMonitor(window, monitor, 0, 0, mode->width, mode->height, mode->refreshRate);
             }
             else {
-                glfwSetWindowMonitor(window, nullptr, app->screenPos.x,
-                    app->screenPos.y, app->config.screenSize.x, app->config.screenSize.y, 0);
                 app->fullscreen = false;
+                glfwSetWindowMonitor(window, nullptr, app->screenPos.x, app->screenPos.y, app->config.screenSize.x, app->config.screenSize.y, 0);
             }
         }
     }
