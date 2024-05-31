@@ -384,7 +384,7 @@ void main() {
     if (op == 2) {
         dvec2 c = offset + (dvec2(gl_FragCoord.x / screenSize.x, (screenSize.y - gl_FragCoord.y) / screenSize.y) - dvec2(0.5, 0.5)) * dvec2(zoom, (screenSize.y * zoom) / screenSize.x);
         dvec2 z = %s%;
-        dvec2 prevz = dvec2(0.f, 0.f);
+        dvec2 prevz = dvec2(0.0);
 
         dvec2 der = dvec2(1.0, 0.0);
 
