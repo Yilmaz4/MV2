@@ -21,7 +21,7 @@ https://github.com/Yilmaz4/MV2/assets/77583632/b6c11774-b2cd-4895-8eef-0fd47954e
 https://github.com/Yilmaz4/MV2/assets/77583632/184eff3b-f178-4c7e-9553-ed0c2de17da7
 
 ## Custom equations
-The expression in the inputs are directly substituted into the GLSL shader code. Because double-precision bivectors are used, most of the built-in GLSL functions are unavailable, therefore the following list of custom implemented functions must be used instead:
+The expression in the inputs are directly substituted into the GLSL shader code. Because double-precision bivectors are used, most of the built-in GLSL functions are unavailable; and because vector arithmetic such as multiplication or division are component-wise, the following list of custom implemented functions have to be used instead:
 
 <details>
 <summary>Custom functions reference</summary>
