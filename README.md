@@ -16,6 +16,8 @@ Points inside the set are colored black, and points outside the set are colored 
 - Hold right-click to see the orbit and the corresponding Julia set for any point
 - Zoom sequence creation
 
+https://github.com/Yilmaz4/MV2/assets/77583632/bc77921c-2139-464b-84e5-ba0f5cb2a3ce
+
 https://github.com/Yilmaz4/MV2/assets/77583632/b6c11774-b2cd-4895-8eef-0fd47954e4ff
 
 https://github.com/Yilmaz4/MV2/assets/77583632/184eff3b-f178-4c7e-9553-ed0c2de17da7
@@ -70,14 +72,11 @@ The expression in the inputs are directly substituted into the GLSL shader code.
 The first input (`dvec2`) is the new value of $Z_{n+1}$ in each next iteration. The second input (`bool`) is the condition which when true the current pixel will be considered inside the set. The third input (`dvec2`) is $Z_0$.
 
 ## Examples
-![Screenshot 2024-05-18 165422](https://github.com/Yilmaz4/MV2/assets/77583632/d9fb9d98-52c5-44bc-aeed-2c875a807411)\
+![Screenshot 2024-05-31 222113](https://github.com/Yilmaz4/MV2/assets/77583632/8f5d49f5-45ef-4627-8025-a6455f71d1dd)\
 Burning ship fractal $Z_{n+1}=(|\Re(Z_n)| + i|\Im(Z_n)|)^2+c \quad Z_0=c \quad \text{Bailout: } |Z_n| > 100$
 
-![image](https://github.com/Yilmaz4/MV2/assets/77583632/4859c5cc-42fe-4cf7-8b76-63c831ffa449)\
+![Screenshot 2024-05-31 222339](https://github.com/Yilmaz4/MV2/assets/77583632/d062e30d-ea10-4dfa-a246-74d45ad732fc)\
 Nova fractal $Z_{n+1}=Z_n-\frac{Z_n^3-1}{3Z_n^2}+c \quad Z_0=1 \quad \text{Bailout: } |Z_n-Z_{n-1}| < 10^{-4}$
-
-![Screenshot 2024-05-18 170237](https://github.com/Yilmaz4/MV2/assets/77583632/6798c9d6-5fcc-4fb8-b767-88d4f29863f0)\
-Tricorn fractal $Z_{n+1}=\bar{Z_n}^2+c \quad Z_0=c \quad \text{Bailout: } |Z_n| > 100$
 
 ![image](https://github.com/Yilmaz4/MV2/assets/77583632/cd16be5b-8a45-4d93-8911-dfbe28167162)\
 Magnet 1 fractal $Z_{n+1}=\bigg(\dfrac{Z_n^2+c-1}{2Z_n+c-2}\bigg)^2 \quad Z_0=0 \quad \text{Bailout: } |Z_n| > 100 \lor |Z_n-1| < 10^{-4}$
