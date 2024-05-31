@@ -21,7 +21,7 @@ https://github.com/Yilmaz4/MV2/assets/77583632/b6c11774-b2cd-4895-8eef-0fd47954e
 https://github.com/Yilmaz4/MV2/assets/77583632/184eff3b-f178-4c7e-9553-ed0c2de17da7
 
 ## Custom equations
-The expression in the inputs are directly substituted into the GLSL shader code. Because double-precision bivectors are used, most of the built-in GLSL functions are unavailable, therefore the following list of custom implemented functions must be used instead:
+The expression in the inputs are directly substituted into the GLSL shader code. Because double-precision bivectors are used, most of the built-in GLSL functions are unavailable; and because vector arithmetic such as multiplication or division are component-wise, the following list of custom implemented functions have to be used instead:
 
 <details>
 <summary>Custom functions reference</summary>
@@ -67,17 +67,20 @@ The expression in the inputs are directly substituted into the GLSL shader code.
   | `double zoom` | Length of a single pixel in screen space in the complex plane |
 </details>
 
-The first input (`dvec2`) is the new value of $Z_{n+1}$ in each next iteration. The second input (`bool`) is the condition which when true the current pixel will be considered inside the set. The third input (`dvec2`) is $Z_0$ (the initial value of $Z$).
+The first input (`dvec2`) is the new value of $Z_{n+1}$ in each next iteration. The second input (`bool`) is the condition which when true the current pixel will be considered inside the set. The third input (`dvec2`) is $Z_0$.
 
 ## Examples
 ![Screenshot 2024-05-18 165422](https://github.com/Yilmaz4/MV2/assets/77583632/d9fb9d98-52c5-44bc-aeed-2c875a807411)\
-Burning ship fractal $Z_{n+1}=(|\Re(Z_n)| + i|\Im(Z_n)|)^2+c \quad Z_0=c \quad \text{Bailout: } |Z_n-c| > 100$
+Burning ship fractal $Z_{n+1}=(|\Re(Z_n)| + i|\Im(Z_n)|)^2+c \quad Z_0=c \quad \text{Bailout: } |Z_n| > 100$
 
 ![image](https://github.com/Yilmaz4/MV2/assets/77583632/4859c5cc-42fe-4cf7-8b76-63c831ffa449)\
 Nova fractal $Z_{n+1}=Z_n-\frac{Z_n^3-1}{3Z_n^2}+c \quad Z_0=1 \quad \text{Bailout: } |Z_n-Z_{n-1}| < 10^{-4}$
 
 ![Screenshot 2024-05-18 170237](https://github.com/Yilmaz4/MV2/assets/77583632/6798c9d6-5fcc-4fb8-b767-88d4f29863f0)\
-Tricorn fractal $Z_{n+1}=\bar{Z_n}^2+c \quad Z_0=c \quad \text{Bailout: } |Z_n-c| > 100$
+Tricorn fractal $Z_{n+1}=\bar{Z_n}^2+c \quad Z_0=c \quad \text{Bailout: } |Z_n| > 100$
+
+![image](https://github.com/Yilmaz4/MV2/assets/77583632/cd16be5b-8a45-4d93-8911-dfbe28167162)\
+Magnet 1 fractal $Z_{n+1}=\bigg(\dfrac{Z_n^2+c-1}{2Z_n+c-2}\bigg)^2 \quad Z_0=0 \quad \text{Bailout: } |Z_n| > 100 \lor |Z_n-1| < 10^{-4}$
 
 ## Limitations
 - Any custom equation utilizing `dvec2 cpow(dvec2, float)` where the second argument $\not\in [1,4] \cap \mathbb{N}$ will be limited to single-precision floating point, therefore limiting amount of zoom to $10^4$.
