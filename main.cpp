@@ -306,16 +306,16 @@ struct Fractal {
 
 std::vector<Fractal> fractals = {
     Fractal({.name = "Custom"}),
-    Fractal({.name = "Mandelbrot", .equation = "cpow(z, degree) + c", .condition = "xsq + ysq > 100", .initialz = "c", .degree = 2.f, .continuous_compatible = true}),
-    Fractal({.name = "Julia Set", .equation = "cpow(z, degree) + dvec2(Re, Im)", .condition = "xsq + ysq > 100", .initialz = "c", .degree = 2.f, .continuous_compatible = true,
+    Fractal({.name = "Mandelbrot",   .equation = "cpow(z, degree) + c", .condition = "xsq + ysq > 100", .initialz = "c", .degree = 2.f, .continuous_compatible = true}),
+    Fractal({.name = "Julia Set",    .equation = "cpow(z, degree) + dvec2(Re, Im)", .condition = "xsq + ysq > 100", .initialz = "c", .degree = 2.f, .continuous_compatible = true,
         .sliders = { Slider({.name = "Re", .value = 0.f}), Slider({.name = "Im", .value = 0.f})}}),
-    Fractal({.name = "Nova", .equation = "z - cdivide(cpow(z, degree) - dvec2(1, 0), degree * cpow(z, degree - 1)) + c", .condition = "distance(z, prevz) < 10e-5", .initialz = "dvec2(1, 0)", .degree = 3.f, .continuous_compatible = false}),
+    Fractal({.name = "Nova",         .equation = "z - cdivide(cpow(z, degree) - dvec2(1, 0), degree * cpow(z, degree - 1)) + c", .condition = "distance(z, prevz) < 10e-5", .initialz = "dvec2(1, 0)", .degree = 3.f, .continuous_compatible = false}),
     Fractal({.name = "Burning ship", .equation = "cpow(dvec2(abs(z.x), abs(z.y)), degree) + c", .condition = "xsq + ysq > 100", .initialz = "c", .degree = 2.f, .continuous_compatible = true}),
-    Fractal({.name = "Magnet 1", .equation = "cpow(cdivide(cpow(z, degree) + c - dvec2(1, 0), degree * z + c - dvec2(degree, 0)), degree)", .condition = "length(z) >= 100 || length(z - dvec2(1,0)) <= 1e-5", .initialz="dvec2(0)", .degree = 2.f, .continuous_compatible = false}),
-    Fractal({.name = "Magnet 2", .equation = "cpow(cdivide(cpow(z, degree + 1) + 3 * cmultiply(c - dvec2(1, 0), z) + cmultiply(c - dvec2(1, 0), c - dvec2(2, 0)), "
+    Fractal({.name = "Magnet 1",     .equation = "cpow(cdivide(cpow(z, degree) + c - dvec2(1, 0), degree * z + c - dvec2(degree, 0)), degree)", .condition = "length(z) >= 100 || length(z - dvec2(1,0)) <= 1e-5", .initialz="dvec2(0)", .degree = 2.f, .continuous_compatible = false}),
+    Fractal({.name = "Magnet 2",     .equation = "cpow(cdivide(cpow(z, degree + 1) + 3 * cmultiply(c - dvec2(1, 0), z) + cmultiply(c - dvec2(1, 0), c - dvec2(2, 0)), "
         "3 * cpow(z, degree) + 3 * cmultiply(c - dvec2(2, 0), z) + cmultiply(c - dvec2(1, 0), c - dvec2(degree, 0)) + dvec2(1, 0)), degree)", .condition = "length(z) >= 100 || length(z - dvec2(1,0)) <= 1e-5", .initialz = "dvec2(0)", .degree = 2.f, .continuous_compatible = false}),
-    Fractal({.name = "Lambda", .equation = "cmultiply(c, cmultiply(z, cpow(dvec2(1, 0) - z, degree - 1)))", .condition = "xsq + ysq > 100", .initialz = "dvec2(0.5f, 0.f)", .degree = 2.f, .continuous_compatible=true}),
-    Fractal({.name = "Tricorn", .equation = "cpow(cconj(z), degree) + c", .condition = "distance(z, c) > 10", .initialz = "c", .degree = 2.f, .continuous_compatible = true}),
+    Fractal({.name = "Lambda",       .equation = "cmultiply(c, cmultiply(z, cpow(dvec2(1, 0) - z, degree - 1)))", .condition = "xsq + ysq > 100", .initialz = "dvec2(0.5f, 0.f)", .degree = 2.f, .continuous_compatible=true}),
+    Fractal({.name = "Tricorn",      .equation = "cpow(cconj(z), degree) + c", .condition = "distance(z, c) > 10", .initialz = "c", .degree = 2.f, .continuous_compatible = true}),
 };
 
 struct Config {
@@ -346,6 +346,8 @@ struct ZoomSequenceConfig {
     int duration = 30;
     int direction = 0;
     char path[256]{};
+
+    bool ease_inout = true;
 };
 
 class MV2 {
@@ -1057,6 +1059,7 @@ public:
                     int idx = static_cast<int>(log2(static_cast<float>(zsc.tcfg.ssaa)));
                     preview = factors[idx];
 
+                    ImGui::PushItemWidth(44);
                     if (ImGui::BeginCombo("SSAA", preview.c_str())) {
                         for (int i = 0; i < 4; i++) {
                             const bool is_selected = (idx == i);
@@ -1068,6 +1071,8 @@ public:
                         ImGui::EndCombo();
                     }
                     ImGui::PopItemWidth();
+                    ImGui::SameLine();
+                    ImGui::Checkbox("Ease in/out", &zsc.ease_inout);
 
                     if (strlen(zsc.path) == 0 && !recording) ImGui::BeginDisabled();
                     if (!recording && ImGui::Button("Render", ImVec2(100, 0))) {
@@ -1688,6 +1693,7 @@ public:
                     glViewport(0, 0, ss.x, ss.y);
                     glUniform2i(glGetUniformLocation(shaderProgram, "screenSize"), ss.x, ss.y);
                     glDrawArrays(GL_TRIANGLES, 0, 6);
+                    set_op(MV_RENDER, true);
                 } else {
                     glBindTexture(GL_TEXTURE_2D, postprocTexBuffer);
                     glBindFramebuffer(GL_FRAMEBUFFER, NULL);
@@ -1721,7 +1727,10 @@ public:
                     double z = 3 * pow(x, 2) - 2 * pow(x, 3);
                     if (zsc.direction == 1) z = -z + 1;
                     double coeff = pow(config.zoom / 5.0, 1.0 / framecount);
-                    zsc.tcfg.zoom = 8.0 * pow(coeff, z * framecount);
+                    if (zsc.ease_inout)
+                        zsc.tcfg.zoom = 8.0 * pow(coeff, z * framecount);
+                    else
+                        zsc.tcfg.zoom = 8.0 * pow(coeff, progress);
                     glUniform1i(glGetUniformLocation(shaderProgram, "max_iters"),
                         max_iters(zsc.tcfg.zoom, zoom_co, config.iter_co));
                     glUniform1d(glGetUniformLocation(shaderProgram, "zoom"), zsc.tcfg.zoom);
