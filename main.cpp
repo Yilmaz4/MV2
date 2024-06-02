@@ -1604,14 +1604,11 @@ public:
                     ImGui::Checkbox("Julia set", &juliaset);
                     ImGui::SameLine();
                     ImGui::Checkbox("Orbit", &orbit);
-                    if (ImGui::InputInt("Julia set size", &julia_size, 1, 10)) {
+                    ImGui::SetNextItemWidth(70);
+                    if (ImGui::InputInt("Julia preview size", &julia_size, 5, 20)) {
                         glBindTexture(GL_TEXTURE_2D, juliaTexBuffer);
                         glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA32F, julia_size * config.ssaa, julia_size * config.ssaa, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
                     }
-                    ImGui::TreePop();
-                }
-                if (ImGui::TreeNode("Zoom & navigation")) {
-                    
                     ImGui::TreePop();
                 }
 
