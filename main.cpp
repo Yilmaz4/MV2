@@ -1642,9 +1642,9 @@ public:
                     ImGui::SetWindowPos(pos);
                 }
                 if (cmplxinfo) {
-                    if (numIterations > 0) ImGui::Text("Re: %.17g\nIm: %.17g\nIterations before bailout: %d", cmplxCoord.x, cmplxCoord.y, numIterations);
-                    else if (numIterations == -1) ImGui::Text("Re: %.17g\nIm: %.17g\nPoint is in set", cmplxCoord.x, cmplxCoord.y);
-                    else ImGui::Text("Re: %.17g\nIm: %.17g\nPoint out of bounds", cmplxCoord.x, cmplxCoord.y);
+                    if (numIterations > 0) ImGui::Text("Re: %.17g\nIm: %.17g\nIterations before bailout: %d", cmplxCoord.x, -cmplxCoord.y, numIterations);
+                    else if (numIterations == -1) ImGui::Text("Re: %.17g\nIm: %.17g\nPoint is in set", cmplxCoord.x, -cmplxCoord.y);
+                    else ImGui::Text("Re: %.17g\nIm: %.17g\nPoint out of bounds", cmplxCoord.x, -cmplxCoord.y);
                 }
                 if (juliaset) {
                     if (cmplxinfo) ImGui::SeparatorText("Julia Set");
