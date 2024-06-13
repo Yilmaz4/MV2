@@ -33,7 +33,7 @@ uniform float  angle;
 uniform float  degree;
 uniform dvec2  initialz;
 
-layout(std430, binding = 0) readonly buffer vertices {
+layout(std430, binding = 0) coherent buffer vertices {
     vec2 orbit[];
 };
 uniform int numVertices = 0;
@@ -350,6 +350,14 @@ bool is_experimental() {
     return true;
 }
 
+dvec2 complex_to_pixel(dvec2 complex) {
+    ivec2 ss = screenSize / blur;
+    dvec2 normalizedCoord = (complex - offset);
+    normalizedCoord /= dvec2(zoom, (ss.y * zoom) / ss.x);
+    dvec2 pixelCoordNormalized = normalizedCoord + dvec2(0.5, 0.5);
+    return dvec2(pixelCoordNormalized.x * ss.x, ss.y - pixelCoordNormalized.y * ss.y);
+}
+
 void main() {
     dvec2 nv = cexp(dvec2(0.f, angle * 2.f * M_PI / 360.f));
     if (op == 3) {
@@ -386,7 +394,7 @@ void main() {
 
     if (op == 2) {
         dvec2 c = offset + (dvec2(gl_FragCoord.x / screenSize.x, (screenSize.y - gl_FragCoord.y) / screenSize.y) - dvec2(0.5, 0.5)) * dvec2(zoom, (screenSize.y * zoom) / screenSize.x);
-        dvec2 z = %s%;
+        dvec2 z = %s;
         dvec2 prevz = dvec2(0.0);
 
         dvec2 der = dvec2(1.0, 0.0);
@@ -440,6 +448,22 @@ void main() {
                 blurredColor += mix(vec3(0.f), s, normal_map_effect == 1 ? pow(d.z, 1.f / 1.8f) : 1.f) * weights[(i + radius) * kernelSize + (j + radius)];
             }
         }
+        if (ivec2(gl_FragCoord.xy) == ivec2(mousePos)) {
+            ivec2 ss = screenSize / blur;
+            dvec2 c = offset + (dvec2(gl_FragCoord.x / ss.x, (ss.y - gl_FragCoord.y) / ss.y) - dvec2(0.5, 0.5)) * dvec2(zoom, (ss.y * zoom) / ss.x);
+            dvec2 z = %s;
+            dvec2 prevz = dvec2(0.0);
+            double xsq = z.x * z.x;
+            double ysq = z.y * z.y;
+            for (int i = 0; i < numVertices; i++) {
+                orbit[i].x = float(complex_to_pixel(z).x);
+                orbit[i].y = float(complex_to_pixel(z).y);
+                prevz = z;
+                z = advance(z, c, prevz, xsq, ysq);
+                xsq = z.x * z.x;
+                ysq = z.y * z.y;
+            }
+        }
         fragColor = vec4(blurredColor, 1.f);
     }
     if (op == 0) {
@@ -451,7 +475,7 @@ void main() {
                 abs(m * gl_FragCoord.x - gl_FragCoord.y + c) / sqrt(m * m + 1) < 0.5f &&
                 dot(gl_FragCoord.xy - orbit[i], gl_FragCoord.xy - orbit[i-1]) < 0)
             {
-                fragColor = vec4(1.f);
+                fragColor = 1.f - texel;
                 return;
             }
         }

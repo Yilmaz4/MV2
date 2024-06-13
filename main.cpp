@@ -374,7 +374,7 @@ class MV2 {
     double julia_zoom = 3;
     double fps_update_interval = 0.03;
     bool juliaset = true;
-    bool orbit = false;
+    bool orbit = true;
     bool cmplxinfo = true;
 
     dvec2 oldPos = { 0, 0 };
@@ -534,7 +534,7 @@ public:
         fragmentShader = glCreateShader(GL_FRAGMENT_SHADER);
         char* fragmentSource = read_resource(IDR_RNDR);
         char* modifiedSource = new char[strlen(fragmentSource) + 4096];
-        sprintf(modifiedSource, fragmentSource, fractals[fractal].equation.data(), 0, fractals[fractal].condition.data(), fractals[fractal].initialz.data(), fractals[fractal].condition.data());
+        sprintf(modifiedSource, fragmentSource, fractals[fractal].equation.data(), 0, fractals[fractal].condition.data(), fractals[fractal].initialz.data(), fractals[fractal].condition.data(), fractals[fractal].initialz.data());
         glShaderSource(fragmentShader, 1, &modifiedSource, NULL);
         glCompileShader(fragmentShader);
         glGetShaderiv(fragmentShader, GL_COMPILE_STATUS, &success);
@@ -867,7 +867,6 @@ private:
 
         cmplxCoord = pixel_to_complex(this, { x, y });
         dvec2 z = cmplxCoord;
-        float* orbit = new float[800];
       
         float texel[4];
         glBindFramebuffer(GL_FRAMEBUFFER, mandelbrotFrameBuffer);
@@ -875,29 +874,18 @@ private:
         glReadPixels(config.ssaa * x, (ss.y - y) * config.ssaa, 1, 1, GL_RGBA, GL_FLOAT, texel);
         numIterations = static_cast<int>(texel[1]);
 
-        for (int i = 1; i < 400; i++) {
-            *reinterpret_cast<vec2*>(orbit + (i - 1) * 2) = static_cast<vec2>(complex_to_pixel(z, ss, config.zoom, config.offset));
-            double xsq = z.x * z.x;
-            double yy = z.y * z.y;
-            if (config.degree == 2.f)
-                z = dvec2(xsq - yy, 2.0f * z.x * z.y) + cmplxCoord;
-            else {
-                float r = sqrt(z.x * z.x + z.y * z.y);
-                float theta = atan2(z.y, z.x);
-                z = pow(length(z), config.degree) * dvec2(cos(config.degree * theta), sin(config.degree * theta)) + cmplxCoord;
-            }
-        }
         glViewport(0, 0, julia_size * config.ssaa, julia_size * config.ssaa);
         glBindFramebuffer(GL_FRAMEBUFFER, juliaFrameBuffer);
         glUniform1i(glGetUniformLocation(shaderProgram, "op"), 3);
         glUniform2d(glGetUniformLocation(shaderProgram, "mouseCoord"), cmplxCoord.x, cmplxCoord.y);
+        glUniform2d(glGetUniformLocation(shaderProgram, "mousePos"), x, (ss.y - y));
         glUniform2i(glGetUniformLocation(shaderProgram, "screenSize"), julia_size * config.ssaa, julia_size * config.ssaa);
         if (juliaset) glDrawArrays(GL_TRIANGLES, 0, 6);
 
         glBindBuffer(GL_SHADER_STORAGE_BUFFER, orbitBuffer);
         glUniform1i(glGetUniformLocation(shaderProgram, "numVertices"), 400);
-        glBufferData(GL_SHADER_STORAGE_BUFFER, 400 * sizeof(vec2), orbit, GL_DYNAMIC_COPY);
-        delete[] orbit;
+        glBufferData(GL_SHADER_STORAGE_BUFFER, 400 * sizeof(vec2), nullptr, GL_DYNAMIC_COPY);
+        set_op(MV_POSTPROC);
     }
 
     void compile_shader(GLuint& shader, GLint* success, char* infoLog, char* fragmentSource) const {
@@ -919,7 +907,7 @@ private:
         replace_variables(cond);
         replace_variables(init);
 
-        sprintf(modifiedSource, fragmentSource, eq.data(), 1, cond.data(), init.data(), cond.data());
+        sprintf(modifiedSource, fragmentSource, eq.data(), 1, cond.data(), init.data(), cond.data(), init.data());
         glShaderSource(shader, 1, &modifiedSource, NULL);
         glCompileShader(shader);
         glGetShaderiv(shader, GL_COMPILE_STATUS, success);
@@ -1656,13 +1644,12 @@ public:
                 glUniform1i(glGetUniformLocation(shaderProgram, "numVertices"), 0);
             }
             ImGui::PopFont();
-            if (!recording) {
-                glViewport(0, 0, ss.x * config.ssaa, ss.y * config.ssaa);
-                glUniform2i(glGetUniformLocation(shaderProgram, "screenSize"), ss.x * config.ssaa, ss.y * config.ssaa);
-            }
-            else {
+            if (recording) {
                 glViewport(0, 0, zsc.tcfg.screenSize.x * zsc.tcfg.ssaa, zsc.tcfg.screenSize.y * zsc.tcfg.ssaa);
                 glUniform2i(glGetUniformLocation(shaderProgram, "screenSize"), zsc.tcfg.screenSize.x * zsc.tcfg.ssaa, zsc.tcfg.screenSize.y * zsc.tcfg.ssaa);
+            } else {
+                glViewport(0, 0, ss.x* config.ssaa, ss.y* config.ssaa);
+                glUniform2i(glGetUniformLocation(shaderProgram, "screenSize"), ss.x * config.ssaa, ss.y * config.ssaa);
             }
             switch (op) {
             case MV_COMPUTE:
@@ -1675,6 +1662,7 @@ public:
                 glBindFramebuffer(GL_FRAMEBUFFER, postprocFrameBuffer);
                 glUniform1i(glGetUniformLocation(shaderProgram, "op"), MV_POSTPROC);
                 glDrawArrays(GL_TRIANGLES, 0, 6);
+                glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
                 [[fallthrough]];
             case MV_RENDER:
                 if (recording) {
