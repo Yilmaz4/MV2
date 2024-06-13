@@ -437,16 +437,18 @@ void main() {
         if (blur == 1) {
             vec4 data = texture(mandelbrotTex, vec2(gl_FragCoord.x / screenSize.x, gl_FragCoord.y / screenSize.y));
             fragColor = vec4(mix(vec3(0.f), color(data.x), normal_map_effect == 1 ? pow(data.z, 1.f / 1.8f) : 1.f), 1.f);
-            return;
         }
-        vec3 blurredColor = vec3(0.0);
-        int kernelSize = 2 * radius + 1;
-        for (int i = -radius; i <= radius; i++) {
-            for (int j = -radius; j <= radius; j++) {
-                vec4 d = texture(mandelbrotTex, (gl_FragCoord.xy + vec2(i, j)) / screenSize);
-                vec3 s = color(d.x);
-                blurredColor += mix(vec3(0.f), s, normal_map_effect == 1 ? pow(d.z, 1.f / 1.8f) : 1.f) * weights[(i + radius) * kernelSize + (j + radius)];
+        else {
+            vec3 blurredColor = vec3(0.0);
+            int kernelSize = 2 * radius + 1;
+            for (int i = -radius; i <= radius; i++) {
+                for (int j = -radius; j <= radius; j++) {
+                    vec4 d = texture(mandelbrotTex, (gl_FragCoord.xy + vec2(i, j)) / screenSize);
+                    vec3 s = color(d.x);
+                    blurredColor += mix(vec3(0.f), s, normal_map_effect == 1 ? pow(d.z, 1.f / 1.8f) : 1.f) * weights[(i + radius) * kernelSize + (j + radius)];
+                }
             }
+            fragColor = vec4(blurredColor, 1.f);
         }
         if (ivec2(gl_FragCoord.xy) == ivec2(mousePos)) {
             ivec2 ss = screenSize / blur;
@@ -464,7 +466,6 @@ void main() {
                 ysq = z.y * z.y;
             }
         }
-        fragColor = vec4(blurredColor, 1.f);
     }
     if (op == 0) {
         vec4 texel = texture(postprocTex, gl_FragCoord.xy / screenSize);
