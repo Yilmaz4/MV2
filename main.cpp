@@ -225,67 +225,6 @@ static void HelpMarker(const char* desc) { // code from imgui demo
     }
 }
 
-namespace parser {
-    static dvec2 cexp(dvec2 z) {
-        return exp(z.x) * dvec2(cos(z.y), sin(z.y));
-    }
-    static dvec2 cconj(dvec2 z) {
-        return dvec2(z.x, -z.y);
-    }
-    static double carg(dvec2 z) {
-        return atan2(z.y, z.x);
-    }
-    static dvec2 cmultiply(dvec2 a, dvec2 b) {
-        return dvec2(a.x * b.x - a.y * b.y, a.x * b.y + a.y * b.x);
-    }
-    static dvec2 cdivide(dvec2 a, dvec2 b) {
-        return dvec2((a.x * b.x + a.y * b.y), (a.y * b.x - a.x * b.y)) / (b.x * b.x + b.y * b.y);
-    }
-    static dvec2 clog(dvec2 z) {
-        return dvec2(log(length(z)), carg(z));
-    }
-    static dvec2 cpow(dvec2 z, float p) {
-        double xsq = 0, yy = 0;
-        if (p == 0.f)
-            return dvec2(1.f, 0.f);
-        if (p == 1.f)
-            return z;
-        if (floor(p) == p) {
-            xsq = z.x * z.x;
-            yy = z.y * z.y;
-        }
-        if (p == 2.f)
-            return dvec2(xsq - yy, 2 * z.x * z.y);
-        if (p == 3.f)
-            return dvec2(xsq * z.x - 3 * z.x * yy, 3 * xsq * z.y - yy * z.y);
-        if (p == 4.f)
-            return dvec2(xsq * xsq + yy * yy - 6 * xsq * yy, 4 * xsq * z.x * z.y - 4 * z.x * yy * z.y);
-        if (p == 5.f)
-            return dvec2(xsq * xsq * z.x + 5 * z.x * yy * yy - 10 * xsq * z.x * yy,
-                5 * xsq * xsq * z.y + yy * yy * z.y - 10 * xsq * yy * z.y);
-        vec2 c = vec2(z);
-        float theta = atan(c.y, c.x);
-        return pow(length(z), p) * dvec2(cos(p * theta), sin(p * theta));
-    }
-    static dvec2 csin(dvec2 z) {
-        vec2 c = vec2(z);
-        return dvec2(sin(c.x) * cosh(c.y), cos(c.x) * sinh(c.y));
-    }
-    static dvec2 ccos(dvec2 z) {
-        vec2 c = vec2(z);
-        return dvec2(cos(c.x) * cosh(c.y), -sin(c.x) * sinh(c.y));
-    }
-
-    std::map<std::string, void*> fncs = {
-        { "cexp", &cexp },      { "cconj", &cconj }, { "carg", &carg }, { "cmultiply", &cmultiply },
-        { "cdivide", &cdivide}, { "clog", &clog },   { "cpow", &cpow }, { "csin", &csin }, { "ccos", &ccos },
-    };
-
-    static dvec2 parse_equation(std::string eq, dvec2 c, dvec2 z, dvec2 prevz, int i, dvec2 xsq, dvec2 ysq, float degree, int max_iters, double zoom) {
-        // TO-DO
-    }
-}
-
 struct Slider {
     std::string name;
     float value = 0.f;
