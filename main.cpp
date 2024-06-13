@@ -805,26 +805,29 @@ private:
         ivec2 ss = (fullscreen ? monitorSize : config.screenSize);
 
         cmplxCoord = pixel_to_complex(this, { x, y });
-        dvec2 z = cmplxCoord;
-      
-        float texel[4];
-        glBindFramebuffer(GL_FRAMEBUFFER, mandelbrotFrameBuffer);
-        glReadBuffer(GL_FRONT);
-        glReadPixels(config.ssaa * x, (ss.y - y) * config.ssaa, 1, 1, GL_RGBA, GL_FLOAT, texel);
-        numIterations = static_cast<int>(texel[1]);
-
-        glViewport(0, 0, julia_size * config.ssaa, julia_size * config.ssaa);
-        glBindFramebuffer(GL_FRAMEBUFFER, juliaFrameBuffer);
-        glUniform1i(glGetUniformLocation(shaderProgram, "op"), 3);
-        glUniform2d(glGetUniformLocation(shaderProgram, "mouseCoord"), cmplxCoord.x, cmplxCoord.y);
-        glUniform2d(glGetUniformLocation(shaderProgram, "mousePos"), x, (ss.y - y));
-        glUniform2i(glGetUniformLocation(shaderProgram, "screenSize"), julia_size * config.ssaa, julia_size * config.ssaa);
-        if (juliaset) glDrawArrays(GL_TRIANGLES, 0, 6);
-
-        glBindBuffer(GL_SHADER_STORAGE_BUFFER, orbitBuffer);
-        glUniform1i(glGetUniformLocation(shaderProgram, "numVertices"), 400);
-        glBufferData(GL_SHADER_STORAGE_BUFFER, 400 * sizeof(vec2), nullptr, GL_DYNAMIC_COPY);
-        set_op(MV_POSTPROC);
+        
+        if (cmplxinfo) {
+            float texel[4];
+            glBindFramebuffer(GL_FRAMEBUFFER, mandelbrotFrameBuffer);
+            glReadBuffer(GL_FRONT);
+            glReadPixels(config.ssaa * x, (ss.y - y) * config.ssaa, 1, 1, GL_RGBA, GL_FLOAT, texel);
+            numIterations = static_cast<int>(texel[1]);
+        }
+        if (juliaset) {
+            glViewport(0, 0, julia_size * config.ssaa, julia_size * config.ssaa);
+            glBindFramebuffer(GL_FRAMEBUFFER, juliaFrameBuffer);
+            glUniform1i(glGetUniformLocation(shaderProgram, "op"), 3);
+            glUniform2d(glGetUniformLocation(shaderProgram, "mouseCoord"), cmplxCoord.x, cmplxCoord.y);
+            glUniform2i(glGetUniformLocation(shaderProgram, "screenSize"), julia_size * config.ssaa, julia_size * config.ssaa);
+            glDrawArrays(GL_TRIANGLES, 0, 6);
+        }
+        if (orbit) {
+            glBindBuffer(GL_SHADER_STORAGE_BUFFER, orbitBuffer);
+            glUniform2d(glGetUniformLocation(shaderProgram, "mousePos"), x, ss.y - y);
+            glUniform1i(glGetUniformLocation(shaderProgram, "numVertices"), 400);
+            glBufferData(GL_SHADER_STORAGE_BUFFER, 400 * sizeof(vec2), nullptr, GL_DYNAMIC_COPY);
+            set_op(MV_POSTPROC);
+        }
     }
 
     void compile_shader(GLuint& shader, GLint* success, char* infoLog, char* fragmentSource) const {
