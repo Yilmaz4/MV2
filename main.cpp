@@ -320,8 +320,8 @@ class MV2 {
     dvec2 lastPresses = { -doubleClick_interval, 0 };
     bool dragging = false;
     bool rightClickHold = false;
-    dvec2 tempOffset;
-    double tempZoom;
+    dvec2 tempOffset = config.offset;
+    double tempZoom = config.zoom;
 
     dvec2 cmplxCoord;
     int numIterations;
