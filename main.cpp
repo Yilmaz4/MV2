@@ -830,7 +830,7 @@ private:
         }
     }
 
-    void compile_shader(GLuint& shader, GLint* success, char* infoLog, char* fragmentSource) const {
+    void compile_shader(GLuint& shader, GLint* success, char* infoLog, char* fragmentSource) {
         char* modifiedSource = new char[strlen(fragmentSource) + 4096];
         if (shader) glDeleteShader(shader);
         shader = glCreateShader(GL_FRAGMENT_SHADER);
@@ -853,7 +853,7 @@ private:
         glShaderSource(shader, 1, &modifiedSource, NULL);
         glCompileShader(shader);
         glGetShaderiv(shader, GL_COMPILE_STATUS, success);
-        if (!success) {
+        if (!*success) {
             glGetShaderInfoLog(shader, 512, NULL, infoLog);
         }
         else infoLog[0] = '\0';
@@ -1176,7 +1176,7 @@ public:
                     set_op(MV_COMPUTE);
                 }
                 if (ImGui::TreeNode("Equation")) {
-                    static char infoLog[512]{'\0'};
+                    static char* infoLog = new char[512]{'\0'};
                     static int success;
                     static GLuint shader = NULL;
                     static char* fragmentSource = read_resource(IDR_RNDR);
