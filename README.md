@@ -79,6 +79,31 @@ Nova fractal $Z_{n+1}=Z_n-\frac{Z_n^3-1}{3Z_n^2}+c \quad Z_0=1 \quad \text{Bailo
 ![image](https://github.com/Yilmaz4/MV2/assets/77583632/cd16be5b-8a45-4d93-8911-dfbe28167162)\
 Magnet 1 fractal $Z_{n+1}=\bigg(\dfrac{Z_n^2+c-1}{2Z_n+c-2}\bigg)^2 \quad Z_0=0 \quad \text{Bailout: } |Z_n| > 100 \lor |Z_n-1| < 10^{-4}$
 
+## Building
+
+### Dependencies
+
+- Git
+- CMake version >= 3.21
+- C++ build system (Make, Ninja, MSBuild, etc.)
+- C++ compiler (GCC, Clang, MSVC, etc.)
+
+Clone the repository with `--recurse-submodules`, then go into the directory
+```
+git clone --recurse-submodules https://github.com/Yilmaz4/Trisualizer.git
+cd Trisualizer
+```
+
+Generate the build files with CMake and build
+```
+cmake -S . -B build
+cmake --build build
+```
+
+You can then find the binary in the `bin` directory
+
+The project has been tested on Windows and Linux.
+
 ## Limitations
 - Any custom equation utilizing `dvec2 cpow(dvec2, float)` where the second argument $\not\in [1,4] \cap \mathbb{N}$ will be limited to single-precision floating point, therefore limiting amount of zoom to $10^4$.
 - Most of the double-precision transcendental functions are software emulated, which means performance will be severely impacted.
