@@ -6,8 +6,6 @@
 
 #define IMGUI_DEFINE_MATH_OPERATORS
 #define STB_IMAGE_WRITE_IMPLEMENTATION
-#define STBI_MSC_SECURE_CRT
-#define STB_IMAGE_WRITE_IMPLEMENTATION
 #define NOMINMAX
 #define GLFW_EXPOSE_NATIVE_WIN32
 
@@ -64,11 +62,14 @@ void GLAPIENTRY glMessageCallback(GLenum source, GLenum type, GLuint id, GLenum 
 }
 
 const char* vertexShaderSource = R"(
-#version 430 core
+#version 460 core
 
 layout(location = 0) in vec2 aPos;
 
-void main() { gl_Position = vec4(aPos, 0.0, 1.0); }
+void main() {
+    gl_Position = vec4(aPos, 0.0, 1.0);
+}
+
 )";
 
 static gfx::CubicBezier fast_out_slow_in(0.4, 0.0, 0.2, 1.0);
@@ -373,6 +374,7 @@ public:
         glfwWindowHint(GLFW_GREEN_BITS, mode->greenBits);
         glfwWindowHint(GLFW_BLUE_BITS, mode->blueBits);
         glfwWindowHint(GLFW_REFRESH_RATE, mode->refreshRate);
+        glfwWindowHintString(GLFW_WAYLAND_APP_ID, "mv2");
         monitorSize.x = mode->width;
         monitorSize.y = mode->height;
 
@@ -381,6 +383,7 @@ public:
             std::cout << "Failed to create OpenGL window" << std::endl;
             return;
         }
+
         glfwSetWindowUserPointer(window, this);
         glfwSwapInterval(1);
         glfwMakeContextCurrent(window);
@@ -507,6 +510,8 @@ public:
             std::cout << infoLog << std::endl;
             return;
         }
+
+        std::cout << modifiedSource;
 
         std::cout << "compile finish\n";
         shaderProgram = glCreateProgram();

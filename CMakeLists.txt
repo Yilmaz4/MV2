@@ -8,9 +8,12 @@ set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_SOURCE_DIR}/bin)
 
 set(IMGUI_DIR ${CMAKE_SOURCE_DIR}/lib/imgui)
 set(B_PRODUCTION_MODE ON)
-set(JSON_BuildTests OFF CACHE INTERNAL "")
 
 set(GLFW_BUILD_WIN32 True)
+
+if(NOT CMAKE_BUILD_TYPE)
+  set(CMAKE_BUILD_TYPE Release CACHE STRING "Build type" FORCE)
+endif()
 
 add_subdirectory(lib/boxer)
 add_subdirectory(lib/embed)
