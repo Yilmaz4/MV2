@@ -1,7 +1,4 @@
-#version 430 core
-
-#extension GL_ARB_gpu_shader_fp64 : enable
-#extension GL_NV_uniform_buffer_std430_layout : enable
+#version 460 core
 
 double M_PI = 3.14159265358979323846LF;
 double M_2PI = M_PI * 2.0LF;
