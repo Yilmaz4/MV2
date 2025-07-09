@@ -27,3 +27,9 @@
 # Executables
 /bin
 /build
+/CMakeFiles
+/.vscode
+
+CMakeCache.txt
+CMakeDoxyfile.in
+CMakeDoxygenDefaults.cmake
