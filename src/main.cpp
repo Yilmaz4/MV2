@@ -19,11 +19,18 @@
 #include <glad/glad.h>
 #include <battery/embed.hpp>
 #include <GLFW/glfw3.h>
-#include <glm/glm.hpp>
-#include <glm/gtc/type_ptr.hpp>
 #include <stb/stb_image_write.h>
 #include <tinyfiledialogs/tinyfiledialogs.h>
 #include <chromium/cubic_bezier.h>
+#include <nlohmann/json.hpp>
+
+#define GLM_ENABLE_EXPERIMENTAL
+#include <glm/glm.hpp>
+#include <glm/gtc/matrix_transform.hpp>
+#include <glm/gtc/type_ptr.hpp>
+#include <glm/gtx/rotate_vector.hpp>
+#include <glm/gtx/vector_angle.hpp>
+#include <glm/gtx/string_cast.hpp>
 
 #ifdef PLATFORM_WINDOWS
     #include <Windows.h>
@@ -311,6 +318,7 @@ class MV2 {
 
     ivec2 screenPos = { 0, 0 };
     bool fullscreen = false;
+    float dpi_scale = 1.f;
     Config config;
     int fractal = 1;
     ZoomSequenceConfig zsc;
@@ -378,6 +386,46 @@ public:
         monitorSize.x = mode->width;
         monitorSize.y = mode->height;
 
+        const char* session = std::getenv("XDG_SESSION_DESKTOP");
+        const char* hyprSig = std::getenv("HYPRLAND_INSTANCE_SIGNATURE");
+
+#ifdef PLATFORM_LINUX
+        const char* wayland_display = std::getenv("WAYLAND_DISPLAY");
+        const char* x11_display = std::getenv("DISPLAY");
+
+        if (wayland_display) {
+            if ((session && std::string(session) == "Hyprland") || (hyprSig != nullptr)) {
+                auto exec_command = [](const char* cmd) {
+                    std::array<char, 128> buffer;
+                    std::stringstream result;
+                    FILE* pipe = popen(cmd, "r");
+                    if (!pipe) return std::string();
+                    while (fgets(buffer.data(), buffer.size(), pipe) != nullptr) {
+                        result << buffer.data();
+                    }
+                    pclose(pipe);
+                    return result.str();
+                };
+                std::string json = exec_command("hyprctl monitors -j");
+                if (!json.empty()) {
+                    auto parsedjson = nlohmann::json::parse(json);
+                    std::string monitor = nlohmann::json::parse(exec_command("hyprctl activeworkspace -j"))["monitor"];
+                    for (const auto& m : parsedjson) {
+                        if (m["name"] == monitor) {
+                            dpi_scale = m["scale"].get<float>();
+                            break;
+                        }
+                    }
+                }
+            }
+            else {
+                float xscale, yscale;
+                glfwGetWindowContentScale(window, &xscale, &yscale);
+                dpi_scale = xscale;
+            }
+        }
+#endif
+
         window = glfwCreateWindow(config.screenSize.x, config.screenSize.y, "Mandelbrot Voyage", NULL, NULL);
         if (window == nullptr) {
             std::cout << "Failed to create OpenGL window" << std::endl;
@@ -417,14 +465,10 @@ public:
         ImGui_ImplGlfw_InitForOpenGL(window, true);
         ImGui_ImplOpenGL3_Init("#version 460");
 
-        std::cout << "imgui init\n";
-
         if (!gladLoadGLLoader((GLADloadproc)glfwGetProcAddress)) {
             std::cout << "Failed to create OpenGL window" << std::endl;
             return;
         }
-
-        std::cout << "opengl init\n";
 
         glGenTextures(1, &mandelbrotTexBuffer);
         glActiveTexture(GL_TEXTURE0);
@@ -476,8 +520,6 @@ public:
         glBindFramebuffer(GL_FRAMEBUFFER, juliaFrameBuffer);
         glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, juliaTexBuffer, 0);
 
-        std::cout << "textures init\n";
-
         vertexShader = glCreateShader(GL_VERTEX_SHADER);
         glShaderSource(vertexShader, 1, &vertexShaderSource, NULL);
         glCompileShader(vertexShader);
@@ -503,7 +545,6 @@ public:
         sprintf(modifiedSource, content, fractals[fractal].equation.data(), 0, fractals[fractal].condition.data(), fractals[fractal].initialz.data(), fractals[fractal].condition.data(), fractals[fractal].initialz.data());
         glShaderSource(fragmentShader, 1, &modifiedSource, NULL);
         glCompileShader(fragmentShader);
-        std::cout << "compile\n";
         glGetShaderiv(fragmentShader, GL_COMPILE_STATUS, &success);
         if (!success) {
             glGetShaderInfoLog(fragmentShader, 512, NULL, infoLog);
@@ -511,9 +552,6 @@ public:
             return;
         }
 
-        std::cout << modifiedSource;
-
-        std::cout << "compile finish\n";
         shaderProgram = glCreateProgram();
         glAttachShader(shaderProgram, vertexShader);
         glAttachShader(shaderProgram, fragmentShader);
@@ -521,10 +559,7 @@ public:
         glLinkProgram(shaderProgram);
         std::cout << "link\n";
         glDeleteShader(fragmentShader);
-        std::cout << "delete\n";
         delete[] modifiedSource;
-
-        std::cout << "shaders init\n";
 
         unsigned int VBO, VAO;
         glGenVertexArrays(1, &VAO);
@@ -569,13 +604,11 @@ public:
         upload_kernel(config.ssaa);
 
         use_config(config, true, false);
-        on_windowResize(window, config.screenSize.x, config.screenSize.y);
+        on_windowResize(window, config.screenSize.x * dpi_scale, config.screenSize.y * dpi_scale);
 
         for (const vec4& c : paletteData) {
             state.AddColorMarker(c.w, { c.r, c.g, c.b }, 1.0f);
         }
-
-        std::cout << "init complete\n";
     }
 private:
     void use_config(Config config, bool variables = true, bool textures = true) {
@@ -680,18 +713,18 @@ private:
         }
         glViewport(0, 0, width, height);
 
-        if (!app->fullscreen) app->config.screenSize = { width, height };
+        if (!app->fullscreen) app->config.screenSize = { width / app->dpi_scale, height / app->dpi_scale };
         if (app->shaderProgram)
             glUniform2i(glGetUniformLocation(app->shaderProgram, "screenSize"), width, height);
         app->set_op(MV_COMPUTE);
 
         glBindFramebuffer(GL_FRAMEBUFFER, app->mandelbrotFrameBuffer);
         glBindTexture(GL_TEXTURE_2D, app->mandelbrotTexBuffer);
-        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA32F, width * app->config.ssaa, height * app->config.ssaa, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA32F, width * app->config.ssaa / app->dpi_scale, height * app->config.ssaa / app->dpi_scale, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
 
         glBindFramebuffer(GL_FRAMEBUFFER, app->postprocFrameBuffer);
         glBindTexture(GL_TEXTURE_2D, app->postprocTexBuffer);
-        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, width * app->config.ssaa, height * app->config.ssaa, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, width * app->config.ssaa / app->dpi_scale, height * app->config.ssaa / app->dpi_scale, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
     }
 
     static void on_mouseButton(GLFWwindow* window, int button, int action, int mod) {
@@ -844,6 +877,14 @@ private:
         glfwGetCursorPos(window, &x, &y);
         ivec2 ss = (fullscreen ? monitorSize : config.screenSize);
 
+        std::cout << x << " " << y << std::endl;
+
+        int windowWidth, windowHeight;
+        glfwGetWindowSize(window, &windowWidth, &windowHeight);
+        int frameWidth, frameHeight, frameRight, frameBottom;
+        glfwGetWindowFrameSize(window, &frameWidth, &frameHeight, &frameRight, &frameBottom);
+        std::cout << to_string(ss) << "     " << windowWidth << " " << windowHeight << "     " << frameWidth << " " << frameHeight << " " << frameRight << " " << frameBottom << std::endl;
+
         cmplxCoord = pixel_to_complex(this, { x, y });
         
         if (cmplxinfo) {
@@ -944,7 +985,6 @@ private:
     }
 public:
     void mainloop() {
-        std::cout << "mainloop\n";
         do {
             glfwPollEvents();
             ImGui_ImplOpenGL3_NewFrame();
