@@ -713,18 +713,18 @@ private:
         }
         glViewport(0, 0, width, height);
 
-        if (!app->fullscreen) app->config.screenSize = { width / app->dpi_scale, height / app->dpi_scale };
+        if (!app->fullscreen) app->config.screenSize = { width, height };
         if (app->shaderProgram)
             glUniform2i(glGetUniformLocation(app->shaderProgram, "screenSize"), width, height);
         app->set_op(MV_COMPUTE);
 
         glBindFramebuffer(GL_FRAMEBUFFER, app->mandelbrotFrameBuffer);
         glBindTexture(GL_TEXTURE_2D, app->mandelbrotTexBuffer);
-        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA32F, width * app->config.ssaa / app->dpi_scale, height * app->config.ssaa / app->dpi_scale, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA32F, width * app->config.ssaa, height * app->config.ssaa, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
 
         glBindFramebuffer(GL_FRAMEBUFFER, app->postprocFrameBuffer);
         glBindTexture(GL_TEXTURE_2D, app->postprocTexBuffer);
-        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, width * app->config.ssaa / app->dpi_scale, height * app->config.ssaa / app->dpi_scale, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, width * app->config.ssaa, height * app->config.ssaa, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
     }
 
     static void on_mouseButton(GLFWwindow* window, int button, int action, int mod) {
@@ -739,6 +739,7 @@ private:
                 app->lastPresses.x = app->lastPresses.y;
                 app->lastPresses.y = glfwGetTime();
                 glfwGetCursorPos(window, &app->oldPos.x, &app->oldPos.y);
+                app->oldPos *= app->dpi_scale;
             }
             else if (app->lastPresses.y - app->lastPresses.x < doubleClick_interval) {
                 auto switch_shader = [&]() {
@@ -761,6 +762,8 @@ private:
                     app->fractal = 2;
                     double x, y;
                     glfwGetCursorPos(window, &x, &y);
+                    x *= app->dpi_scale;
+                    y *= app->dpi_scale;
                     dvec2 cmplx = app->pixel_to_complex(app, dvec2(x, y));
                     fractals[2].sliders[0].value = cmplx.x;
                     fractals[2].sliders[1].value = cmplx.y;
@@ -776,6 +779,7 @@ private:
                 }
                 else {
                     glfwGetCursorPos(window, &app->oldPos.x, &app->oldPos.y);
+                    app->oldPos *= app->dpi_scale;
                     dvec2 pos = pixel_to_complex(app, app->oldPos);
                     dvec2 center = pixel_to_complex(app, static_cast<dvec2>(ss) / 2.0);
                     app->config.offset += pos - center;
@@ -806,6 +810,8 @@ private:
 
     static void on_cursorMove(GLFWwindow* window, double x, double y) {
         MV2* app = static_cast<MV2*>(glfwGetWindowUserPointer(window));
+        x *= app->dpi_scale;
+        y *= app->dpi_scale;
         if (!app->shaderProgram) return;
         ivec2 ss = (app->fullscreen ? monitorSize : app->config.screenSize);
         glUniform2d(glGetUniformLocation(app->shaderProgram, "mousePos"), x / ss.x, y / ss.y);
@@ -875,6 +881,8 @@ private:
     void refresh_rightclick() {
         double x, y;
         glfwGetCursorPos(window, &x, &y);
+        x *= dpi_scale;
+        y *= dpi_scale;
         ivec2 ss = (fullscreen ? monitorSize : config.screenSize);
 
         std::cout << x << " " << y << std::endl;
@@ -994,7 +1002,7 @@ public:
             ivec2 ss = (fullscreen ? monitorSize : config.screenSize);
 
             ImGui::PushFont(font_title);
-            ImGui::SetNextWindowPos({ 10, 10 });
+            ImGui::SetNextWindowPos({ 5.f * dpi_scale, 5.f * dpi_scale });
             ImGui::SetNextWindowCollapsed(true, 1 << 1);
             if (ImGui::Begin("Settings", nullptr,
                 ImGuiWindowFlags_NoScrollbar |
@@ -1644,6 +1652,8 @@ public:
             if (rightClickHold) {
                 double x, y;
                 glfwGetCursorPos(window, &x, &y);
+                x *= dpi_scale;
+                y *= dpi_scale;
 
                 if (juliaset || cmplxinfo) {
                     ImGui::Begin("info", nullptr,
@@ -1654,13 +1664,13 @@ public:
                         ImGuiWindowFlags_NoMove |
                         ImGuiWindowFlags_NoTitleBar);
                     ImVec2 size = ImGui::GetWindowSize();
-                    ImVec2 pos = { (float)x + 10.0f, (float)y };
-                    if (size.x > ss.x - pos.x - 5)
-                        pos.x = ss.x - size.x - 5;
-                    if (size.y > ss.y - pos.y - 5)
-                        pos.y = ss.y - size.y - 5;
-                    if (pos.x < 5) pos.x = 5;
-                    if (pos.y < 5) pos.y = 5;
+                    ImVec2 pos = { (float)x / dpi_scale + 20.f, (float)y / dpi_scale + 20.f };
+                    if (size.x > ss.x / dpi_scale - pos.x - 5.f * dpi_scale)
+                        pos.x = ss.x / dpi_scale - size.x - 5.f * dpi_scale;
+                    if (size.y > ss.y / dpi_scale - pos.y - 5.f * dpi_scale)
+                        pos.y = ss.y / dpi_scale - size.y - 5.f * dpi_scale;
+                    if (pos.x < 5.f * dpi_scale) pos.x = 5.f * dpi_scale;
+                    if (pos.y < 5.f * dpi_scale) pos.y = 5.f * dpi_scale;
                     ImGui::SetWindowPos(pos);
                 }
                 if (cmplxinfo) {
@@ -1682,7 +1692,7 @@ public:
                 glViewport(0, 0, zsc.tcfg.screenSize.x * zsc.tcfg.ssaa, zsc.tcfg.screenSize.y * zsc.tcfg.ssaa);
                 glUniform2i(glGetUniformLocation(shaderProgram, "screenSize"), zsc.tcfg.screenSize.x * zsc.tcfg.ssaa, zsc.tcfg.screenSize.y * zsc.tcfg.ssaa);
             } else {
-                glViewport(0, 0, ss.x* config.ssaa, ss.y* config.ssaa);
+                glViewport(0, 0, ss.x * config.ssaa, ss.y * config.ssaa);
                 glUniform2i(glGetUniformLocation(shaderProgram, "screenSize"), ss.x * config.ssaa, ss.y * config.ssaa);
             }
             switch (op) {
