@@ -389,6 +389,12 @@ public:
         const char* session = std::getenv("XDG_SESSION_DESKTOP");
         const char* hyprSig = std::getenv("HYPRLAND_INSTANCE_SIGNATURE");
 
+        window = glfwCreateWindow(config.screenSize.x, config.screenSize.y, "Mandelbrot Voyage", NULL, NULL);
+        if (window == nullptr) {
+            std::cout << "Failed to create OpenGL window" << std::endl;
+            return;
+        }
+
 #ifdef PLATFORM_LINUX
         const char* wayland_display = std::getenv("WAYLAND_DISPLAY");
         const char* x11_display = std::getenv("DISPLAY");
@@ -425,13 +431,6 @@ public:
             }
         }
 #endif
-
-        window = glfwCreateWindow(config.screenSize.x, config.screenSize.y, "Mandelbrot Voyage", NULL, NULL);
-        if (window == nullptr) {
-            std::cout << "Failed to create OpenGL window" << std::endl;
-            return;
-        }
-
         glfwSetWindowUserPointer(window, this);
         glfwSwapInterval(1);
         glfwMakeContextCurrent(window);
@@ -884,14 +883,6 @@ private:
         x *= dpi_scale;
         y *= dpi_scale;
         ivec2 ss = (fullscreen ? monitorSize : config.screenSize);
-
-        std::cout << x << " " << y << std::endl;
-
-        int windowWidth, windowHeight;
-        glfwGetWindowSize(window, &windowWidth, &windowHeight);
-        int frameWidth, frameHeight, frameRight, frameBottom;
-        glfwGetWindowFrameSize(window, &frameWidth, &frameHeight, &frameRight, &frameBottom);
-        std::cout << to_string(ss) << "     " << windowWidth << " " << windowHeight << "     " << frameWidth << " " << frameHeight << " " << frameRight << " " << frameBottom << std::endl;
 
         cmplxCoord = pixel_to_complex(this, { x, y });
         
