@@ -90,8 +90,8 @@ Magnet 1 fractal $Z_{n+1}=\bigg(\dfrac{Z_n^2+c-1}{2Z_n+c-2}\bigg)^2 \quad Z_0=0 
 
 Clone the repository with `--recurse-submodules`, then go into the directory
 ```
-git clone --recurse-submodules https://github.com/Yilmaz4/Trisualizer.git
-cd Trisualizer
+git clone --recurse-submodules https://github.com/Yilmaz4/MV2.git
+cd MV2
 ```
 
 Generate the build files with CMake and build
