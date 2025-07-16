@@ -992,7 +992,7 @@ public:
             ImGui::NewFrame();
 
             ivec2 ss = (fullscreen ? monitorSize : config.screenSize);
-
+            
             double currentTime = glfwGetTime();
 
             if (currentTime < 2.f) {
@@ -1009,6 +1009,7 @@ public:
 
             ImGui::PushFont(font_title);
             ImGui::SetNextWindowPos({ 5.f * dpi_scale, 5.f * dpi_scale });
+            ImGui::SetNextWindowSize(ImVec2(310.f, 0.f));
             ImGui::SetNextWindowCollapsed(true, 1 << 1);
             if (ImGui::Begin("Settings", nullptr,
                 ImGuiWindowFlags_NoScrollbar |
@@ -1016,7 +1017,7 @@ public:
                 ImGuiWindowFlags_AlwaysAutoResize |
                 ImGuiWindowFlags_NoMove
             )) {
-                if (ImGui::BeginPopupModal("Zoom sequence creator", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+                if (ImGui::BeginPopupModal("Zoom video creator", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
                     if (recording) ImGui::BeginDisabled();
                     if (ImGui::Button("Browse...")) {
                         char const* lFilterPatterns[1] = { "*.avi" };
@@ -1024,7 +1025,7 @@ public:
                         auto tm = *std::localtime(&t);
                         std::ostringstream oss;
                         oss << std::put_time(&tm, "MV2 %d-%m-%Y %H-%M-%S");
-                        char const* buf = tinyfd_saveFileDialog("Save sequence", oss.str().c_str(), 1, lFilterPatterns, "Video Files (*.avi)");
+                        char const* buf = tinyfd_saveFileDialog("Save video", oss.str().c_str(), 1, lFilterPatterns, "Video Files (*.avi)");
                         if (glfwGetWindowMonitor(window) != nullptr) glfwRestoreWindow(window);
                         glfwShowWindow(window);
                         if (buf) strcpy(zsc.path, buf);
@@ -1147,7 +1148,7 @@ public:
                 if (ImGui::BeginPopupModal("About Mandelbrot Voyage II", nullptr, ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoMove)) {
                     ImGui::Text("Version v" VERSION " (Build date: " __DATE__ " " __TIME__ ")\n\nMV2 is a fully interactive open-source GPU-based fully customizable fractal zoom\nprogram aimed at creating artistic and high quality images & videos.");
                     ImGui::PushStyleColor(ImGuiCol_Text, IM_COL32(150, 150, 150, 255));
-                    ImGui::Text("Copyright (c) 2017-2024 Yilmaz Alpaslan");
+                    ImGui::Text("Copyright (c) 2018-2025 Yilmaz Alpaslan");
                     ImGui::PopStyleColor();
                     if (ImGui::Button("Open GitHub Page")) {
 #ifdef PLATFORM_WINDOWS
@@ -1192,21 +1193,28 @@ public:
                 }
                 ImGui::SameLine();
 
-                if (ImGui::Button("Create zoom sequence")) {
+                if (ImGui::Button("Create zoom video")) {
                     zsc.tcfg = config;
-                    ImGui::OpenPopup("Zoom sequence creator");
+                    ImGui::OpenPopup("Zoom video creator");
                 }
                 ImGui::SameLine();
-                if (ImGui::Button("About"))
+                if (ImGui::Button("About", ImVec2(ImGui::GetContentRegionAvail().x, 0.f)))
                     ImGui::OpenPopup("About Mandelbrot Voyage II");
                 ImGui::SeparatorText("Parameters");
                 bool update = false;
-                ImGui::Text("Re"); ImGui::SetNextItemWidth(270); ImGui::SameLine();
+
+                ImGui::Text("Re");
+                ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x);
+                ImGui::SameLine();
                 ImGui::SetCursorPosY(ImGui::GetCursorPosY() - 3.f);
                 update |= ImGui::InputDouble("##re", &config.offset.x, 0.0, 0.0, "%.17g");
-                ImGui::Text("Im"); ImGui::SetNextItemWidth(270); ImGui::SameLine();
+
+                ImGui::Text("Im");
+                ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x);
+                ImGui::SameLine();
                 ImGui::SetCursorPosY(ImGui::GetCursorPosY() - 3.f);
                 update |= ImGui::InputDouble("##im", &config.offset.y, 0.0, 0.0, "%.17g");
+                
                 if (update) {
                     glUniform2d(glGetUniformLocation(shaderProgram, "offset"), config.offset.x, config.offset.y);
                     set_op(MV_COMPUTE);
@@ -1220,7 +1228,7 @@ public:
                 }
                 ImGui::SameLine();
                 ImGui::SetCursorPosY(ImGui::GetCursorPosY() - 3.f);
-                if (ImGui::Button("Save", ImVec2(83, 0))) {
+                if (ImGui::Button("Save", ImVec2(ImGui::GetContentRegionAvail().x / 2.f - 1.f, 0))) {
                     const char* lFilterPatterns[1] = { "*.mvl" };
                     auto t = std::time(nullptr);
                     auto tm = *std::localtime(&t);
@@ -1240,7 +1248,7 @@ public:
                 }
                 ImGui::SameLine();
                 ImGui::SetCursorPosY(ImGui::GetCursorPosY() - 3.f);
-                if (ImGui::Button("Load", ImVec2(83, 0))) {
+                if (ImGui::Button("Load", ImVec2(ImGui::GetContentRegionAvail().x, 0))) {
                     const char* lFilterPatterns[1] = { "*.mvl" };
                     char* buf = tinyfd_openFileDialog("Open location", nullptr,
                         1, lFilterPatterns, "MV2 Location File (*.mvl)", false);
@@ -1275,168 +1283,8 @@ public:
                     glUniform1i(glGetUniformLocation(shaderProgram, "max_iters"), config.max_iters);
                     set_op(MV_COMPUTE);
                 }
-                if (ImGui::TreeNode("Equation")) {
-                    b::EmbedInternal::EmbeddedFile embed;
-                    const char* content;
-                    int length;
-
-                    static char* infoLog = new char[512]{'\0'};
-                    static int success;
-                    static GLuint shader = NULL;
-                    embed = b::embed<"shaders/render.glsl">();
-                    content = embed.data();
-                    length = embed.length();
-                    static bool reverted = false;
-                    bool compile = false;
-                    bool reload = false;
-
-                    const char* preview = fractals[fractal].name.c_str();
-
-                    ImGui::PushItemWidth(191);
-                    if (ImGui::BeginCombo("Presets", preview)) {
-                        for (int n = 0; n < fractals.size(); n++) {
-                            const bool is_selected = (fractal == n);
-                            if (ImGui::Selectable(fractals[n].name.c_str(), is_selected)) {
-                                if (n == 0) {
-                                    fractals[0].equation  = fractals[fractal].equation;
-                                    fractals[0].equation.resize(1024);
-                                    fractals[0].condition = fractals[fractal].condition;
-                                    fractals[0].condition.resize(1024);
-                                    fractals[0].initialz  = fractals[fractal].initialz;
-                                    fractals[0].initialz.resize(1024);
-                                    fractals[0].degree    = config.degree;
-                                    fractals[0].sliders   = fractals[fractal].sliders;
-                                } else {
-                                    config.degree = fractals[n].degree;
-                                    config.continuous_coloring = static_cast<int>(config.continuous_coloring && fractals[n].continuous_compatible);
-                                }
-                                fractal = n;
-                                update_shader();
-                                reload = compile = update = true;
-                            }
-                            if (is_selected) ImGui::SetItemDefaultFocus();
-                        }
-                        ImGui::EndCombo();
-                    }
-                    ImGui::PopItemWidth();
-                    if (fractal == 0) {
-                        ImGui::PushItemWidth(265);
-                        if (ImGui::InputText("##equation", fractals[0].equation.data(), 1024) || reverted) compile = true;
-                        ImGui::PopItemWidth();
-                        if (ImGui::InputText("Bailout cond.", fractals[0].condition.data(), 1024)) compile = true;
-                        if (ImGui::InputText("Initial Z", fractals[0].initialz.data(), 1024)) compile = true;
-                        
-                        ImGui::InputTextMultiline("##errorlist", infoLog, 512, ImVec2(265, 40), ImGuiInputTextFlags_ReadOnly);
-                        ImGui::BeginDisabled(!success);
-                        if (ImGui::Button("Reload", ImVec2(129, 0.f)) || reverted) reload = true;
-                        ImGui::EndDisabled();
-                        ImGui::SameLine();
-                        if (ImGui::Button("Reset", ImVec2(129, 0.f))) {
-                            fractal = 0;
-                            reverted = true;
-                        }
-                    }
-                    if (compile) {
-                        compile_shader(shader, &success, infoLog, content, length);
-                    }
-                    if (reload) {
-                        reload_shader(shader);
-                        set_op(MV_COMPUTE, true);
-                        reverted = false;
-                    }
-                    if (fractals[fractal].sliders.size() > 0) ImGui::SeparatorText("Sliders");
-                    int update = 0;
-                    std::vector<int> to_delete;
-                    auto slider = [&]<typename type>(const char* label, type* ptr, int index, const type def, float speed, float min, float max) {
-                        ImGui::PushID(ptr);
-                        if (ImGui::Button("Round##")) {
-                            *ptr = round(*ptr);
-                            update = 1;
-                        }
-                        ImGui::SameLine();
-                        if (index != -1 && ImGui::Button("Delete", ImVec2(48, 0))) {
-                            to_delete.push_back(index);
-                            update = 1;
-                        }
-                        else if (index == -1 && ImGui::Button("Reset", ImVec2(48, 0))) {
-                            *ptr = def;
-                            update = 1;
-                        }
-                        ImGui::SameLine();
-                        ImGui::PushItemWidth(90);
-                        update |= ImGui::DragFloat(label, ptr, speed, min, max, "%.5f", ImGuiSliderFlags_NoRoundToFormat);
-                        ImGui::PopID();
-                        ImGui::PopItemWidth();
-                    };
-                    float mouseSpeed = cbrt(pow(ImGui::GetIO().MouseDelta.x, 2) + pow(ImGui::GetIO().MouseDelta.y, 2));
-                    slider("Degree", &config.degree, -1, 2.f, std::max(1e-4f, abs(round(config.degree) - config.degree)) * mouseSpeed * std::min(pow(1.1, config.degree), 1e+3) / 40.f, 2.f, FLT_MAX);
-                    int numSliders = fractals[fractal].sliders.size();
-                    if (fractal == 0 && numSliders != 0)
-                        ImGui::BeginChild("sliders", ImVec2(0, 40));
-                    for (int i = 0; i < numSliders; i++) {
-                        Slider& s = fractals[fractal].sliders[i];
-                        slider(s.name.c_str(), &s.value, i, 0.f, std::max(1e-2f, abs(s.value) * mouseSpeed / 40.f), s.min, s.max);
-                    }
-                    for (const int& i : to_delete) {
-                        fractals[fractal].sliders.erase(fractals[fractal].sliders.begin() + i);
-                    }
-                    if (fractal == 0) {
-                        if (numSliders != 0) ImGui::EndChild();
-                        if (ImGui::Button("New slider", ImVec2(129, 0))) {
-                            Slider s;
-                            s.name.resize(12);
-                            fractals[0].sliders.push_back(s);
-                            ImGui::OpenPopup("Create new slider");
-                        }
-                        ImGui::SameLine();
-                        if (ImGui::Button("Delete all", ImVec2(129, 0))) {
-                            fractals[0].sliders.clear();
-                        }
-
-                        if (ImGui::BeginPopupModal("Create new slider", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
-                            Slider& slider = fractals[0].sliders[fractals[0].sliders.size() - 1];
-                            static bool upper_limit, lower_limit;
-                            ImGui::PushItemWidth(154);
-                            auto charFilter = [](ImGuiInputTextCallbackData* data) -> int {
-                                const char* forbiddenChars = "!'^+%&/()=?_*-<>£#$½{[]}\\|.:,;\" ";
-                                if (strchr(forbiddenChars, data->EventChar)) return 1;
-                                return 0;
-                            };
-                            ImGui::InputText("Name", slider.name.data(), 12, ImGuiInputTextFlags_CallbackCharFilter, charFilter);
-                            ImGui::PushItemWidth(90);
-                            ImGui::Checkbox("Upper limit", &upper_limit);
-                            if (!upper_limit) ImGui::BeginDisabled();
-                            ImGui::SameLine();
-                            ImGui::DragFloat("##max", &slider.max, std::max(1e-4f, abs(slider.max) / 20.f), 0.f, 0.f, "%.9g");
-                            if (!upper_limit) ImGui::EndDisabled();
-                            ImGui::Checkbox("Lower limit", &lower_limit);
-                            if (!lower_limit) ImGui::BeginDisabled();
-                            ImGui::SameLine();
-                            ImGui::DragFloat("##min", &slider.min, std::max(1e-4f, abs(slider.min) / 20.f), 0.f, 0.f, "%.9g");
-                            if (!lower_limit) ImGui::EndDisabled();
-                            if (strlen(slider.name.c_str()) == 0) ImGui::BeginDisabled();
-                            if (ImGui::Button("Create", ImVec2(89, 0))) {
-                                if (!lower_limit) slider.min = 0.f;
-                                if (!upper_limit) slider.max = 0.f;
-                                ImGui::CloseCurrentPopup();
-                            }
-                            if (strlen(slider.name.c_str()) == 0) ImGui::EndDisabled();
-                            ImGui::SameLine();
-                            if (ImGui::Button("Cancel", ImVec2(89, 0))) {
-                                fractals[0].sliders.pop_back();
-                                ImGui::CloseCurrentPopup();
-                            }
-                            ImGui::EndPopup();
-                        }
-                    }
-                    if (update) {
-                        update_shader();
-                        set_op(MV_COMPUTE);
-                    }
                     
-                    ImGui::TreePop();
-                }
-                ImGui::PushItemWidth(50);
+                ImGui::SetNextItemWidth(50);
                 const char* factors[] = { "None", "2X", "4X", "8X" };
                 int idx = static_cast<int>(log2(static_cast<float>(config.ssaa)));
                 const char* preview = factors[idx];
@@ -1471,7 +1319,7 @@ public:
                     }
                     ImGui::EndCombo();
                 }
-                ImGui::PopItemWidth();
+
                 ImGui::SameLine();
                 ImGui::BeginDisabled(!fractals[fractal].continuous_compatible);
                 if (ImGui::Checkbox("Smooth coloring", reinterpret_cast<bool*>(&config.continuous_coloring))) {
@@ -1498,7 +1346,166 @@ public:
                         set_op(MV_COMPUTE);
                     }
                 }
+
+                ImGui::SeparatorText("Fractal");
+
+                b::EmbedInternal::EmbeddedFile embed;
+                const char* content;
+                int length;
+
+                static char* infoLog = new char[512]{'\0'};
+                static int success;
+                static GLuint shader = NULL;
+                embed = b::embed<"shaders/render.glsl">();
+                content = embed.data();
+                length = embed.length();
+                static bool reverted = false;
+                bool compile = false;
+                bool reload = false;
+
+                preview = fractals[fractal].name.c_str();
+                
+                ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x);
+                if (ImGui::BeginCombo("##presets", preview)) {
+                    for (int n = 0; n < fractals.size(); n++) {
+                        const bool is_selected = (fractal == n);
+                        if (ImGui::Selectable(fractals[n].name.c_str(), is_selected)) {
+                            if (n == 0) {
+                                fractals[0].equation  = fractals[fractal].equation;
+                                fractals[0].equation.resize(1024);
+                                fractals[0].condition = fractals[fractal].condition;
+                                fractals[0].condition.resize(1024);
+                                fractals[0].initialz  = fractals[fractal].initialz;
+                                fractals[0].initialz.resize(1024);
+                                fractals[0].degree    = config.degree;
+                                fractals[0].sliders   = fractals[fractal].sliders;
+                            } else {
+                                config.degree = fractals[n].degree;
+                                config.continuous_coloring = static_cast<int>(config.continuous_coloring && fractals[n].continuous_compatible);
+                            }
+                            fractal = n;
+                            update_shader();
+                            reload = compile = update = true;
+                        }
+                        if (is_selected) ImGui::SetItemDefaultFocus();
+                    }
+                    ImGui::EndCombo();
+                }
+
+                if (fractal == 0) {
+                    ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x);
+                    if (ImGui::InputText("##equation", fractals[0].equation.data(), 1024) || reverted) compile = true;
+                    if (ImGui::InputText("Bailout condition", fractals[0].condition.data(), 1024)) compile = true;
+                    if (ImGui::InputText("Initial Z", fractals[0].initialz.data(), 1024)) compile = true;
+                    
+                    ImGui::InputTextMultiline("##errorlist", infoLog, 512, ImVec2(ImGui::GetContentRegionAvail().x, 40), ImGuiInputTextFlags_ReadOnly);
+                    ImGui::BeginDisabled(!success);
+                    if (ImGui::Button("Reload", ImVec2(ImGui::GetContentRegionAvail().x / 2.f - 1.f, 0.f)) || reverted) reload = true;
+                    ImGui::EndDisabled();
+                    ImGui::SameLine();
+                    if (ImGui::Button("Reset", ImVec2(ImGui::GetContentRegionAvail().x, 0.f))) {
+                        fractal = 0;
+                        reverted = true;
+                    }
+                }
+                if (compile) {
+                    compile_shader(shader, &success, infoLog, content, length);
+                }
+                if (reload) {
+                    reload_shader(shader);
+                    set_op(MV_COMPUTE, true);
+                    reverted = false;
+                }
+                if (fractal == 0) ImGui::SeparatorText("Variables");
+                int update_fractal = 0;
+                std::vector<int> to_delete;
+                auto slider = [&]<typename type>(const char* label, type* ptr, int index, const type def, float speed, float min, float max) {
+                    ImGui::PushID(ptr);
+                    if (ImGui::Button("Round##", ImVec2(80, 0))) {
+                        *ptr = round(*ptr);
+                        update_fractal = 1;
+                    }
+                    ImGui::SameLine();
+                    if (index != -1 && ImGui::Button("Delete", ImVec2(80, 0))) {
+                        to_delete.push_back(index);
+                        update_fractal = 1;
+                    }
+                    else if (index == -1 && ImGui::Button("Reset", ImVec2(80, 0))) {
+                        *ptr = def;
+                        update_fractal = 1;
+                    }
+                    ImGui::SameLine();
+                    ImGui::SetNextItemWidth(80);
+                    update_fractal |= ImGui::DragFloat(label, ptr, speed, min, max, "%.5f", ImGuiSliderFlags_NoRoundToFormat);
+                    ImGui::PopID();
+                };
+                float mouseSpeed = cbrt(pow(ImGui::GetIO().MouseDelta.x, 2) + pow(ImGui::GetIO().MouseDelta.y, 2));
+                slider("Power", &config.degree, -1, 2.f, std::max(1e-4f, abs(round(config.degree) - config.degree)) * mouseSpeed * std::min(pow(1.1, config.degree), 1e+3) / 40.f, (fractal == 0) ? 0.f : 2.f, FLT_MAX);
+                int numSliders = fractals[fractal].sliders.size();
+                for (int i = 0; i < numSliders; i++) {
+                    Slider& s = fractals[fractal].sliders[i];
+                    slider(s.name.c_str(), &s.value, i, 0.f, std::max(1e-2f, abs(s.value) * mouseSpeed / 40.f), s.min, s.max);
+                }
+                for (const int& i : to_delete) {
+                    fractals[fractal].sliders.erase(fractals[fractal].sliders.begin() + i);
+                }
+                if (fractal == 0) {
+                    if (ImGui::Button("New variable", ImVec2(ImGui::GetContentRegionAvail().x / 2.f - 1.f, 0))) {
+                        Slider s;
+                        s.name.resize(12);
+                        fractals[0].sliders.push_back(s);
+                        ImGui::OpenPopup("Create new variable");
+                    }
+                    ImGui::SameLine();
+                    ImGui::BeginDisabled(fractals[0].sliders.size() > 0);
+                    if (ImGui::Button("Delete all", ImVec2(ImGui::GetContentRegionAvail().x, 0))) {
+                        fractals[0].sliders.clear();
+                    }
+                    ImGui::EndDisabled();
+
+                    if (ImGui::BeginPopupModal("Create new variable", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+                        Slider& slider = fractals[0].sliders[fractals[0].sliders.size() - 1];
+                        bool upper_limit, lower_limit;
+                        auto charFilter = [](ImGuiInputTextCallbackData* data) -> int {
+                            const char* forbiddenChars = "!'^+%&/()=?_*-<>£#$½{[]}\\|.:,;\" ";
+                            if (strchr(forbiddenChars, data->EventChar)) return 1;
+                            return 0;
+                        };
+                        ImGui::InputText("Name", slider.name.data(), 12, ImGuiInputTextFlags_CallbackCharFilter, charFilter);
+                        ImGui::Checkbox("Upper limit", &upper_limit);
+                        if (!upper_limit) ImGui::BeginDisabled();
+                        ImGui::SameLine();
+                        ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x);
+                        ImGui::DragFloat("##max", &slider.max, std::max(1e-4f, abs(slider.max) / 20.f), 0.f, 0.f, "%.9g");
+                        if (!upper_limit) ImGui::EndDisabled();
+                        ImGui::Checkbox("Lower limit", &lower_limit);
+                        if (!lower_limit) ImGui::BeginDisabled();
+                        ImGui::SameLine();
+                        ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x);
+                        ImGui::DragFloat("##min", &slider.min, std::max(1e-4f, abs(slider.min) / 20.f), 0.f, 0.f, "%.9g");
+                        if (!lower_limit) ImGui::EndDisabled();
+                        if (strlen(slider.name.c_str()) == 0) ImGui::BeginDisabled();
+                        if (ImGui::Button("Create", ImVec2(ImGui::GetContentRegionAvail().x / 2.f - 1.f, 0))) {
+                            if (!lower_limit) slider.min = 0.f;
+                            if (!upper_limit) slider.max = 0.f;
+                            ImGui::CloseCurrentPopup();
+                        }
+                        if (strlen(slider.name.c_str()) == 0) ImGui::EndDisabled();
+                        ImGui::SameLine();
+                        if (ImGui::Button("Cancel", ImVec2(ImGui::GetContentRegionAvail().x, 0))) {
+                            fractals[0].sliders.pop_back();
+                            ImGui::CloseCurrentPopup();
+                        }
+                        ImGui::EndPopup();
+                    }
+                }
+                if (update_fractal) {
+                    update_shader();
+                    set_op(MV_COMPUTE);
+                }
+
                 ImGui::SeparatorText("Coloring");
+
                 if (ImGui::BeginTabBar("MyTabBar")) {
                     if (ImGui::BeginTabItem("Outside")) {
                         std::vector<std::string> functions = { "Linear", "Square root", "Cubic root", "Logarithmic" };
@@ -1553,7 +1560,7 @@ public:
                                 paletteData[i] = co;
                             }
                         }
-                        if (ImGui::Button("Save##", ImVec2(90.f, 0.f))) {
+                        if (ImGui::Button("Save##", ImVec2(ImGui::GetContentRegionAvail().x / 3.f - 2.f, 0.f))) {
                             const char* lFilterPatterns[1] = { "*.mvcp" };
                             auto t = std::time(nullptr);
                             auto tm = *std::localtime(&t);
@@ -1573,7 +1580,7 @@ public:
                             }
                         }
                         ImGui::SameLine();
-                        if (ImGui::Button("Load##", ImVec2(90.f, 0.f))) {
+                        if (ImGui::Button("Load##", ImVec2(ImGui::GetContentRegionAvail().x / 2.f - 1.f, 0.f))) {
                             const char* lFilterPatterns[1] = { "*.mvcp" };
                             char* buf = tinyfd_openFileDialog("Open color palette", nullptr,
                                 1, lFilterPatterns, "MV2 Color Palette File (*.mvcp)", false);
@@ -1596,7 +1603,7 @@ public:
                             }
                         }
                         ImGui::SameLine();
-                        if (ImGui::Button("Reset", ImVec2(90.f, 0.f))) {
+                        if (ImGui::Button("Reset", ImVec2(ImGui::GetContentRegionAvail().x, 0.f))) {
                             paletteData = {
                                 { 0.0000f, 0.0274f, 0.3921f, 0.0000f },
                                 { 0.1254f, 0.4196f, 0.7960f, 0.1600f },
@@ -1647,10 +1654,6 @@ public:
                     }
                     ImGui::TreePop();
                 }
-
-                ImGui::PushStyleColor(ImGuiCol_Text, IM_COL32(80, 80, 80, 255));
-                ImGui::Text("(c) 2017-2024 Yilmaz Alpaslan");
-                ImGui::PopStyleColor();
                 ImGui::EndGroup();
             }
             ImGui::End();
@@ -1670,7 +1673,7 @@ public:
                         ImGuiWindowFlags_NoMove |
                         ImGuiWindowFlags_NoTitleBar);
                     ImVec2 size = ImGui::GetWindowSize();
-                    ImVec2 pos = { (float)x / dpi_scale + 20.f, (float)y / dpi_scale + 20.f };
+                    ImVec2 pos = { (float)x / dpi_scale + 10.f, (float)y / dpi_scale + 20.f };
                     if (size.x > ss.x / dpi_scale - pos.x - 5.f * dpi_scale)
                         pos.x = ss.x / dpi_scale - size.x - 5.f * dpi_scale;
                     if (size.y > ss.y / dpi_scale - pos.y - 5.f * dpi_scale)
