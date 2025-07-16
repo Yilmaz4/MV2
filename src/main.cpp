@@ -321,6 +321,7 @@ class MV2 {
     float dpi_scale = 1.f;
     Config config;
     int fractal = 1;
+    bool startup_anim_complete = false;
     ZoomSequenceConfig zsc;
     int julia_size = 215;
     double julia_zoom = 3;
@@ -991,6 +992,20 @@ public:
             ImGui::NewFrame();
 
             ivec2 ss = (fullscreen ? monitorSize : config.screenSize);
+
+            double currentTime = glfwGetTime();
+
+            if (currentTime < 2.f) {
+                config.degree = (currentTime < 0.5f) ? 1.f : (2.f - pow(1.f - (currentTime - 0.5f) / 1.5f, 11));
+                update_shader();
+                set_op(MV_COMPUTE);
+            }
+            else if (!startup_anim_complete) {
+                config.degree = 2.f;
+                startup_anim_complete = true;
+                update_shader();
+                set_op(MV_COMPUTE);
+            }
 
             ImGui::PushFont(font_title);
             ImGui::SetNextWindowPos({ 5.f * dpi_scale, 5.f * dpi_scale });
