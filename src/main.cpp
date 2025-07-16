@@ -272,7 +272,7 @@ std::vector<Fractal> fractals = {
 
 struct Config {
     dvec2  offset = { -0.4, 0.0 };
-    ivec2  screenSize = { 840, 590 };
+    ivec2  screenSize = { 1000, 600 };
     double zoom = 5.0;
     float  spectrum_offset = 860.f;
     float  iter_multiplier = 12.f;
