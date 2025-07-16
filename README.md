@@ -21,7 +21,7 @@ https://github.com/Yilmaz4/MV2/assets/77583632/bc77921c-2139-464b-84e5-ba0f5cb2a
 https://github.com/Yilmaz4/MV2/assets/77583632/b6c11774-b2cd-4895-8eef-0fd47954e4ff
 
 ## Custom equations
-The expression in the inputs are directly substituted into the GLSL shader code. Because double-precision bivectors are used, most of the built-in GLSL functions are unavailable; and because vector arithmetic such as multiplication or division are component-wise, the following list of custom implemented functions have to be used instead:
+Users can define custom equations to draw fractals in the complex plane. The following functions are available in addition to the standard functions in GLSL:
 
 <details>
 <summary>Custom functions reference</summary>
@@ -50,10 +50,10 @@ The expression in the inputs are directly substituted into the GLSL shader code.
 | `dvec2 ccos(dvec2)` | $\cos(z)$|
 </details>
 
+Furthermore, the following variables are also exposed to the user:
 <details>
   <summary>Local variables</summary>
 
-  You can use these variables in the custom equation however you want
   | Name | Description |
   | --- | --- |
   | `dvec2 c` | Corresponding point in the complex plane of the current pixel |
@@ -62,12 +62,17 @@ The expression in the inputs are directly substituted into the GLSL shader code.
   | `int i` | Number of iterations so far |
   | `dvec2 xsq` | $\Re^2(Z_n)$, for optimization purposes |
   | `dvec2 ysq` | $\Im^2(Z_n)$, for optimization purposes |
-  | `float degree` | Uniform variable of type float, adjustable from the UI |
+  | `float power` | Uniform variable of type float, adjustable from the UI |
   | `int max_iters` | Maximum number of iterations before point is considered inside the set |
   | `double zoom` | Length of a single pixel in screen space in the complex plane |
 </details>
 
-The first input (`dvec2`) is the new value of $Z_{n+1}$ in each next iteration. The second input (`bool`) is the condition which when true the current pixel will be considered inside the set. The third input (`dvec2`) is $Z_0$.
+The first input (the main equation, must evaluate to a `dvec2`) is the new value of $Z_{n+1}$ after each iteration. The second input (bailout condition, must evaluate to a `bool`) is the condition which, when true, the current pixel will be considered inside the set. The third input (initial Z, must evaluate to a `dvec2`) is $Z_0$ (the initial value of $Z$).
+
+User-controlled variables can also be defined, which can then be used in the equation and adjusted in real time using the sliders below. "Power" is a default slider that cannot be deleted and corresponds to the `power` variable above. 
+
+> [!NOTE]  
+> Due to limitations in GLSL, zoom is limited to $10^4$ for any non-integer or bigger than 4 power. See [Limitations](#limitations) for more information.
 
 ## Examples
 ![Screenshot 2024-05-31 222113](https://github.com/Yilmaz4/MV2/assets/77583632/8f5d49f5-45ef-4627-8025-a6455f71d1dd)\
@@ -102,7 +107,7 @@ cmake --build build
 
 You can then find the binary in the `bin` directory
 
-The project has been tested on Windows and Linux.
+This project has been tested on Windows and Linux.
 
 ## Limitations
 - Any custom equation utilizing `dvec2 cpow(dvec2, float)` where the second argument $\not\in [1,4] \cap \mathbb{N}$ will be limited to single-precision floating point, therefore limiting amount of zoom to $10^4$.
