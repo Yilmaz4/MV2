@@ -8,13 +8,13 @@ Mandelbrot set is a set defined in the complex plane, and consists of all comple
 Points inside the set are colored black, and points outside the set are colored based on $n$.
 
 ## Features
-- Smooth coloring with $n^{\prime}=n-\log_P\left(\log|Z_n|\right)$ where $n$ is the first iteration number after $|Z_n| \geq 2$
-- Fully customizable equation in GLSL syntax, supporting 10 different complex defined functions
-- Normal vector calculation for Lambert lighting
+- Fully customizable equation in GLSL syntax
+- Smooth coloring
+- Normal mapping for shadows
 - Super-sampling anti aliasing (SSAA)
 - Customizable color palette with up to 16 colors
 - Hold right-click to see the orbit and the corresponding Julia set for any point
-- Zoom sequence creation
+- Zoom video rendering
 
 https://github.com/Yilmaz4/MV2/assets/77583632/bc77921c-2139-464b-84e5-ba0f5cb2a3ce
 
