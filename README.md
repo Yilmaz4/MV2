@@ -67,7 +67,7 @@ Furthermore, the following variables are also exposed to the user:
   | `double zoom` | Length of a single pixel in screen space in the complex plane |
 </details>
 
-The first input (the main equation, must evaluate to a `dvec2`) is the new value of $Z_{n+1}$ after each iteration. The second input (bailout condition, must evaluate to a `bool`) is the condition which, when true, the current pixel will be considered inside the set. The third input (initial Z, must evaluate to a `dvec2`) is $Z_0$ (the initial value of $Z$).
+The first input (the main equation, must evaluate to a `dvec2`) is the new value of $Z_{n+1}$ after each iteration. The second input (bailout condition, must evaluate to a `bool`) is the condition which, when true, the current pixel will be considered inside the set. The third input (initial Z, must evaluate to a `dvec2`) is $Z_0$.
 
 User-controlled variables can also be defined, which can then be used in the equation and adjusted in real time using the sliders below. "Power" is a default slider that cannot be deleted and corresponds to the `power` variable above. 
 
