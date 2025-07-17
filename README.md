@@ -1,27 +1,27 @@
 # Mandelbrot Voyage 2
-A fully interactive open-source GPU-based fully customizable fractal zoom program aimed at creating artistic and high quality images & videos.
+A fully interactive GPU-accelerated customizable fractal zoom program aimed at creating artistic and high quality images & videos.
 
-![mv2](https://github.com/Yilmaz4/MV2/assets/77583632/f9763dd7-e527-441b-a5b4-3eae7c4a7695)
+![snapshot_2025-07-17_11-28-00](https://github.com/user-attachments/assets/4dd5d5e4-7db7-411e-885b-816ea37e16ab)
 
-Mandelbrot set is a set defined in the complex plane, and consists of all complex numbers which satisfy $|Z_n| < 2$ for all $n$ under iteration of $Z_{n+1}=Z_n^2+c$ where $c$ is the particular point in the Mandelbrot set and $Z_0=0$.
+Mandelbrot set is a set defined in the complex plane, and consists of all complex numbers which satisfy $|Z_n| < 2$ for all $n$ under iteration of $Z_{n+1}=Z_n^2+c$ where $c$ is any point in the complex plane and $Z_0=0$.
 
-Points inside the set are colored black, and points outside the set are colored based on $n$.
+Points inside the set are colored black, while points outside the set are colored based on $n$ (how many iterations it took for the point to diverge).
 
 ## Features
-- Smooth coloring with $n^{\prime}=n-\log_P\left(\log|Z_n|\right)$ where $n$ is the first iteration number after $|Z_n| \geq 2$
-- Fully customizable equation in GLSL syntax, supporting 10 different complex defined functions
-- Normal vector calculation for Lambert lighting
+- Fully customizable equation in GLSL syntax
+- Smooth coloring
+- Normal mapping for shadows
 - Super-sampling anti aliasing (SSAA)
 - Customizable color palette with up to 16 colors
 - Hold right-click to see the orbit and the corresponding Julia set for any point
-- Zoom sequence creation
+- Zoom video rendering
 
 https://github.com/Yilmaz4/MV2/assets/77583632/bc77921c-2139-464b-84e5-ba0f5cb2a3ce
 
 https://github.com/Yilmaz4/MV2/assets/77583632/b6c11774-b2cd-4895-8eef-0fd47954e4ff
 
 ## Custom equations
-The expression in the inputs are directly substituted into the GLSL shader code. Because double-precision bivectors are used, most of the built-in GLSL functions are unavailable; and because vector arithmetic such as multiplication or division are component-wise, the following list of custom implemented functions have to be used instead:
+Users can define custom equations to draw fractals in the complex plane. The following functions are available in addition to the standard functions in GLSL:
 
 <details>
 <summary>Custom functions reference</summary>
@@ -50,10 +50,10 @@ The expression in the inputs are directly substituted into the GLSL shader code.
 | `dvec2 ccos(dvec2)` | $\cos(z)$|
 </details>
 
+Furthermore, the following variables are also exposed to the user:
 <details>
   <summary>Local variables</summary>
 
-  You can use these variables in the custom equation however you want
   | Name | Description |
   | --- | --- |
   | `dvec2 c` | Corresponding point in the complex plane of the current pixel |
@@ -62,12 +62,17 @@ The expression in the inputs are directly substituted into the GLSL shader code.
   | `int i` | Number of iterations so far |
   | `dvec2 xsq` | $\Re^2(Z_n)$, for optimization purposes |
   | `dvec2 ysq` | $\Im^2(Z_n)$, for optimization purposes |
-  | `float degree` | Uniform variable of type float, adjustable from the UI |
+  | `float power` | Uniform variable of type float, adjustable from the UI |
   | `int max_iters` | Maximum number of iterations before point is considered inside the set |
   | `double zoom` | Length of a single pixel in screen space in the complex plane |
 </details>
 
-The first input (`dvec2`) is the new value of $Z_{n+1}$ in each next iteration. The second input (`bool`) is the condition which when true the current pixel will be considered inside the set. The third input (`dvec2`) is $Z_0$.
+The first input (the main equation, must evaluate to a `dvec2`) is the new value of $Z_{n+1}$ after each iteration. The second input (bailout condition, must evaluate to a `bool`) is the condition which, when true, the current pixel will be considered inside the set. The third input (initial Z, must evaluate to a `dvec2`) is $Z_0$ (the initial value of $Z$).
+
+User-controlled variables can also be defined, which can then be used in the equation and adjusted in real time using the sliders below. "Power" is a default slider that cannot be deleted and corresponds to the `power` variable above. 
+
+> [!NOTE]  
+> Due to limitations in GLSL, zoom is limited to $10^4$ for any non-integer or bigger than 4 power. See [Limitations](#limitations) for more information. Click "Round" to round the power to the nearest integer to zoom further.
 
 ## Examples
 ![Screenshot 2024-05-31 222113](https://github.com/Yilmaz4/MV2/assets/77583632/8f5d49f5-45ef-4627-8025-a6455f71d1dd)\
@@ -102,7 +107,7 @@ cmake --build build
 
 You can then find the binary in the `bin` directory
 
-The project has been tested on Windows and Linux.
+This project has been tested on Windows and Linux.
 
 ## Limitations
 - Any custom equation utilizing `dvec2 cpow(dvec2, float)` where the second argument $\not\in [1,4] \cap \mathbb{N}$ will be limited to single-precision floating point, therefore limiting amount of zoom to $10^4$.
