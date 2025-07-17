@@ -247,10 +247,10 @@ struct Slider {
 
 struct Fractal {
     std::string name = "Mandelbrot";
-    std::string equation = "cpow(z, degree) + c";
+    std::string equation = "cpow(z, power) + c";
     std::string condition = "distance(z, c) > 10";
     std::string initialz = "c";
-    float degree = 2.f;
+    float power = 2.f;
     bool continuous_compatible = true;
 
     std::vector<Slider> sliders;
@@ -258,16 +258,16 @@ struct Fractal {
 
 std::vector<Fractal> fractals = {
     Fractal({.name = "Custom"}),
-    Fractal({.name = "Mandelbrot",   .equation = "cpow(z, degree) + c", .condition = "xsq + ysq > 100", .initialz = "c", .degree = 2.f, .continuous_compatible = true}),
-    Fractal({.name = "Julia Set",    .equation = "cpow(z, degree) + dvec2(Re, Im)", .condition = "xsq + ysq > 100", .initialz = "c", .degree = 2.f, .continuous_compatible = true,
+    Fractal({.name = "Mandelbrot",   .equation = "cpow(z, power) + c", .condition = "xsq + ysq > 100", .initialz = "c", .power = 2.f, .continuous_compatible = true}),
+    Fractal({.name = "Julia Set",    .equation = "cpow(z, power) + dvec2(Re, Im)", .condition = "xsq + ysq > 100", .initialz = "c", .power = 2.f, .continuous_compatible = true,
         .sliders = { Slider({.name = "Re", .value = 0.f}), Slider({.name = "Im", .value = 0.f})}}),
-    Fractal({.name = "Nova",         .equation = "z - cdivide(cpow(z, degree) - dvec2(1, 0), degree * cpow(z, degree - 1)) + c", .condition = "distance(z, prevz) < 10e-5", .initialz = "dvec2(1, 0)", .degree = 3.f, .continuous_compatible = false}),
-    Fractal({.name = "Burning ship", .equation = "cpow(dvec2(abs(z.x), abs(z.y)), degree) + c", .condition = "xsq + ysq > 100", .initialz = "c", .degree = 2.f, .continuous_compatible = true}),
-    Fractal({.name = "Magnet 1",     .equation = "cpow(cdivide(cpow(z, degree) + c - dvec2(1, 0), degree * z + c - dvec2(degree, 0)), degree)", .condition = "length(z) >= 100 || length(z - dvec2(1,0)) <= 1e-5", .initialz="dvec2(0)", .degree = 2.f, .continuous_compatible = false}),
-    Fractal({.name = "Magnet 2",     .equation = "cpow(cdivide(cpow(z, degree + 1) + 3 * cmultiply(c - dvec2(1, 0), z) + cmultiply(c - dvec2(1, 0), c - dvec2(2, 0)), "
-        "3 * cpow(z, degree) + 3 * cmultiply(c - dvec2(2, 0), z) + cmultiply(c - dvec2(1, 0), c - dvec2(degree, 0)) + dvec2(1, 0)), degree)", .condition = "length(z) >= 100 || length(z - dvec2(1,0)) <= 1e-5", .initialz = "dvec2(0)", .degree = 2.f, .continuous_compatible = false}),
-    Fractal({.name = "Lambda",       .equation = "cmultiply(c, cmultiply(z, cpow(dvec2(1, 0) - z, degree - 1)))", .condition = "xsq + ysq > 100", .initialz = "dvec2(0.5f, 0.f)", .degree = 2.f, .continuous_compatible=true}),
-    Fractal({.name = "Tricorn",      .equation = "cpow(cconj(z), degree) + c", .condition = "distance(z, c) > 10", .initialz = "c", .degree = 2.f, .continuous_compatible = true}),
+    Fractal({.name = "Nova",         .equation = "z - cdivide(cpow(z, power) - dvec2(1, 0), power * cpow(z, power - 1)) + c", .condition = "distance(z, prevz) < 10e-5", .initialz = "dvec2(1, 0)", .power = 3.f, .continuous_compatible = false}),
+    Fractal({.name = "Burning ship", .equation = "cpow(dvec2(abs(z.x), abs(z.y)), power) + c", .condition = "xsq + ysq > 100", .initialz = "c", .power = 2.f, .continuous_compatible = true}),
+    Fractal({.name = "Magnet 1",     .equation = "cpow(cdivide(cpow(z, power) + c - dvec2(1, 0), power * z + c - dvec2(power, 0)), power)", .condition = "length(z) >= 100 || length(z - dvec2(1,0)) <= 1e-5", .initialz="dvec2(0)", .power = 2.f, .continuous_compatible = false}),
+    Fractal({.name = "Magnet 2",     .equation = "cpow(cdivide(cpow(z, power + 1) + 3 * cmultiply(c - dvec2(1, 0), z) + cmultiply(c - dvec2(1, 0), c - dvec2(2, 0)), "
+        "3 * cpow(z, power) + 3 * cmultiply(c - dvec2(2, 0), z) + cmultiply(c - dvec2(1, 0), c - dvec2(power, 0)) + dvec2(1, 0)), power)", .condition = "length(z) >= 100 || length(z - dvec2(1,0)) <= 1e-5", .initialz = "dvec2(0)", .power = 2.f, .continuous_compatible = false}),
+    Fractal({.name = "Lambda",       .equation = "cmultiply(c, cmultiply(z, cpow(dvec2(1, 0) - z, power - 1)))", .condition = "xsq + ysq > 100", .initialz = "dvec2(0.5f, 0.f)", .power = 2.f, .continuous_compatible=true}),
+    Fractal({.name = "Tricorn",      .equation = "cpow(cconj(z), power) + c", .condition = "distance(z, c) > 10", .initialz = "c", .power = 2.f, .continuous_compatible = true}),
 };
 
 struct Config {
@@ -631,7 +631,7 @@ private:
             glUniform1i(glGetUniformLocation(shaderProgram, "blur"), (config.ssaa ? config.ssaa : 1));
             glUniform1i(glGetUniformLocation(shaderProgram, "transfer_function"), config.transfer_function);
 
-            glUniform1f(glGetUniformLocation(shaderProgram, "degree"), config.degree);
+            glUniform1f(glGetUniformLocation(shaderProgram, "power"), config.degree);
 
             glUniform1f(glGetUniformLocation(shaderProgram, "angle"), config.angle);
             glUniform1f(glGetUniformLocation(shaderProgram, "height"), config.height);
@@ -975,7 +975,7 @@ private:
     }
 
     void update_shader() const {
-        glUniform1f(glGetUniformLocation(shaderProgram, "degree"), config.degree);
+        glUniform1f(glGetUniformLocation(shaderProgram, "power"), config.degree);
         glBindBuffer(GL_SHADER_STORAGE_BUFFER, sliderBuffer);
         std::vector<float> values(fractals[fractal].sliders.size());
         for (int i = 0; i < values.size(); i++) {
@@ -1377,10 +1377,10 @@ public:
                                 fractals[0].condition.resize(1024);
                                 fractals[0].initialz  = fractals[fractal].initialz;
                                 fractals[0].initialz.resize(1024);
-                                fractals[0].degree    = config.degree;
+                                fractals[0].power     = config.degree;
                                 fractals[0].sliders   = fractals[fractal].sliders;
                             } else {
-                                config.degree = fractals[n].degree;
+                                config.degree = fractals[n].power;
                                 config.continuous_coloring = static_cast<int>(config.continuous_coloring && fractals[n].continuous_compatible);
                             }
                             fractal = n;

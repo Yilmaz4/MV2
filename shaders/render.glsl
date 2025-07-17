@@ -27,7 +27,7 @@ uniform int    transfer_function;
 uniform float  height;
 uniform float  angle;
 //experimental
-uniform float  degree;
+uniform float  power;
 uniform dvec2  initialz;
 
 layout(std430, binding = 0) coherent buffer vertices {
@@ -337,13 +337,13 @@ dvec2 advance(dvec2 z, dvec2 c, dvec2 prevz, double xsq, double ysq) {
 }
 
 dvec2 differentiate(dvec2 z, dvec2 der) {
-    der = cmultiply(cpow(z, degree - 1.f), der) * degree + 1.0;
+    der = cmultiply(cpow(z, power - 1.f), der) * power + 1.0;
     return der;
 }
 
 bool is_experimental() {
     int res = %i;
-    res |= int(degree != 2.f);
+    res |= int(power != 2.f);
     return true;
 }
 
@@ -376,7 +376,7 @@ void main() {
                     t = float(u.x * nv.x + u.y * nv.y + height) / (1.f + height);
                     if (t < 0) t = 0;
                 }
-                fragColor = vec4(mix(vec3(0.f), vec3(color((continuous_coloring == 1 ? i + 1 - log2(log2(float(length(z)))) / log2(degree) : i))), normal_map_effect == 1 ? pow(t, 1.f / 1.8f) : 1.f), 1.f);
+                fragColor = vec4(mix(vec3(0.f), vec3(color((continuous_coloring == 1 ? i + 1 - log2(log2(float(length(z)))) / log2(power) : i))), normal_map_effect == 1 ? pow(t, 1.f / 1.8f) : 1.f), 1.f);
                 return;
             }
             if (normal_map_effect == 1)
@@ -413,7 +413,7 @@ void main() {
                     }
 
                     if (continuous_coloring == 1 && i > 1) {
-                        fragColor = vec4(i + 1 - log2(log(float(length(z)))) / log2(degree), i, t, 0.f);
+                        fragColor = vec4(i + 1 - log2(log(float(length(z)))) / log2(power), i, t, 0.f);
                     }
                     else {
                         fragColor = vec4(i, i, t, 0.f);
