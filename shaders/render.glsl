@@ -26,7 +26,8 @@ uniform int    transfer_function;
 //normal mapping (https://www.math.univ-toulouse.fr/~cheritat/wiki-draw/index.php/Mandelbrot_set#Normal_map_effect)
 uniform float  height;
 uniform float  angle;
-//experimental
+
+uniform int    fractal;
 uniform float  power;
 uniform dvec2  initialz;
 
@@ -48,6 +49,10 @@ layout(std430, binding = 3) readonly buffer kernel {
     float weights[];
 };
 uniform int radius;
+
+layout(std430, binding = 4) readonly buffer newton_roots {
+    vec2 roots[];
+};
 
 layout(binding = 0) uniform sampler2D mandelbrotTex;
 layout(binding = 1) uniform sampler2D postprocTex;
@@ -293,6 +298,13 @@ dvec2 cpow(dvec2 z, float p) {
     float theta = atan(c.y, c.x);
     return pow(float(length(z)), p) * dvec2(cos(p * theta), sin(p * theta));
 }
+dvec2 cpow(dvec2 a, dvec2 b) {
+    double r = length(a);
+    if (r == 0.) return dvec2(0.);
+    double t = carg(a);
+    dvec2 loga = dvec2(dlog(r), t);
+    return cexp(cmultiply(b, loga));
+}
 dvec2 csin(dvec2 z) {
     vec2 c = vec2(z);
     return dvec2(sin(c.x) * cosh(c.y), cos(c.x) * sinh(c.y));
@@ -300,6 +312,10 @@ dvec2 csin(dvec2 z) {
 dvec2 ccos(dvec2 z) {
     vec2 c = vec2(z);
     return dvec2(cos(c.x) * cosh(c.y), -sin(c.x) * sinh(c.y));
+}
+dvec2 csqrt(dvec2 z) {
+    double r = length(z);
+    return sqrt(r) * (z + dvec2(0.f, r)) / length(z + dvec2(0.f, r));
 }
 
 vec3 color(float i) {
