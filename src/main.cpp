@@ -21,7 +21,7 @@
 #include <GLFW/glfw3.h>
 #include <stb/stb_image_write.h>
 #include <tinyfiledialogs/tinyfiledialogs.h>
-#include <chromium/cubic_bezier.h>
+#include <imgui_ext.h>
 #include <nlohmann/json.hpp>
 
 #define GLM_ENABLE_EXPERIMENTAL
@@ -46,168 +46,19 @@
 #include <ctime>
 #include <string>
 #include <filesystem>
-#include <functional>
 #include <algorithm>
 #include <regex>
+
+using namespace glm;
 
 #define MV_COMPUTE  2
 #define MV_POSTPROC 1
 #define MV_RENDER   0
 
-float vertices[] = {
-    -1.0f, -1.0f,
-     1.0f, -1.0f,
-     1.0f,  1.0f,
-    -1.0f, -1.0f,
-     1.0f,  1.0f,
-    -1.0f,  1.0f
-};
 
 void GLAPIENTRY glMessageCallback(GLenum source, GLenum type, GLuint id, GLenum severity, GLsizei length, const GLchar* message, const void* userParam) {
     if (type != GL_DEBUG_TYPE_ERROR) return;
     fprintf(stderr, "GL CALLBACK: %s type = 0x%x, severity = 0x%x, message = %s\n", "** GL ERROR **", type, severity, message);
-}
-
-const char* vertexShaderSource = R"(
-#version 460 core
-
-layout(location = 0) in vec2 aPos;
-
-void main() {
-    gl_Position = vec4(aPos, 0.0, 1.0);
-}
-
-)";
-
-static gfx::CubicBezier fast_out_slow_in(0.4, 0.0, 0.2, 1.0);
-
-static float bezier(float t) {
-    return fast_out_slow_in.Solve(t);
-}
-
-namespace ImGui {
-    ImFont* font;
-
-    // credit: https://github.com/zfedoran
-    bool BufferingBar(const char* label, float value, const ImVec2& size_arg, const ImU32& bg_col, const ImU32& fg_col) {
-        ImGuiWindow* window = GetCurrentWindow();
-        if (window->SkipItems)
-            return false;
-
-        ImGuiContext& g = *GImGui;
-        const ImGuiStyle& style = g.Style;
-        const ImGuiID id = window->GetID(label);
-
-        ImVec2 pos = window->DC.CursorPos;
-        ImVec2 size = size_arg;
-        size.x -= style.FramePadding.x * 2;
-
-        const ImRect bb(pos, ImVec2(pos.x + size.x, pos.y + size.y));
-        ItemSize(bb, style.FramePadding.y);
-        if (!ItemAdd(bb, id))
-            return false;
-
-        window->DrawList->AddRectFilled(bb.Min, bb.Max, bg_col);
-        window->DrawList->AddRectFilled(bb.Min, ImVec2(bb.Min.x + value * size.x, bb.Max.y), fg_col);
-    }
-
-    // credit: https://github.com/hofstee
-    constexpr static auto lerp(float x0, float x1) {
-        return [=](float t) {
-            return (1 - t) * x0 + t * x1;
-        };
-    }
-
-    constexpr static float lerp(float x0, float x1, float t) {
-        return lerp(x0, x1)(t);
-    }
-
-    static auto interval(float T0, float T1, std::function<float(float)> tween = lerp(0.0, 1.0)) {
-        return [=](float t) {
-            return t < T0 ? 0.0f : t > T1 ? 1.0f : tween((t - T0) / (T1 - T0));
-        };
-    }
-
-    template <int T> float sawtooth(float t) {
-        return ImFmod(((float)T) * t, 1.0f);
-    }
-
-    bool Spinner(const char* label, float radius, int thickness, const ImU32& color) {
-        ImGuiWindow* window = GetCurrentWindow();
-        if (window->SkipItems) return false;
-
-        ImGuiContext& g = *GImGui;
-        const ImGuiStyle& style = g.Style;
-        const ImGuiID id = window->GetID(label);
-
-        ImVec2 pos = window->DC.CursorPos;
-        ImVec2 size((radius) * 2, (radius + style.FramePadding.y) * 2);
-
-        const ImRect bb(pos, ImVec2(pos.x + size.x, pos.y + size.y));
-        ItemSize(bb, style.FramePadding.y);
-        if (!ItemAdd(bb, id)) return false;
-
-        const ImVec2 center = ImVec2(pos.x + radius, pos.y + radius + thickness + style.FramePadding.y);
-
-        const float start_angle = -IM_PI / 2.0f;         // Start at the top
-        const int num_detents = 5;                       // how many rotations we want before a repeat
-        const int skip_detents = 3;                      // how many steps we skip each rotation
-        const float period = 5.0f;                       // in seconds
-        const float t = ImFmod(g.Time, period) / period; // map period into [0, 1]
-
-        auto stroke_head_tween = [](float t) {
-            t = sawtooth<num_detents>(t);
-            return interval(0.0, 0.5, bezier)(t);
-        };
-
-        auto stroke_tail_tween = [](float t) {
-            t = sawtooth<num_detents>(t);
-            return interval(0.5, 1.0, bezier)(t);
-        };
-
-        auto step_tween = [=](float t) {
-            return floor(lerp(0.0, (float)num_detents, t));
-        };
-
-        auto rotation_tween = sawtooth<num_detents>;
-
-        const float head_value = stroke_head_tween(t);
-        const float tail_value = stroke_tail_tween(t);
-        const float step_value = step_tween(t);
-        const float rotation_value = rotation_tween(t);
-
-        const float min_arc = 30.0f / 360.0f * 2.0f * IM_PI;
-        const float max_arc = 270.0f / 360.0f * 2.0f * IM_PI;
-        const float step_offset = skip_detents * 2.0f * IM_PI / num_detents;
-        const float rotation_compensation = ImFmod(4.0 * IM_PI - step_offset - max_arc, 2 * IM_PI);
-
-        const float a_min = start_angle + tail_value * max_arc + rotation_value * rotation_compensation - step_value * step_offset;
-        const float a_max = a_min + (head_value - tail_value) * max_arc + min_arc;
-
-        window->DrawList->PathClear();
-
-        int num_segments = 24;
-        for (int i = 0; i < num_segments; i++) {
-            const float a = a_min + ((float)i / (float)num_segments) * (a_max - a_min);
-            window->DrawList->PathLineTo(ImVec2(center.x + ImCos(a) * radius,
-                center.y + ImSin(a) * radius));
-        }
-
-        window->DrawList->PathStroke(color, false, thickness);
-
-        return true;
-    }
-
-    // from imgui demo app
-    static void HelpMarker(const char* desc) {
-        ImGui::TextDisabled("(?)");
-        if (ImGui::BeginItemTooltip()) {
-            ImGui::PushTextWrapPos(ImGui::GetFontSize() * 35.0f);
-            ImGui::TextUnformatted(desc);
-            ImGui::PopTextWrapPos();
-            ImGui::EndTooltip();
-        }
-    }
 }
 
 class Error : public std::exception {
@@ -222,21 +73,29 @@ public:
     }
 };
 
-using namespace glm;
+float vertices[] = {
+    -1.0f, -1.0f,
+     1.0f, -1.0f,
+     1.0f,  1.0f,
+    -1.0f, -1.0f,
+     1.0f,  1.0f,
+    -1.0f,  1.0f
+};
+
+const char* vertexShaderSource = R"(
+#version 460 core
+
+layout(location = 0) in vec2 aPos;
+
+void main() {
+    gl_Position = vec4(aPos, 0.0, 1.0);
+}
+
+)";
 
 constexpr double zoom_co = 0.85;
 constexpr double doubleClick_interval = 0.2;
 ivec2 monitorSize;
-
-static void HelpMarker(const char* desc) { // code from imgui demo
-    ImGui::TextDisabled("[?]");
-    if (ImGui::BeginItemTooltip()) {
-        ImGui::PushTextWrapPos(ImGui::GetFontSize() * 35.0f);
-        ImGui::TextUnformatted(desc);
-        ImGui::PopTextWrapPos();
-        ImGui::EndTooltip();
-    }
-}
 
 struct Slider {
     std::string name;
@@ -326,6 +185,7 @@ class MV2 {
     int julia_size = 215;
     double julia_zoom = 3;
     double fps_update_interval = 0.03;
+    int max_vertices = 200;
     bool juliaset = true;
     bool orbit = true;
     bool cmplxinfo = true;
@@ -336,6 +196,8 @@ class MV2 {
     bool rightClickHold = false;
     dvec2 tempOffset = config.offset;
     double tempZoom = config.zoom;
+
+    int zoomTowards = 1; // 0: center, 1: cursor
 
     dvec2 cmplxCoord;
     int numIterations;
@@ -650,26 +512,36 @@ private:
         }
     }
 
-
     void set_op(int p, bool override = false) {
         if (p > op || override) op = p;
     }
 
-    static dvec2 pixel_to_complex(dvec2 pixelCoord, ivec2 screenSize, double zoom, dvec2 offset) {
-        return ((dvec2(pixelCoord.x / screenSize.x, (screenSize.y - pixelCoord.y) / screenSize.y)) - dvec2(0.5, 0.5)) *
-            dvec2(zoom, (screenSize.y * zoom) / screenSize.x) + offset;
-    }
     static dvec2 pixel_to_complex(MV2* app, dvec2 pixelCoord) {
         ivec2 ss = (app->fullscreen ? monitorSize : app->config.screenSize);
-        return ((dvec2(pixelCoord.x / ss.x, pixelCoord.y / ss.y)) - dvec2(0.5, 0.5)) *
-            dvec2(app->config.zoom, (ss.y * app->config.zoom) / ss.x) + app->config.offset;
+
+        return dvec2(1., -1.) * (((dvec2(pixelCoord.x / ss.x, (pixelCoord.y) / ss.y)) - dvec2(0.5, 0.5)) *
+            dvec2(app->config.zoom, (ss.y * app->config.zoom) / ss.x) + dvec2(app->config.offset.x, -app->config.offset.y));
     }
-    static dvec2 complex_to_pixel(dvec2 complexCoord, ivec2 screenSize, double zoom, dvec2 offset) {
-        dvec2 normalizedCoord = (complexCoord - offset);
-        normalizedCoord /= dvec2(zoom, (screenSize.y * zoom) / screenSize.x);
+    static dvec2 pixel_to_complex(dvec2 pixelCoord, ivec2 ss, double zoom, dvec2 offset) {
+        return dvec2(1., -1.) * (((dvec2(pixelCoord.x / ss.x, (pixelCoord.y) / ss.y)) - dvec2(0.5, 0.5)) *
+            dvec2(zoom, (ss.y * zoom) / ss.x) + dvec2(offset.x, -offset.y));
+    }
+    
+    static dvec2 complex_to_pixel(MV2* app, dvec2 complexCoord) {
+        ivec2 ss = (app->fullscreen ? monitorSize : app->config.screenSize);
+
+        dvec2 normalizedCoord = (complexCoord - app->config.offset);
+        normalizedCoord /= dvec2(app->config.zoom, (ss.y * app->config.zoom) / ss.x);
         dvec2 pixelCoordNormalized = normalizedCoord + dvec2(0.5, 0.5);
-        return dvec2(pixelCoordNormalized.x * screenSize.x, screenSize.y - pixelCoordNormalized.y * screenSize.y);
+        return dvec2(pixelCoordNormalized.x * ss.x, ss.y - pixelCoordNormalized.y * ss.y);
     }
+    static dvec2 complex_to_pixel(dvec2 complexCoord, ivec2 ss, double zoom, dvec2 offset) {
+        dvec2 normalizedCoord = (complexCoord - offset);
+        normalizedCoord /= dvec2(zoom, (ss.y * zoom) / ss.x);
+        dvec2 pixelCoordNormalized = normalizedCoord + dvec2(0.5, 0.5);
+        return dvec2(pixelCoordNormalized.x * ss.x, ss.y - pixelCoordNormalized.y * ss.y);
+    }
+
     static int max_iters(double zoom, double zoom_co, double iter_co, double initial_zoom = 5.0) {
         return 100 * std::max(1.0, pow(iter_co, log2(zoom / initial_zoom) / log2(zoom_co)));
     }
@@ -780,7 +652,11 @@ private:
                 else {
                     glfwGetCursorPos(window, &app->oldPos.x, &app->oldPos.y);
                     app->oldPos *= app->dpi_scale;
+                    std::cout << to_string(app->oldPos) << std::endl;
                     dvec2 pos = pixel_to_complex(app, app->oldPos);
+                    std::cout << to_string(pos) << std::endl;
+                    dvec2 px = complex_to_pixel(app, pos);
+                    std::cout << to_string(px) << std::endl;
                     dvec2 center = pixel_to_complex(app, static_cast<dvec2>(ss) / 2.0);
                     app->config.offset += pos - center;
                     glUniform2d(glGetUniformLocation(app->shaderProgram, "offset"), app->config.offset.x, app->config.offset.y);
@@ -814,13 +690,13 @@ private:
         y *= app->dpi_scale;
         if (!app->shaderProgram) return;
         ivec2 ss = (app->fullscreen ? monitorSize : app->config.screenSize);
-        glUniform2d(glGetUniformLocation(app->shaderProgram, "mousePos"), x / ss.x, y / ss.y);
+        glUniform2d(glGetUniformLocation(app->shaderProgram, "mousePos"), x, y);
         if (ImGui::GetIO().WantCaptureMouse)
             return;
         if (app->dragging) {
             app->lastPresses = { -doubleClick_interval, 0 };
             app->config.offset.x -= ((x - app->oldPos.x) * app->config.zoom) / ss.x;
-            app->config.offset.y -= ((y - app->oldPos.y) * ((app->config.zoom * ss.y) / ss.x)) / ss.y;
+            app->config.offset.y -= (((ss.y - y) - (ss.y - app->oldPos.y)) * ((app->config.zoom * ss.y) / ss.x)) / ss.y;
             glUniform2d(glGetUniformLocation(app->shaderProgram, "offset"), app->config.offset.x, app->config.offset.y);
             app->oldPos = { x, y };
             app->set_op(MV_COMPUTE);
@@ -845,7 +721,22 @@ private:
             app->refresh_rightclick();
         }
         else if (!ImGui::GetIO().WantCaptureMouse) {
-            app->config.zoom *= pow(zoom_co, y * 1.5);
+            double new_zoom = app->config.zoom * pow(zoom_co, y * 1.5);
+
+            if (app->zoomTowards == 1) {
+                double cursor_x, cursor_y;
+                glfwGetCursorPos(window, &cursor_x, &cursor_y);
+                cursor_x *= app->dpi_scale;
+                cursor_y *= app->dpi_scale;
+                
+                dvec2 new_pos = complex_to_pixel(pixel_to_complex(app, dvec2(cursor_x, cursor_y)), app->config.screenSize, new_zoom, app->config.offset);
+
+                app->config.offset = pixel_to_complex(static_cast<dvec2>(app->config.screenSize) / 2.0 + (new_pos - dvec2(cursor_x, cursor_y)), app->config.screenSize, new_zoom, app->config.offset);
+                
+                glUniform2d(glGetUniformLocation(app->shaderProgram, "offset"), app->config.offset.x, app->config.offset.y);
+            }
+
+            app->config.zoom = new_zoom;
             glUniform1d(glGetUniformLocation(app->shaderProgram, "zoom"), app->config.zoom);
             if (app->config.auto_adjust_iter) {
                 app->config.max_iters = max_iters(app->config.zoom, zoom_co, app->config.iter_co);
@@ -904,9 +795,9 @@ private:
         }
         if (orbit) {
             glBindBuffer(GL_SHADER_STORAGE_BUFFER, orbitBuffer);
-            glUniform2d(glGetUniformLocation(shaderProgram, "mousePos"), x, ss.y - y);
-            glUniform1i(glGetUniformLocation(shaderProgram, "numVertices"), 400);
-            glBufferData(GL_SHADER_STORAGE_BUFFER, 400 * sizeof(vec2), nullptr, GL_DYNAMIC_COPY);
+            glUniform2d(glGetUniformLocation(shaderProgram, "mousePos"), x, y);
+            glUniform1i(glGetUniformLocation(shaderProgram, "numVertices"), max_vertices);
+            glBufferData(GL_SHADER_STORAGE_BUFFER, max_vertices * sizeof(vec2), nullptr, GL_DYNAMIC_COPY);
             set_op(MV_POSTPROC);
         }
     }
@@ -1164,18 +1055,40 @@ public:
                 }
 
                 if (ImGui::Button("Take screenshot")) {
+                    // TODO: Render at full resolution without SSAA for taking a screenshot
                     int w, h;
                     if (fullscreen) {
                         GLFWmonitor* monitor = glfwGetPrimaryMonitor();
                         const GLFWvidmode* mode = glfwGetVideoMode(monitor);
                         w = mode->width, h = mode->height;
+                    } else {
+                        w = config.screenSize.x;
+                        h = config.screenSize.y;
                     }
-                    else w = config.screenSize.x, h = config.screenSize.y;
+                    w *= config.ssaa;
+                    h *= config.ssaa;
+
                     unsigned char* buffer = new unsigned char[4 * w * h];
-                    glBindFramebuffer(GL_FRAMEBUFFER, 0);
-                    glDrawArrays(GL_TRIANGLES, 0, 6);
-                    glReadBuffer(GL_BACK);
+
+                    GLuint fbo;
+                    glGenFramebuffers(1, &fbo);
+                    glBindFramebuffer(GL_FRAMEBUFFER, fbo);
+
+                    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, postprocTexBuffer, 0);
+
+                    if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE) {
+                        std::cerr << "Framebuffer is not complete!" << std::endl;
+                        delete[] buffer;
+                        glBindFramebuffer(GL_FRAMEBUFFER, 0);
+                        glDeleteFramebuffers(1, &fbo);
+                        return;
+                    }
+
+                    glReadBuffer(GL_COLOR_ATTACHMENT0);
                     glReadPixels(0, 0, w, h, GL_RGBA, GL_UNSIGNED_BYTE, buffer);
+
+                    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+                    glDeleteFramebuffers(1, &fbo);
 
                     char const* lFilterPatterns[1] = { "*.png" };
                     auto t = std::time(nullptr);
@@ -1631,7 +1544,7 @@ public:
                         ImGui::EndTabItem();
                     }
                     if (ImGui::BeginTabItem("Inside")) {
-                        if (ImGui::ColorEdit3("Set color", glm::value_ptr(config.set_color))) {
+                        if (ImGui::ColorEdit3("In-set color", glm::value_ptr(config.set_color))) {
                             glUniform3f(glGetUniformLocation(shaderProgram, "set_color"), config.set_color.r, config.set_color.g, config.set_color.b);
                             set_op(MV_POSTPROC);
                         }
@@ -1647,11 +1560,28 @@ public:
                     ImGui::Checkbox("Julia set", &juliaset);
                     ImGui::SameLine();
                     ImGui::Checkbox("Orbit", &orbit);
-                    ImGui::SetNextItemWidth(70);
+                    ImGui::SetNextItemWidth(90);
+                    ImGui::BeginDisabled(!juliaset);
                     if (ImGui::InputInt("Julia preview size", &julia_size, 5, 20)) {
+                        if (julia_size < 10) julia_size = 10;
                         glBindTexture(GL_TEXTURE_2D, juliaTexBuffer);
                         glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA32F, julia_size * config.ssaa, julia_size * config.ssaa, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
                     }
+                    ImGui::EndDisabled();
+                    ImGui::SetNextItemWidth(90);
+                    ImGui::BeginDisabled(!orbit);
+                    if (ImGui::InputInt("Maximum vertices shown", &max_vertices, 5, 20)) {
+                        if (max_vertices < 2) max_vertices = 2;
+                        glUniform1i(glGetUniformLocation(shaderProgram, "numVertices"), max_vertices);
+                        glBufferData(GL_SHADER_STORAGE_BUFFER, max_vertices * sizeof(vec2), nullptr, GL_DYNAMIC_COPY);
+                    }
+                    ImGui::EndDisabled();
+                    ImGui::TreePop();
+                }
+                if (ImGui::TreeNode("Zoom and navigation")) {
+                    ImGui::RadioButton("Zoom towards the mouse cursor", &zoomTowards, 1);
+                    ImGui::RadioButton("Zoom towards the center", &zoomTowards, 0);
+
                     ImGui::TreePop();
                 }
                 ImGui::EndGroup();
@@ -1683,9 +1613,9 @@ public:
                     ImGui::SetWindowPos(pos);
                 }
                 if (cmplxinfo) {
-                    if (numIterations > 0) ImGui::Text("Re: %.17g\nIm: %.17g\nIterations before bailout: %d", cmplxCoord.x, -cmplxCoord.y, numIterations);
-                    else if (numIterations == -1) ImGui::Text("Re: %.17g\nIm: %.17g\nPoint is in set", cmplxCoord.x, -cmplxCoord.y);
-                    else ImGui::Text("Re: %.17g\nIm: %.17g\nPoint out of bounds", cmplxCoord.x, -cmplxCoord.y);
+                    if (numIterations > 0) ImGui::Text("Re: %.17g\nIm: %.17g\nIterations before bailout: %d", cmplxCoord.x, cmplxCoord.y, numIterations);
+                    else if (numIterations == -1) ImGui::Text("Re: %.17g\nIm: %.17g\nPoint is in set", cmplxCoord.x, cmplxCoord.y);
+                    else ImGui::Text("Re: %.17g\nIm: %.17g\nPoint out of bounds", cmplxCoord.x, cmplxCoord.y);
                 }
                 if (juliaset) {
                     if (cmplxinfo) ImGui::SeparatorText("Julia Set");
