@@ -117,16 +117,71 @@ struct Fractal {
 
 std::vector<Fractal> fractals = {
     Fractal({.name = "Custom"}),
-    Fractal({.name = "Mandelbrot",   .equation = "cpow(z, power) + c", .condition = "xsq + ysq > 100", .initialz = "c", .power = 2.f, .continuous_compatible = true}),
-    Fractal({.name = "Julia Set",    .equation = "cpow(z, power) + dvec2(Re, Im)", .condition = "xsq + ysq > 100", .initialz = "c", .power = 2.f, .continuous_compatible = true,
-        .sliders = { Slider({.name = "Re", .value = 0.f}), Slider({.name = "Im", .value = 0.f})}}),
-    Fractal({.name = "Nova",         .equation = "z - cdivide(cpow(z, power) - dvec2(1, 0), power * cpow(z, power - 1)) + c", .condition = "distance(z, prevz) < 10e-5", .initialz = "dvec2(1, 0)", .power = 3.f, .continuous_compatible = false}),
-    Fractal({.name = "Burning ship", .equation = "cpow(dvec2(abs(z.x), abs(z.y)), power) + c", .condition = "xsq + ysq > 100", .initialz = "c", .power = 2.f, .continuous_compatible = true}),
-    Fractal({.name = "Magnet 1",     .equation = "cpow(cdivide(cpow(z, power) + c - dvec2(1, 0), power * z + c - dvec2(power, 0)), power)", .condition = "length(z) >= 100 || length(z - dvec2(1,0)) <= 1e-5", .initialz="dvec2(0)", .power = 2.f, .continuous_compatible = false}),
-    Fractal({.name = "Magnet 2",     .equation = "cpow(cdivide(cpow(z, power + 1) + 3 * cmultiply(c - dvec2(1, 0), z) + cmultiply(c - dvec2(1, 0), c - dvec2(2, 0)), "
-        "3 * cpow(z, power) + 3 * cmultiply(c - dvec2(2, 0), z) + cmultiply(c - dvec2(1, 0), c - dvec2(power, 0)) + dvec2(1, 0)), power)", .condition = "length(z) >= 100 || length(z - dvec2(1,0)) <= 1e-5", .initialz = "dvec2(0)", .power = 2.f, .continuous_compatible = false}),
-    Fractal({.name = "Lambda",       .equation = "cmultiply(c, cmultiply(z, cpow(dvec2(1, 0) - z, power - 1)))", .condition = "xsq + ysq > 100", .initialz = "dvec2(0.5f, 0.f)", .power = 2.f, .continuous_compatible=true}),
-    Fractal({.name = "Tricorn",      .equation = "cpow(cconj(z), power) + c", .condition = "distance(z, c) > 10", .initialz = "c", .power = 2.f, .continuous_compatible = true}),
+    Fractal({.name = "Mandelbrot",
+        .equation = "cpow(z, power) + c",
+        .condition = "xsq + ysq > 100",
+        .initialz = "c",
+        .power = 2.f,
+        .continuous_compatible = true
+    }),
+    Fractal({.name = "Julia Set",
+        .equation = "cpow(z, power) + dvec2(Re, Im)",
+        .condition = "xsq + ysq > 100",
+        .initialz = "c",
+        .power = 2.f,
+        .continuous_compatible = true,
+        .sliders = { Slider({.name = "Re", .value = 0.f}), Slider({.name = "Im", .value = 0.f})}
+    }),
+    Fractal({.name = "Nova",
+        .equation = "z - cdivide(cpow(z, power) - dvec2(1, 0), power * cpow(z, power - 1)) + c",
+        .condition = "distance(z, prevz) < 10e-5",
+        .initialz = "dvec2(1, 0)",
+        .power = 3.f,
+        .continuous_compatible = false
+    }),
+    Fractal({.name = "Burning ship",
+        .equation = "cpow(dvec2(abs(z.x), abs(z.y)), power) + c",
+        .condition = "xsq + ysq > 100",
+        .initialz = "c",
+        .power = 2.f,
+        .continuous_compatible = true
+    }),
+    Fractal({.name = "Newton",
+        .equation = "z - cmultiply(dvec2(Re, Im), cdivide(cpow(z, power) - dvec2(1.f, 0.f), power * cpow(z, power - 1.f)))",
+        .condition = "length(cpow(z, power) - dvec2(1.0, 0.0)) < 1e-5",
+        .initialz = "c",
+        .power = 3.f,
+        .continuous_compatible = true,
+        .sliders = { Slider({.name = "Re", .value = 1.f}), Slider({.name = "Im", .value = 0.f})}
+    }),
+    Fractal({.name = "Magnet 1",
+        .equation = "cpow(cdivide(cpow(z, power) + c - dvec2(1, 0), power * z + c - dvec2(power, 0)), power)",
+        .condition = "length(z) >= 100 || length(z - dvec2(1,0)) <= 1e-5",
+        .initialz="dvec2(0)",
+        .power = 2.f,
+        .continuous_compatible = false
+    }),
+    Fractal({.name = "Magnet 2",
+        .equation = "cpow(cdivide(cpow(z, power + 1) + 3 * cmultiply(c - dvec2(1, 0), z) + cmultiply(c - dvec2(1, 0), c - dvec2(2, 0)), 3 * cpow(z, power) + 3 * cmultiply(c - dvec2(2, 0), z) + cmultiply(c - dvec2(1, 0), c - dvec2(power, 0)) + dvec2(1, 0)), power)",
+        .condition = "length(z) >= 100 || length(z - dvec2(1,0)) <= 1e-5",
+        .initialz = "dvec2(0)",
+        .power = 2.f,
+        .continuous_compatible = false
+    }),
+    Fractal({.name = "Lambda",
+        .equation = "cmultiply(c, cmultiply(z, cpow(dvec2(1, 0) - z, power - 1)))",
+        .condition = "xsq + ysq > 100",
+        .initialz = "dvec2(0.5f, 0.f)",
+        .power = 2.f,
+        .continuous_compatible = true
+    }),
+    Fractal({.name = "Tricorn",
+        .equation = "cpow(cconj(z), power) + c",
+        .condition = "distance(z, c) > 10",
+        .initialz = "c",
+        .power = 2.f,
+        .continuous_compatible = true
+    }),
 };
 
 struct Config {
@@ -137,7 +192,7 @@ struct Config {
     float  iter_multiplier = 12.f;
     bool   auto_adjust_iter = true;
     int    max_iters = 100;
-    float  iter_co = 1.045f;
+    float  iter_co = 1.04f;
     bool   continuous_coloring = true;
     bool   normal_map_effect = false;
     fvec3 set_color = { 0.f, 0.f, 0.f };
@@ -494,12 +549,15 @@ private:
             glUniform1i(glGetUniformLocation(shaderProgram, "transfer_function"), config.transfer_function);
 
             glUniform1f(glGetUniformLocation(shaderProgram, "power"), config.degree);
+            glUniform1i(glGetUniformLocation(shaderProgram, "fractal"), fractal);
 
             glUniform1f(glGetUniformLocation(shaderProgram, "angle"), config.angle);
             glUniform1f(glGetUniformLocation(shaderProgram, "height"), config.height);
 
             glShaderStorageBlockBinding(shaderProgram, glGetProgramResourceIndex(shaderProgram, GL_SHADER_STORAGE_BLOCK, "orbit"), 0);
             glShaderStorageBlockBinding(shaderProgram, glGetProgramResourceIndex(shaderProgram, GL_SHADER_STORAGE_BLOCK, "spectrum"), 1);
+            glShaderStorageBlockBinding(shaderProgram, glGetProgramResourceIndex(shaderProgram, GL_SHADER_STORAGE_BLOCK, "variables"), 2);
+            glShaderStorageBlockBinding(shaderProgram, glGetProgramResourceIndex(shaderProgram, GL_SHADER_STORAGE_BLOCK, "newton_roots"), 4);
         }
         if (textures) {
             glBindFramebuffer(GL_FRAMEBUFFER, mandelbrotFrameBuffer);
@@ -652,11 +710,7 @@ private:
                 else {
                     glfwGetCursorPos(window, &app->oldPos.x, &app->oldPos.y);
                     app->oldPos *= app->dpi_scale;
-                    std::cout << to_string(app->oldPos) << std::endl;
                     dvec2 pos = pixel_to_complex(app, app->oldPos);
-                    std::cout << to_string(pos) << std::endl;
-                    dvec2 px = complex_to_pixel(app, pos);
-                    std::cout << to_string(px) << std::endl;
                     dvec2 center = pixel_to_complex(app, static_cast<dvec2>(ss) / 2.0);
                     app->config.offset += pos - center;
                     glUniform2d(glGetUniformLocation(app->shaderProgram, "offset"), app->config.offset.x, app->config.offset.y);
@@ -1353,7 +1407,7 @@ public:
                     ImGui::PopID();
                 };
                 float mouseSpeed = cbrt(pow(ImGui::GetIO().MouseDelta.x, 2) + pow(ImGui::GetIO().MouseDelta.y, 2));
-                slider("Power", &config.degree, -1, 2.f, std::max(1e-4f, abs(round(config.degree) - config.degree)) * mouseSpeed * std::min(pow(1.1, config.degree), 1e+3) / 40.f, (fractal == 0) ? 0.f : 2.f, FLT_MAX);
+                slider("Power", &config.degree, -1, 2.f, std::max(1e-4f, abs(round(config.degree) - config.degree)) * mouseSpeed * std::min(pow(1.1, config.degree), 1e+3) / 40.f, (fractal == 0) ? -FLT_MAX : 2.f, FLT_MAX);
                 int numSliders = fractals[fractal].sliders.size();
                 for (int i = 0; i < numSliders; i++) {
                     Slider& s = fractals[fractal].sliders[i];
