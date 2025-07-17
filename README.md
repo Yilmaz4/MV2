@@ -1,7 +1,7 @@
 # Mandelbrot Voyage 2
 A fully interactive GPU-accelerated customizable fractal zoom program aimed at creating artistic and high quality images & videos.
 
-![mv2](https://github.com/Yilmaz4/MV2/assets/77583632/f9763dd7-e527-441b-a5b4-3eae7c4a7695)
+![mv2](https://github.com/user-attachments/assets/38b3d552-74c3-4604-8d7b-1b38c8724b25)
 
 Mandelbrot set is a set defined in the complex plane, and consists of all complex numbers which satisfy $|Z_n| < 2$ for all $n$ under iteration of $Z_{n+1}=Z_n^2+c$ where $c$ is any point in the complex plane and $Z_0=0$.
 
