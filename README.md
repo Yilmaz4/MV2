@@ -1,11 +1,11 @@
 # Mandelbrot Voyage 2
-A fully interactive open-source GPU-based fully customizable fractal zoom program aimed at creating artistic and high quality images & videos.
+A fully interactive GPU-accelerated customizable fractal zoom program aimed at creating artistic and high quality images & videos.
 
 ![mv2](https://github.com/Yilmaz4/MV2/assets/77583632/f9763dd7-e527-441b-a5b4-3eae7c4a7695)
 
-Mandelbrot set is a set defined in the complex plane, and consists of all complex numbers which satisfy $|Z_n| < 2$ for all $n$ under iteration of $Z_{n+1}=Z_n^2+c$ where $c$ is the particular point in the Mandelbrot set and $Z_0=0$.
+Mandelbrot set is a set defined in the complex plane, and consists of all complex numbers which satisfy $|Z_n| < 2$ for all $n$ under iteration of $Z_{n+1}=Z_n^2+c$ where $c$ is any point in the complex plane and $Z_0=0$.
 
-Points inside the set are colored black, and points outside the set are colored based on $n$.
+Points inside the set are colored black, while points outside the set are colored based on $n$ (how many iterations it took for the point to diverge).
 
 ## Features
 - Fully customizable equation in GLSL syntax
@@ -72,7 +72,7 @@ The first input (the main equation, must evaluate to a `dvec2`) is the new value
 User-controlled variables can also be defined, which can then be used in the equation and adjusted in real time using the sliders below. "Power" is a default slider that cannot be deleted and corresponds to the `power` variable above. 
 
 > [!NOTE]  
-> Due to limitations in GLSL, zoom is limited to $10^4$ for any non-integer or bigger than 4 power. See [Limitations](#limitations) for more information.
+> Due to limitations in GLSL, zoom is limited to $10^4$ for any non-integer or bigger than 4 power. See [Limitations](#limitations) for more information. Click "Round" to round the power to the nearest integer to zoom further.
 
 ## Examples
 ![Screenshot 2024-05-31 222113](https://github.com/Yilmaz4/MV2/assets/77583632/8f5d49f5-45ef-4627-8025-a6455f71d1dd)\
