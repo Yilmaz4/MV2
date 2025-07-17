@@ -21,7 +21,7 @@
 #include <GLFW/glfw3.h>
 #include <stb/stb_image_write.h>
 #include <tinyfiledialogs/tinyfiledialogs.h>
-#include <chromium/cubic_bezier.h>
+#include <imgui_ext.h>
 #include <nlohmann/json.hpp>
 
 #define GLM_ENABLE_EXPERIMENTAL
@@ -46,168 +46,19 @@
 #include <ctime>
 #include <string>
 #include <filesystem>
-#include <functional>
 #include <algorithm>
 #include <regex>
+
+using namespace glm;
 
 #define MV_COMPUTE  2
 #define MV_POSTPROC 1
 #define MV_RENDER   0
 
-float vertices[] = {
-    -1.0f, -1.0f,
-     1.0f, -1.0f,
-     1.0f,  1.0f,
-    -1.0f, -1.0f,
-     1.0f,  1.0f,
-    -1.0f,  1.0f
-};
 
 void GLAPIENTRY glMessageCallback(GLenum source, GLenum type, GLuint id, GLenum severity, GLsizei length, const GLchar* message, const void* userParam) {
     if (type != GL_DEBUG_TYPE_ERROR) return;
     fprintf(stderr, "GL CALLBACK: %s type = 0x%x, severity = 0x%x, message = %s\n", "** GL ERROR **", type, severity, message);
-}
-
-const char* vertexShaderSource = R"(
-#version 460 core
-
-layout(location = 0) in vec2 aPos;
-
-void main() {
-    gl_Position = vec4(aPos, 0.0, 1.0);
-}
-
-)";
-
-static gfx::CubicBezier fast_out_slow_in(0.4, 0.0, 0.2, 1.0);
-
-static float bezier(float t) {
-    return fast_out_slow_in.Solve(t);
-}
-
-namespace ImGui {
-    ImFont* font;
-
-    // credit: https://github.com/zfedoran
-    bool BufferingBar(const char* label, float value, const ImVec2& size_arg, const ImU32& bg_col, const ImU32& fg_col) {
-        ImGuiWindow* window = GetCurrentWindow();
-        if (window->SkipItems)
-            return false;
-
-        ImGuiContext& g = *GImGui;
-        const ImGuiStyle& style = g.Style;
-        const ImGuiID id = window->GetID(label);
-
-        ImVec2 pos = window->DC.CursorPos;
-        ImVec2 size = size_arg;
-        size.x -= style.FramePadding.x * 2;
-
-        const ImRect bb(pos, ImVec2(pos.x + size.x, pos.y + size.y));
-        ItemSize(bb, style.FramePadding.y);
-        if (!ItemAdd(bb, id))
-            return false;
-
-        window->DrawList->AddRectFilled(bb.Min, bb.Max, bg_col);
-        window->DrawList->AddRectFilled(bb.Min, ImVec2(bb.Min.x + value * size.x, bb.Max.y), fg_col);
-    }
-
-    // credit: https://github.com/hofstee
-    constexpr static auto lerp(float x0, float x1) {
-        return [=](float t) {
-            return (1 - t) * x0 + t * x1;
-        };
-    }
-
-    constexpr static float lerp(float x0, float x1, float t) {
-        return lerp(x0, x1)(t);
-    }
-
-    static auto interval(float T0, float T1, std::function<float(float)> tween = lerp(0.0, 1.0)) {
-        return [=](float t) {
-            return t < T0 ? 0.0f : t > T1 ? 1.0f : tween((t - T0) / (T1 - T0));
-        };
-    }
-
-    template <int T> float sawtooth(float t) {
-        return ImFmod(((float)T) * t, 1.0f);
-    }
-
-    bool Spinner(const char* label, float radius, int thickness, const ImU32& color) {
-        ImGuiWindow* window = GetCurrentWindow();
-        if (window->SkipItems) return false;
-
-        ImGuiContext& g = *GImGui;
-        const ImGuiStyle& style = g.Style;
-        const ImGuiID id = window->GetID(label);
-
-        ImVec2 pos = window->DC.CursorPos;
-        ImVec2 size((radius) * 2, (radius + style.FramePadding.y) * 2);
-
-        const ImRect bb(pos, ImVec2(pos.x + size.x, pos.y + size.y));
-        ItemSize(bb, style.FramePadding.y);
-        if (!ItemAdd(bb, id)) return false;
-
-        const ImVec2 center = ImVec2(pos.x + radius, pos.y + radius + thickness + style.FramePadding.y);
-
-        const float start_angle = -IM_PI / 2.0f;         // Start at the top
-        const int num_detents = 5;                       // how many rotations we want before a repeat
-        const int skip_detents = 3;                      // how many steps we skip each rotation
-        const float period = 5.0f;                       // in seconds
-        const float t = ImFmod(g.Time, period) / period; // map period into [0, 1]
-
-        auto stroke_head_tween = [](float t) {
-            t = sawtooth<num_detents>(t);
-            return interval(0.0, 0.5, bezier)(t);
-        };
-
-        auto stroke_tail_tween = [](float t) {
-            t = sawtooth<num_detents>(t);
-            return interval(0.5, 1.0, bezier)(t);
-        };
-
-        auto step_tween = [=](float t) {
-            return floor(lerp(0.0, (float)num_detents, t));
-        };
-
-        auto rotation_tween = sawtooth<num_detents>;
-
-        const float head_value = stroke_head_tween(t);
-        const float tail_value = stroke_tail_tween(t);
-        const float step_value = step_tween(t);
-        const float rotation_value = rotation_tween(t);
-
-        const float min_arc = 30.0f / 360.0f * 2.0f * IM_PI;
-        const float max_arc = 270.0f / 360.0f * 2.0f * IM_PI;
-        const float step_offset = skip_detents * 2.0f * IM_PI / num_detents;
-        const float rotation_compensation = ImFmod(4.0 * IM_PI - step_offset - max_arc, 2 * IM_PI);
-
-        const float a_min = start_angle + tail_value * max_arc + rotation_value * rotation_compensation - step_value * step_offset;
-        const float a_max = a_min + (head_value - tail_value) * max_arc + min_arc;
-
-        window->DrawList->PathClear();
-
-        int num_segments = 24;
-        for (int i = 0; i < num_segments; i++) {
-            const float a = a_min + ((float)i / (float)num_segments) * (a_max - a_min);
-            window->DrawList->PathLineTo(ImVec2(center.x + ImCos(a) * radius,
-                center.y + ImSin(a) * radius));
-        }
-
-        window->DrawList->PathStroke(color, false, thickness);
-
-        return true;
-    }
-
-    // from imgui demo app
-    static void HelpMarker(const char* desc) {
-        ImGui::TextDisabled("(?)");
-        if (ImGui::BeginItemTooltip()) {
-            ImGui::PushTextWrapPos(ImGui::GetFontSize() * 35.0f);
-            ImGui::TextUnformatted(desc);
-            ImGui::PopTextWrapPos();
-            ImGui::EndTooltip();
-        }
-    }
 }
 
 class Error : public std::exception {
@@ -222,21 +73,29 @@ public:
     }
 };
 
-using namespace glm;
+float vertices[] = {
+    -1.0f, -1.0f,
+     1.0f, -1.0f,
+     1.0f,  1.0f,
+    -1.0f, -1.0f,
+     1.0f,  1.0f,
+    -1.0f,  1.0f
+};
+
+const char* vertexShaderSource = R"(
+#version 460 core
+
+layout(location = 0) in vec2 aPos;
+
+void main() {
+    gl_Position = vec4(aPos, 0.0, 1.0);
+}
+
+)";
 
 constexpr double zoom_co = 0.85;
 constexpr double doubleClick_interval = 0.2;
 ivec2 monitorSize;
-
-static void HelpMarker(const char* desc) { // code from imgui demo
-    ImGui::TextDisabled("[?]");
-    if (ImGui::BeginItemTooltip()) {
-        ImGui::PushTextWrapPos(ImGui::GetFontSize() * 35.0f);
-        ImGui::TextUnformatted(desc);
-        ImGui::PopTextWrapPos();
-        ImGui::EndTooltip();
-    }
-}
 
 struct Slider {
     std::string name;
@@ -336,6 +195,8 @@ class MV2 {
     bool rightClickHold = false;
     dvec2 tempOffset = config.offset;
     double tempZoom = config.zoom;
+
+    int zoomTowards = 0; // 0: center, 1: cursor
 
     dvec2 cmplxCoord;
     int numIterations;
@@ -1652,6 +1513,12 @@ public:
                         glBindTexture(GL_TEXTURE_2D, juliaTexBuffer);
                         glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA32F, julia_size * config.ssaa, julia_size * config.ssaa, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
                     }
+                    ImGui::TreePop();
+                }
+                if (ImGui::TreeNode("Zoom and navigation")) {
+                    ImGui::RadioButton("Zoom towards the center", &zoomTowards, 0);
+                    ImGui::RadioButton("Zoom towards the mouse cursor", &zoomTowards, 1);
+
                     ImGui::TreePop();
                 }
                 ImGui::EndGroup();
