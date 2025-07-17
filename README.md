@@ -114,5 +114,9 @@ This project has been tested on Windows and Linux.
 - Most of the double-precision transcendental functions are software emulated, which means performance will be severely impacted.
 - Maximum zoom is $10^{14}$ due to finite precision.
 
+## Known issues
+- Shader linkage takes too long on Intel iGPUs with Mesa drivers on Linux, causing the program to open only after several minutes, I have no idea why
+- Taking a screenshot results in a blurry image regardless of how high SSAA is set
+
 ## Contributing
 Contributions are highly welcome, it could be anything from a typo correction to a completely new feature, feel free to create a pull request or raise an issue!
