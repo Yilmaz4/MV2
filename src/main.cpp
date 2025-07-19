@@ -99,6 +99,7 @@ ivec2 monitorSize;
 
 struct Slider {
     std::string name;
+    double real_value = 0.f;
     float value = 0.f;
     float min = 0.f, max = 0.f;
     float step = 1.f;
@@ -699,11 +700,13 @@ private:
                     x *= app->dpi_scale;
                     y *= app->dpi_scale;
                     dvec2 cmplx = app->pixel_to_complex(app, dvec2(x, y));
-                    fractals[2].sliders[0].value = cmplx.x;
-                    fractals[2].sliders[1].value = cmplx.y;
-                    switch_shader();
+                    fractals[2].sliders[0].value = fractals[2].sliders[0].real_value = cmplx.x;
+                    fractals[2].sliders[1].value = fractals[2].sliders[1].real_value = cmplx.y;
                     app->tempOffset = app->config.offset;
                     app->tempZoom = app->config.zoom;
+                    app->config.zoom = sqrt(app->config.zoom);
+                    app->config.offset = dvec2(0., 0.);
+                    switch_shader();
                 }
                 else if (app->rightClickHold && app->fractal == 2) {
                     app->fractal = 1;
@@ -923,7 +926,7 @@ private:
         glBindBuffer(GL_SHADER_STORAGE_BUFFER, sliderBuffer);
         std::vector<float> values(fractals[fractal].sliders.size());
         for (int i = 0; i < values.size(); i++) {
-            values[i] = fractals[fractal].sliders[i].value;
+            values[i] = fractals[fractal].sliders[i].real_value;
         }
         glBufferData(GL_SHADER_STORAGE_BUFFER, values.size() * sizeof(float), values.data(), GL_DYNAMIC_DRAW);
     }
@@ -1385,7 +1388,7 @@ public:
                 if (fractal == 0) ImGui::SeparatorText("Variables");
                 int update_fractal = 0;
                 std::vector<int> to_delete;
-                auto slider = [&]<typename type>(const char* label, type* ptr, int index, const type def, float speed, float min, float max) {
+                auto slider = [&](const char* label, float* ptr, double* real_ptr, int index, const float def, float speed, float min, float max) {
                     ImGui::PushID(ptr);
                     if (ImGui::Button("Round##", ImVec2(80, 0))) {
                         *ptr = round(*ptr);
@@ -1403,14 +1406,17 @@ public:
                     ImGui::SameLine();
                     ImGui::SetNextItemWidth(80);
                     update_fractal |= ImGui::DragFloat(label, ptr, speed, min, max, "%.5f", ImGuiSliderFlags_NoRoundToFormat);
+                    if (update_fractal && real_ptr) {
+                        *real_ptr = *ptr;
+                    }
                     ImGui::PopID();
                 };
                 float mouseSpeed = cbrt(pow(ImGui::GetIO().MouseDelta.x, 2) + pow(ImGui::GetIO().MouseDelta.y, 2));
-                slider("Power", &config.degree, -1, 2.f, std::max(1e-4f, abs(round(config.degree) - config.degree)) * mouseSpeed * std::min(pow(1.1, config.degree), 1e+3) / 40.f, (fractal == 0) ? -FLT_MAX : 2.f, FLT_MAX);
+                slider("Power", &config.degree, nullptr, -1, 2.f, std::max(1e-4f, abs(round(config.degree) - config.degree)) * mouseSpeed * std::min(pow(1.1f, config.degree), 1e+3f) / 40.f, (fractal == 0) ? -FLT_MAX : 2.f, FLT_MAX);
                 int numSliders = fractals[fractal].sliders.size();
                 for (int i = 0; i < numSliders; i++) {
                     Slider& s = fractals[fractal].sliders[i];
-                    slider(s.name.c_str(), &s.value, i, 0.f, std::max(1e-2f, abs(s.value) * mouseSpeed / 40.f), s.min, s.max);
+                    slider(s.name.c_str(), &s.value, &s.real_value, i, 0.f, std::max(1e-2f, abs(s.value) * mouseSpeed / 40.f), s.min, s.max);
                 }
                 for (const int& i : to_delete) {
                     fractals[fractal].sliders.erase(fractals[fractal].sliders.begin() + i);
