@@ -771,11 +771,6 @@ private:
             app->julia_zoom *= pow(zoom_co, y * 1.5);
             glUniform1d(glGetUniformLocation(app->shaderProgram, "julia_zoom"), app->julia_zoom);
             glUniform1i(glGetUniformLocation(app->shaderProgram, "julia_maxiters"), max_iters(app->julia_zoom, zoom_co, app->config.iter_co, 3.0));
-            glBindFramebuffer(GL_FRAMEBUFFER, app->juliaFrameBuffer);
-            glViewport(0, 0, app->julia_size * app->config.ssaa, app->julia_size * app->config.ssaa);
-            glUniform2i(glGetUniformLocation(app->shaderProgram, "screenSize"), app->julia_size * app->config.ssaa, app->julia_size * app->config.ssaa);
-            glUniform1i(glGetUniformLocation(app->shaderProgram, "op"), 4);
-            if (app->juliaset) glDrawArrays(GL_TRIANGLES, 0, 6);
             app->refresh_rightclick();
         }
         else if (!ImGui::GetIO().WantCaptureMouse) {
