@@ -378,7 +378,7 @@ void main() {
     dvec2 offset_inv = dvec2(offset.x, -offset.y);
 
     if (op == 3) {
-        dvec2 c = dvec2(julia_zoom, julia_zoom) * (dvec2(fragCoord.x / screenSize.x, fragCoord.y / screenSize.y) - dvec2(0.5, 0.5));
+        dvec2 c = (dvec2(gl_FragCoord.x / screenSize.x, gl_FragCoord.y / screenSize.y) - dvec2(0.5, 0.5)) * dvec2(julia_zoom, julia_zoom);
         dvec2 z = c;
         dvec2 prevz = z;
 
@@ -396,7 +396,9 @@ void main() {
                     t = float(u.x * nv.x + u.y * nv.y + height) / (1.f + height);
                     if (t < 0) t = 0;
                 }
-                fragColor = vec4(mix(vec3(0.f), vec3(color((continuous_coloring == 1 ? i + 1 - log2(log2(float(length(z)))) / log2(power) : i))), normal_map_effect == 1 ? pow(t, 1.f / 1.8f) : 1.f), 1.f);
+                float s = i + 1 - log2(log2(float(length(z)))) / log2(power);
+                float final = (continuous_coloring == 1 && s >= 1 && s < julia_maxiters) ? s : (i - 1);
+                fragColor = vec4(mix(vec3(0.f), vec3(color((continuous_coloring == 1 ? final : i))), normal_map_effect == 1 ? pow(t, 1.f / 1.8f) : 1.f), 1.f);
                 return;
             }
             if (normal_map_effect == 1)
@@ -435,7 +437,7 @@ void main() {
                     if (continuous_coloring == 1 && i > 1) {
                         float s = i + 1 - log2(log(float(length(z)))) / log2(power);
                         if (s < 1 || s >= max_iters) {
-                            s = i;
+                            s = i - 1;
                         }
                         fragColor = vec4(s, i, t, 0.f);
                     }
