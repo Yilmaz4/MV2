@@ -433,7 +433,11 @@ void main() {
                     }
 
                     if (continuous_coloring == 1 && i > 1) {
-                        fragColor = vec4(i + 1 - log2(log(float(length(z)))) / log2(power), i, t, 0.f);
+                        float s = i + 1 - log2(log(float(length(z)))) / log2(power);
+                        if (s < 1 || s >= max_iters) {
+                            s = i;
+                        }
+                        fragColor = vec4(s, i, t, 0.f);
                     }
                     else {
                         fragColor = vec4(i, i, t, 0.f);

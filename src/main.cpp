@@ -151,7 +151,7 @@ std::vector<Fractal> fractals = {
         .condition = "length(cpow(z, power) - dvec2(1.0, 0.0)) < 1e-5",
         .initialz = "c",
         .power = 3.f,
-        .continuous_compatible = true,
+        .continuous_compatible = false,
         .sliders = { Slider({.name = "Re", .value = 1.f}), Slider({.name = "Im", .value = 0.f})}
     }),
     Fractal({.name = "Magnet 1",
@@ -188,7 +188,7 @@ struct Config {
     dvec2  offset = { -0.4, 0.0 };
     ivec2  screenSize = { 1000, 600 };
     double zoom = 5.0;
-    float  spectrum_offset = 860.f;
+    float  spectrum_offset = 0.f;
     float  iter_multiplier = 12.f;
     bool   auto_adjust_iter = true;
     int    max_iters = 100;
@@ -306,6 +306,9 @@ public:
 
         const char* session = std::getenv("XDG_SESSION_DESKTOP");
         const char* hyprSig = std::getenv("HYPRLAND_INSTANCE_SIGNATURE");
+        if ((session && std::string(session) == "Hyprland") || (hyprSig != nullptr)) {
+            system("hyprctl keyword windowrulev2 renderunfocused, class:mv2");
+        }
 
         window = glfwCreateWindow(config.screenSize.x, config.screenSize.y, "Mandelbrot Voyage", NULL, NULL);
         if (window == nullptr) {
@@ -940,8 +943,8 @@ public:
             
             double currentTime = glfwGetTime();
 
-            if (currentTime < 2.f) {
-                config.degree = (currentTime < 0.5f) ? 1.f : (2.f - pow(1.f - (currentTime - 0.5f) / 1.5f, 11));
+            if (currentTime < 1.6f) {
+                config.degree = (currentTime < 0.1f) ? 1.f : (2.f - pow(1.f - (currentTime - 0.1f) / 1.5f, 9));
                 update_shader();
                 set_op(MV_COMPUTE);
             }
