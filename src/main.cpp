@@ -199,7 +199,7 @@ struct Config {
     int    ssaa = 2;
     int    transfer_function = 0;
     // experimental
-    float  degree = 2.f;
+    float  degree = 1.f;
     // normal mapping
     float  angle = 180.f;
     float  height = 1.5f;
@@ -241,6 +241,7 @@ class MV2 {
     double julia_zoom = 3;
     double fps_update_interval = 0.03;
     int max_vertices = 200;
+    bool sync_zoom_julia = false;
     bool juliaset = true;
     bool orbit = true;
     bool cmplxinfo = true;
@@ -729,7 +730,7 @@ private:
             switch (action) {
             case GLFW_PRESS:
                 app->rightClickHold = true;
-                app->julia_zoom = 3.0;
+                app->julia_zoom = app->sync_zoom_julia ? sqrt(app->config.zoom) : 3.0;
                 glUniform1d(glGetUniformLocation(app->shaderProgram, "julia_zoom"), app->julia_zoom);
                 glUniform1i(glGetUniformLocation(app->shaderProgram, "julia_maxiters"),
                     max_iters(app->julia_zoom, zoom_co, app->config.iter_co, 3.0));
@@ -944,7 +945,7 @@ public:
             double currentTime = glfwGetTime();
 
             if (currentTime < 1.6f) {
-                config.degree = (currentTime < 0.1f) ? 1.f : (2.f - pow(1.f - (currentTime - 0.1f) / 1.5f, 9));
+                config.degree = (currentTime < 0.1f) ? 1.f : (2.f - pow(1.f - (currentTime - 0.2f) / 1.5f, 13));
                 update_shader();
                 set_op(MV_COMPUTE);
             }
@@ -1624,6 +1625,7 @@ public:
                         glBindTexture(GL_TEXTURE_2D, juliaTexBuffer);
                         glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA32F, julia_size * config.ssaa, julia_size * config.ssaa, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
                     }
+                    ImGui::Checkbox("Same zoom in Julia set", &sync_zoom_julia);
                     ImGui::EndDisabled();
                     ImGui::SetNextItemWidth(90);
                     ImGui::BeginDisabled(!orbit);
