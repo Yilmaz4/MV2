@@ -99,8 +99,8 @@ ivec2 monitorSize;
 
 struct Slider {
     std::string name;
-    double real_value = 0.f;
-    float value = 0.f;
+    double value = 0.f;
+    float slider = 0.f;
     float min = 0.f, max = 0.f;
     float step = 1.f;
 };
@@ -112,6 +112,7 @@ struct Fractal {
     std::string initialz = "c";
     float power = 2.f;
     bool continuous_compatible = true;
+    bool julia_compatible = true;
 
     std::vector<Slider> sliders;
 };
@@ -123,7 +124,8 @@ std::vector<Fractal> fractals = {
         .condition = "xsq + ysq > 100",
         .initialz = "c",
         .power = 2.f,
-        .continuous_compatible = true
+        .continuous_compatible = true,
+        .julia_compatible = true
     }),
     Fractal({.name = "Julia Set",
         .equation = "cpow(z, power) + dvec2(Re, Im)",
@@ -131,21 +133,24 @@ std::vector<Fractal> fractals = {
         .initialz = "c",
         .power = 2.f,
         .continuous_compatible = true,
-        .sliders = { Slider({.name = "Re", .value = 0.f}), Slider({.name = "Im", .value = 0.f})}
+        .julia_compatible = false,
+        .sliders = { Slider({.name = "Re", .value = 0.0, .slider = 0.f}), Slider({.name = "Im", .value = 0.0, .slider = 0.f})}
     }),
     Fractal({.name = "Nova",
         .equation = "z - cdivide(cpow(z, power) - dvec2(1, 0), power * cpow(z, power - 1)) + c",
         .condition = "distance(z, prevz) < 10e-5",
         .initialz = "dvec2(1, 0)",
         .power = 3.f,
-        .continuous_compatible = false
+        .continuous_compatible = false,
+        .julia_compatible = false,
     }),
     Fractal({.name = "Burning ship",
         .equation = "cpow(dvec2(abs(z.x), abs(z.y)), power) + c",
         .condition = "xsq + ysq > 100",
         .initialz = "c",
         .power = 2.f,
-        .continuous_compatible = true
+        .continuous_compatible = true,
+        .julia_compatible = true,
     }),
     Fractal({.name = "Newton",
         .equation = "z - cmultiply(dvec2(Re, Im), cdivide(cpow(z, power) - dvec2(1.f, 0.f), power * cpow(z, power - 1.f)))",
@@ -153,40 +158,45 @@ std::vector<Fractal> fractals = {
         .initialz = "c",
         .power = 3.f,
         .continuous_compatible = false,
-        .sliders = { Slider({.name = "Re", .value = 1.f}), Slider({.name = "Im", .value = 0.f})}
+        .julia_compatible = false,
+        .sliders = { Slider({.name = "Re", .value = 1.0, .slider = 1.f}), Slider({.name = "Im", .value = 0.0, .slider = 0.f})}
     }),
     Fractal({.name = "Magnet 1",
         .equation = "cpow(cdivide(cpow(z, power) + c - dvec2(1, 0), power * z + c - dvec2(power, 0)), power)",
         .condition = "length(z) >= 100 || length(z - dvec2(1,0)) <= 1e-5",
         .initialz="dvec2(0)",
         .power = 2.f,
-        .continuous_compatible = false
+        .continuous_compatible = false,
+        .julia_compatible = true,
     }),
     Fractal({.name = "Magnet 2",
         .equation = "cpow(cdivide(cpow(z, power + 1) + 3 * cmultiply(c - dvec2(1, 0), z) + cmultiply(c - dvec2(1, 0), c - dvec2(2, 0)), 3 * cpow(z, power) + 3 * cmultiply(c - dvec2(2, 0), z) + cmultiply(c - dvec2(1, 0), c - dvec2(power, 0)) + dvec2(1, 0)), power)",
         .condition = "length(z) >= 100 || length(z - dvec2(1,0)) <= 1e-5",
         .initialz = "dvec2(0)",
         .power = 2.f,
-        .continuous_compatible = false
+        .continuous_compatible = false,
+        .julia_compatible = true,
     }),
     Fractal({.name = "Lambda",
         .equation = "cmultiply(c, cmultiply(z, cpow(dvec2(1, 0) - z, power - 1)))",
         .condition = "xsq + ysq > 100",
         .initialz = "dvec2(0.5f, 0.f)",
         .power = 2.f,
-        .continuous_compatible = true
+        .continuous_compatible = true,
+        .julia_compatible = true,
     }),
     Fractal({.name = "Tricorn",
         .equation = "cpow(cconj(z), power) + c",
         .condition = "distance(z, c) > 10",
         .initialz = "c",
         .power = 2.f,
-        .continuous_compatible = true
+        .continuous_compatible = true,
+        .julia_compatible = true,
     }),
 };
 
 struct Config {
-    dvec2  offset = { -0.4, 0.0 };
+    dvec2  center = { -0.4, 0.0 };
     ivec2  screenSize = { 1000, 600 };
     double zoom = 5.0;
     float  spectrum_offset = 0.f;
@@ -242,8 +252,9 @@ class MV2 {
     double julia_zoom = 3;
     double fps_update_interval = 0.03;
     int max_vertices = 200;
-    bool sync_zoom_julia = false;
+    bool sync_zoom_julia = true;
     bool juliaset = true;
+    bool juliaset_disabled_incompat = false;
     bool orbit = true;
     bool cmplxinfo = true;
 
@@ -251,7 +262,7 @@ class MV2 {
     dvec2 lastPresses = { -doubleClick_interval, 0 };
     bool dragging = false;
     bool rightClickHold = false;
-    dvec2 tempOffset = config.offset;
+    dvec2 tempCenter = config.center;
     double tempZoom = config.zoom;
 
     int zoomTowards = 1; // 0: center, 1: cursor
@@ -536,7 +547,7 @@ private:
     void use_config(Config config, bool variables = true, bool textures = true) {
         if (variables) {
             glUniform2i(glGetUniformLocation(shaderProgram, "screenSize"), config.screenSize.x, config.screenSize.y);
-            glUniform2d(glGetUniformLocation(shaderProgram, "offset"), config.offset.x, config.offset.y);
+            glUniform2d(glGetUniformLocation(shaderProgram, "center"), config.center.x, config.center.y);
             glUniform1f(glGetUniformLocation(shaderProgram, "iter_multiplier"), config.iter_multiplier);
             glUniform1d(glGetUniformLocation(shaderProgram, "zoom"), config.zoom);
             if (!config.auto_adjust_iter) {
@@ -582,24 +593,24 @@ private:
     static dvec2 pixel_to_complex(MV2* app, dvec2 pixelCoord) {
         ivec2 ss = (app->fullscreen ? monitorSize : app->config.screenSize);
 
-        return dvec2(1., -1.) * (((dvec2(pixelCoord.x / ss.x, (pixelCoord.y) / ss.y)) - dvec2(0.5, 0.5)) *
-            dvec2(app->config.zoom, (ss.y * app->config.zoom) / ss.x) + dvec2(app->config.offset.x, -app->config.offset.y));
+        return (((dvec2(pixelCoord.x / ss.x, (ss.y - pixelCoord.y) / ss.y)) - dvec2(0.5, 0.5)) *
+            dvec2(app->config.zoom, (ss.y * app->config.zoom) / ss.x) + dvec2(app->config.center.x, app->config.center.y));
     }
-    static dvec2 pixel_to_complex(dvec2 pixelCoord, ivec2 ss, double zoom, dvec2 offset) {
-        return dvec2(1., -1.) * (((dvec2(pixelCoord.x / ss.x, (pixelCoord.y) / ss.y)) - dvec2(0.5, 0.5)) *
-            dvec2(zoom, (ss.y * zoom) / ss.x) + dvec2(offset.x, -offset.y));
+    static dvec2 pixel_to_complex(dvec2 pixelCoord, ivec2 ss, double zoom, dvec2 center) {
+        return (((dvec2(pixelCoord.x / ss.x, (ss.y - pixelCoord.y) / ss.y)) - dvec2(0.5, 0.5)) *
+            dvec2(zoom, (ss.y * zoom) / ss.x) + dvec2(center.x, center.y));
     }
     
     static dvec2 complex_to_pixel(MV2* app, dvec2 complexCoord) {
         ivec2 ss = (app->fullscreen ? monitorSize : app->config.screenSize);
 
-        dvec2 normalizedCoord = (complexCoord - app->config.offset);
+        dvec2 normalizedCoord = (complexCoord - app->config.center);
         normalizedCoord /= dvec2(app->config.zoom, (ss.y * app->config.zoom) / ss.x);
         dvec2 pixelCoordNormalized = normalizedCoord + dvec2(0.5, 0.5);
         return dvec2(pixelCoordNormalized.x * ss.x, ss.y - pixelCoordNormalized.y * ss.y);
     }
-    static dvec2 complex_to_pixel(dvec2 complexCoord, ivec2 ss, double zoom, dvec2 offset) {
-        dvec2 normalizedCoord = (complexCoord - offset);
+    static dvec2 complex_to_pixel(dvec2 complexCoord, ivec2 ss, double zoom, dvec2 center) {
+        dvec2 normalizedCoord = (complexCoord - center);
         normalizedCoord /= dvec2(zoom, (ss.y * zoom) / ss.x);
         dvec2 pixelCoordNormalized = normalizedCoord + dvec2(0.5, 0.5);
         return dvec2(pixelCoordNormalized.x * ss.x, ss.y - pixelCoordNormalized.y * ss.y);
@@ -700,17 +711,17 @@ private:
                     x *= app->dpi_scale;
                     y *= app->dpi_scale;
                     dvec2 cmplx = app->pixel_to_complex(app, dvec2(x, y));
-                    fractals[2].sliders[0].value = fractals[2].sliders[0].real_value = cmplx.x;
-                    fractals[2].sliders[1].value = fractals[2].sliders[1].real_value = cmplx.y;
-                    app->tempOffset = app->config.offset;
+                    fractals[2].sliders[0].slider = fractals[2].sliders[0].value = cmplx.x;
+                    fractals[2].sliders[1].slider = fractals[2].sliders[1].value = cmplx.y;
+                    app->tempCenter = app->config.center;
                     app->tempZoom = app->config.zoom;
                     app->config.zoom = sqrt(app->config.zoom);
-                    app->config.offset = dvec2(0., 0.);
+                    app->config.center = dvec2(0.0, 0.0);
                     switch_shader();
                 }
                 else if (app->rightClickHold && app->fractal == 2) {
                     app->fractal = 1;
-                    app->config.offset = app->tempOffset;
+                    app->config.center = app->tempCenter;
                     app->config.zoom = app->tempZoom;
                     switch_shader();
                 }
@@ -718,9 +729,8 @@ private:
                     glfwGetCursorPos(window, &app->oldPos.x, &app->oldPos.y);
                     app->oldPos *= app->dpi_scale;
                     dvec2 pos = pixel_to_complex(app, app->oldPos);
-                    dvec2 center = pixel_to_complex(app, static_cast<dvec2>(ss) / 2.0);
-                    app->config.offset += pos - center;
-                    glUniform2d(glGetUniformLocation(app->shaderProgram, "offset"), app->config.offset.x, app->config.offset.y);
+                    app->config.center += pos - app->config.center;
+                    glUniform2d(glGetUniformLocation(app->shaderProgram, "center"), app->config.center.x, app->config.center.y);
                 }
                 app->dragging = false;
                 app->set_op(MV_COMPUTE);
@@ -756,9 +766,9 @@ private:
             return;
         if (app->dragging) {
             app->lastPresses = { -doubleClick_interval, 0 };
-            app->config.offset.x -= ((x - app->oldPos.x) * app->config.zoom) / ss.x;
-            app->config.offset.y -= (((ss.y - y) - (ss.y - app->oldPos.y)) * ((app->config.zoom * ss.y) / ss.x)) / ss.y;
-            glUniform2d(glGetUniformLocation(app->shaderProgram, "offset"), app->config.offset.x, app->config.offset.y);
+            app->config.center.x -= ((x - app->oldPos.x) * app->config.zoom) / ss.x;
+            app->config.center.y += ((y - app->oldPos.y) * ((app->config.zoom * ss.y) / ss.x)) / ss.y;
+            glUniform2d(glGetUniformLocation(app->shaderProgram, "center"), app->config.center.x, app->config.center.y);
             app->oldPos = { x, y };
             app->set_op(MV_COMPUTE);
         }
@@ -785,11 +795,11 @@ private:
                 cursor_x *= app->dpi_scale;
                 cursor_y *= app->dpi_scale;
                 
-                dvec2 new_pos = complex_to_pixel(pixel_to_complex(app, dvec2(cursor_x, cursor_y)), app->config.screenSize, new_zoom, app->config.offset);
+                dvec2 new_pos = complex_to_pixel(pixel_to_complex(app, dvec2(cursor_x, cursor_y)), app->config.screenSize, new_zoom, app->config.center);
 
-                app->config.offset = pixel_to_complex(static_cast<dvec2>(app->config.screenSize) / 2.0 + (new_pos - dvec2(cursor_x, cursor_y)), app->config.screenSize, new_zoom, app->config.offset);
+                app->config.center = pixel_to_complex(static_cast<dvec2>(app->config.screenSize) / 2.0 + (new_pos - dvec2(cursor_x, cursor_y)), app->config.screenSize, new_zoom, app->config.center);
                 
-                glUniform2d(glGetUniformLocation(app->shaderProgram, "offset"), app->config.offset.x, app->config.offset.y);
+                glUniform2d(glGetUniformLocation(app->shaderProgram, "center"), app->config.center.x, app->config.center.y);
             }
 
             app->config.zoom = new_zoom;
@@ -838,7 +848,7 @@ private:
             float texel[4];
             glBindFramebuffer(GL_FRAMEBUFFER, mandelbrotFrameBuffer);
             glReadBuffer(GL_FRONT);
-            glReadPixels(config.ssaa * x, (ss.y - y) * config.ssaa, 1, 1, GL_RGBA, GL_FLOAT, texel);
+            glReadPixels(x * config.ssaa, y * config.ssaa, 1, 1, GL_RGBA, GL_FLOAT, texel);
             numIterations = static_cast<int>(texel[1]);
         }
         if (juliaset) {
@@ -851,7 +861,7 @@ private:
         }
         if (orbit) {
             glBindBuffer(GL_SHADER_STORAGE_BUFFER, orbitBuffer);
-            glUniform2d(glGetUniformLocation(shaderProgram, "mousePos"), x, y);
+            glUniform2d(glGetUniformLocation(shaderProgram, "mousePos"), x, ss.y - y);
             glUniform1i(glGetUniformLocation(shaderProgram, "numVertices"), max_vertices);
             glBufferData(GL_SHADER_STORAGE_BUFFER, max_vertices * sizeof(vec2), nullptr, GL_DYNAMIC_COPY);
             set_op(MV_POSTPROC);
@@ -926,7 +936,7 @@ private:
         glBindBuffer(GL_SHADER_STORAGE_BUFFER, sliderBuffer);
         std::vector<float> values(fractals[fractal].sliders.size());
         for (int i = 0; i < values.size(); i++) {
-            values[i] = fractals[fractal].sliders[i].real_value;
+            values[i] = fractals[fractal].sliders[i].value;
         }
         glBufferData(GL_SHADER_STORAGE_BUFFER, values.size() * sizeof(float), values.data(), GL_DYNAMIC_DRAW);
     }
@@ -1176,16 +1186,16 @@ public:
                 ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x);
                 ImGui::SameLine();
                 ImGui::SetCursorPosY(ImGui::GetCursorPosY() - 3.f);
-                update |= ImGui::InputDouble("##re", &config.offset.x, 0.0, 0.0, "%.17g");
+                update |= ImGui::InputDouble("##re", &config.center.x, 0.0, 0.0, "%.17g");
 
                 ImGui::Text("Im");
                 ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x);
                 ImGui::SameLine();
                 ImGui::SetCursorPosY(ImGui::GetCursorPosY() - 3.f);
-                update |= ImGui::InputDouble("##im", &config.offset.y, 0.0, 0.0, "%.17g");
+                update |= ImGui::InputDouble("##im", &config.center.y, 0.0, 0.0, "%.17g");
                 
                 if (update) {
-                    glUniform2d(glGetUniformLocation(shaderProgram, "offset"), config.offset.x, config.offset.y);
+                    glUniform2d(glGetUniformLocation(shaderProgram, "center"), config.center.x, config.center.y);
                     set_op(MV_COMPUTE);
                 }
                 ImGui::SetCursorPosY(ImGui::GetCursorPosY() + 3.f);
@@ -1210,7 +1220,7 @@ public:
                     if (buf != nullptr) {
                         std::ofstream fout;
                         fout.open(buf, std::ios::binary | std::ios::out | std::ofstream::trunc);
-                        fout.write(reinterpret_cast<const char*>(value_ptr(config.offset)), sizeof(dvec2));
+                        fout.write(reinterpret_cast<const char*>(value_ptr(config.center)), sizeof(dvec2));
                         fout.write(reinterpret_cast<const char*>(&config.zoom), sizeof(double));
                         fout.close();
                     }
@@ -1232,10 +1242,10 @@ public:
                         }
                         paletteData.resize(size);
                         fin.seekg(0);
-                        fin.read(reinterpret_cast<char*>(value_ptr(config.offset)), sizeof(dvec2));
+                        fin.read(reinterpret_cast<char*>(value_ptr(config.center)), sizeof(dvec2));
                         fin.read(reinterpret_cast<char*>(&config.zoom), sizeof(double));
                         fin.close();
-                        glUniform2d(glGetUniformLocation(shaderProgram, "offset"), config.offset.x, config.offset.y);
+                        glUniform2d(glGetUniformLocation(shaderProgram, "center"), config.center.x, config.center.y);
                         glUniform1d(glGetUniformLocation(shaderProgram, "zoom"), config.zoom);
                         set_op(MV_COMPUTE);
                     }
@@ -1354,6 +1364,14 @@ public:
                             }
                             fractal = n;
                             update_shader();
+                            if (!fractals[fractal].julia_compatible && juliaset) {
+                                juliaset = false;
+                                juliaset_disabled_incompat = true;
+                            }
+                            else if (fractals[fractal].julia_compatible && juliaset_disabled_incompat) {
+                                juliaset = true;
+                                juliaset_disabled_incompat = false;
+                            }
                             reload = compile = update = true;
                         }
                         if (is_selected) ImGui::SetItemDefaultFocus();
@@ -1416,7 +1434,7 @@ public:
                 int numSliders = fractals[fractal].sliders.size();
                 for (int i = 0; i < numSliders; i++) {
                     Slider& s = fractals[fractal].sliders[i];
-                    slider(s.name.c_str(), &s.value, &s.real_value, i, 0.f, std::max(1e-2f, abs(s.value) * mouseSpeed / 40.f), s.min, s.max);
+                    slider(s.name.c_str(), &s.slider, &s.value, i, 0.f, std::max(1e-2f, abs(s.slider) * mouseSpeed / 40.f), s.min, s.max);
                 }
                 for (const int& i : to_delete) {
                     fractals[fractal].sliders.erase(fractals[fractal].sliders.begin() + i);
@@ -1616,7 +1634,9 @@ public:
                 if (ImGui::TreeNode("Right-click")) {
                     ImGui::Checkbox("Coordinate info", &cmplxinfo);
                     ImGui::SameLine();
+                    ImGui::BeginDisabled(!fractals[fractal].julia_compatible);
                     ImGui::Checkbox("Julia set", &juliaset);
+                    ImGui::EndDisabled();
                     ImGui::SameLine();
                     ImGui::Checkbox("Orbit", &orbit);
                     ImGui::SetNextItemWidth(90);

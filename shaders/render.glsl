@@ -9,7 +9,7 @@ double M_EHALF = 1.6487212707001281469LF;
 out vec4 fragColor;
 
 uniform ivec2  screenSize;
-uniform dvec2  offset;
+uniform dvec2  center;
 uniform double zoom;
 uniform int    max_iters;
 uniform float  spectrum_offset;
@@ -365,7 +365,7 @@ bool is_experimental() {
 
 dvec2 complex_to_pixel(dvec2 complexCoord) {
     ivec2 ss = screenSize / blur;
-    dvec2 normalizedCoord = (complexCoord - dvec2(offset.x, -offset.y));
+    dvec2 normalizedCoord = (complexCoord - dvec2(center.x, center.y));
     normalizedCoord /= dvec2(zoom, (ss.y * zoom) / ss.x);
     dvec2 pixelCoordNormalized = normalizedCoord + dvec2(0.5, 0.5);
     return dvec2(pixelCoordNormalized.x * ss.x, pixelCoordNormalized.y * ss.y);
@@ -373,9 +373,6 @@ dvec2 complex_to_pixel(dvec2 complexCoord) {
 
 void main() {
     dvec2 nv = cexp(dvec2(0.f, angle * 2.f * M_PI / 360.f));
-
-    vec2 fragCoord = vec2(gl_FragCoord.x, screenSize.y - gl_FragCoord.y);
-    dvec2 offset_inv = dvec2(offset.x, -offset.y);
 
     if (op == 3) {
         dvec2 c = (dvec2(gl_FragCoord.x / screenSize.x, gl_FragCoord.y / screenSize.y) - dvec2(0.5, 0.5)) * dvec2(julia_zoom, julia_zoom);
@@ -412,7 +409,7 @@ void main() {
     }
 
     if (op == 2) {
-        dvec2 c = offset_inv + (dvec2(fragCoord.x / screenSize.x, fragCoord.y / screenSize.y) - dvec2(0.5, 0.5)) * dvec2(zoom, (screenSize.y * zoom) / screenSize.x);
+        dvec2 c = center + (dvec2(gl_FragCoord.x / screenSize.x, gl_FragCoord.y / screenSize.y) - dvec2(0.5, 0.5)) * dvec2(zoom, (screenSize.y * zoom) / screenSize.x);
         dvec2 z = %s;
         dvec2 prevz = dvec2(0.0);
 
@@ -458,7 +455,7 @@ void main() {
     }
     if (op == 1) {
         if (blur == 1) {
-            vec4 data = texture(mandelbrotTex, vec2(fragCoord.x / screenSize.x, fragCoord.y / screenSize.y));
+            vec4 data = texture(mandelbrotTex, vec2(gl_FragCoord.x / screenSize.x, gl_FragCoord.y / screenSize.y));
             fragColor = vec4(mix(vec3(0.f), color(data.x), normal_map_effect == 1 ? pow(data.z, 1.f / 1.8f) : 1.f), 1.f);
         }
         else {
@@ -466,16 +463,16 @@ void main() {
             int kernelSize = 2 * radius + 1;
             for (int i = -radius; i <= radius; i++) {
                 for (int j = -radius; j <= radius; j++) {
-                    vec4 d = texture(mandelbrotTex, (fragCoord.xy + vec2(i, j)) / screenSize);
+                    vec4 d = texture(mandelbrotTex, (gl_FragCoord.xy + vec2(i, j)) / screenSize);
                     vec3 s = color(d.x);
                     blurredColor += mix(vec3(0.f), s, normal_map_effect == 1 ? pow(d.z, 1.f / 1.8f) : 1.f) * weights[(i + radius) * kernelSize + (j + radius)];
                 }
             }
             fragColor = vec4(blurredColor, 1.f);
         }
-        if (ivec2(fragCoord.xy) == ivec2(mousePos)) {
+        if (ivec2(gl_FragCoord.xy) == ivec2(mousePos)) {
             ivec2 ss = screenSize / blur;
-            dvec2 c = offset_inv + (dvec2(fragCoord.x / ss.x, fragCoord.y / ss.y) - dvec2(0.5, 0.5)) * dvec2(zoom, (ss.y * zoom) / ss.x);
+            dvec2 c = center + (dvec2(gl_FragCoord.x / ss.x, gl_FragCoord.y / ss.y) - dvec2(0.5, 0.5)) * dvec2(zoom, (ss.y * zoom) / ss.x);
             dvec2 z = %s;
             dvec2 prevz = dvec2(0.0);
             double xsq = z.x * z.x;
@@ -492,13 +489,13 @@ void main() {
         }
     }
     if (op == 0) {
-        vec4 texel = texture(postprocTex, fragCoord.xy / screenSize);
+        vec4 texel = texture(postprocTex, gl_FragCoord.xy / screenSize);
         for (int i = 1; i < numVertices - 1; i++) {
             float m = (orbit[i].y - orbit[i-1].y) / (orbit[i].x - orbit[i-1].x);
             float c = orbit[i-1].y - m * orbit[i-1].x;
-            if (pow(fragCoord.x - orbit[i].x, 2) + pow(fragCoord.y - orbit[i].y, 2) < 16.f ||
-                abs(m * fragCoord.x - fragCoord.y + c) / sqrt(m * m + 1) < 0.5f &&
-                dot(fragCoord.xy - orbit[i], fragCoord.xy - orbit[i-1]) < 0)
+            if (pow(gl_FragCoord.x - orbit[i].x, 2) + pow(gl_FragCoord.y - orbit[i].y, 2) < 16.f ||
+                abs(m * gl_FragCoord.x - gl_FragCoord.y + c) / sqrt(m * m + 1) < 0.5f &&
+                dot(gl_FragCoord.xy - orbit[i], gl_FragCoord.xy - orbit[i-1]) < 0)
             {
                 fragColor = 1.f - texel;
                 return;
