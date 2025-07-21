@@ -260,12 +260,14 @@ class MV2 {
     bool juliaset = true;
     bool juliaset_disabled_incompat = false;
     bool orbit = true;
+    bool persist_orbit = false;
     bool cmplxinfo = true;
 
     dvec2 oldPos = { 0, 0 };
     dvec2 lastPresses = { -doubleClick_interval, 0 };
     bool dragging = false;
     bool rightClickHold = false;
+    bool rightClick_released = false;
     dvec2 tempCenter = config.center;
     double tempZoom = config.zoom;
 
@@ -292,7 +294,8 @@ class MV2 {
     GLuint juliaTexBuffer = NULL;
 
     GLuint paletteBuffer = NULL;
-    GLuint orbitBuffer = NULL;
+    GLuint orbitInBuffer = NULL;
+    GLuint orbitOutBuffer = NULL;
     GLuint sliderBuffer = NULL;
     GLuint kernelBuffer = NULL;
 
@@ -516,28 +519,34 @@ public:
         glUniform1i(glGetUniformLocation(shaderProgram, "postprocTex"), 1);
         glUniform1i(glGetUniformLocation(shaderProgram, "finalTex"), 2);
 
-        glGenBuffers(1, &orbitBuffer);
-        glBindBuffer(GL_SHADER_STORAGE_BUFFER, orbitBuffer);
-        glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, orbitBuffer);
-        glShaderStorageBlockBinding(shaderProgram, glGetProgramResourceIndex(shaderProgram, GL_SHADER_STORAGE_BLOCK, "orbit"), 0);
+        glGenBuffers(1, &orbitInBuffer);
+        glBindBuffer(GL_SHADER_STORAGE_BUFFER, orbitInBuffer);
+        glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, orbitInBuffer);
+        glShaderStorageBlockBinding(shaderProgram, glGetProgramResourceIndex(shaderProgram, GL_SHADER_STORAGE_BLOCK, "orbit_in"), 0);
+
+        glGenBuffers(1, &orbitOutBuffer);
+        glBindBuffer(GL_SHADER_STORAGE_BUFFER, orbitOutBuffer);
+        glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, orbitOutBuffer);
+        glShaderStorageBlockBinding(shaderProgram, glGetProgramResourceIndex(shaderProgram, GL_SHADER_STORAGE_BLOCK, "orbit_out"), 1);
+
         glUniform1i(glGetUniformLocation(shaderProgram, "numVertices"), 0);
 
         glGenBuffers(1, &paletteBuffer);
         glBindBuffer(GL_SHADER_STORAGE_BUFFER, paletteBuffer);
         glBufferData(GL_SHADER_STORAGE_BUFFER, max_colors * sizeof(fvec4), paletteData.data(), GL_DYNAMIC_COPY);
-        glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, paletteBuffer);
-        glShaderStorageBlockBinding(shaderProgram, glGetProgramResourceIndex(shaderProgram, GL_SHADER_STORAGE_BLOCK, "spectrum"), 1);
+        glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 2, paletteBuffer);
+        glShaderStorageBlockBinding(shaderProgram, glGetProgramResourceIndex(shaderProgram, GL_SHADER_STORAGE_BLOCK, "spectrum"), 2);
         glUniform1i(glGetUniformLocation(shaderProgram, "span"), span);
 
         glGenBuffers(1, &sliderBuffer);
         glBindBuffer(GL_SHADER_STORAGE_BUFFER, sliderBuffer);
-        glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 2, sliderBuffer);
-        glShaderStorageBlockBinding(shaderProgram, glGetProgramResourceIndex(shaderProgram, GL_SHADER_STORAGE_BLOCK, "variables"), 2);
+        glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 3, sliderBuffer);
+        glShaderStorageBlockBinding(shaderProgram, glGetProgramResourceIndex(shaderProgram, GL_SHADER_STORAGE_BLOCK, "variables"), 3);
 
         glGenBuffers(1, &kernelBuffer);
         glBindBuffer(GL_SHADER_STORAGE_BUFFER, kernelBuffer);
-        glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 3, kernelBuffer);
-        glShaderStorageBlockBinding(shaderProgram, glGetProgramResourceIndex(shaderProgram, GL_SHADER_STORAGE_BLOCK, "kernel"), 3);
+        glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 4, kernelBuffer);
+        glShaderStorageBlockBinding(shaderProgram, glGetProgramResourceIndex(shaderProgram, GL_SHADER_STORAGE_BLOCK, "kernel"), 4);
         upload_kernel(config.ssaa);
 
         use_config(config, true, false);
@@ -574,10 +583,11 @@ private:
             glUniform1f(glGetUniformLocation(shaderProgram, "angle"), config.angle);
             glUniform1f(glGetUniformLocation(shaderProgram, "height"), config.height);
 
-            glShaderStorageBlockBinding(shaderProgram, glGetProgramResourceIndex(shaderProgram, GL_SHADER_STORAGE_BLOCK, "orbit"), 0);
-            glShaderStorageBlockBinding(shaderProgram, glGetProgramResourceIndex(shaderProgram, GL_SHADER_STORAGE_BLOCK, "spectrum"), 1);
-            glShaderStorageBlockBinding(shaderProgram, glGetProgramResourceIndex(shaderProgram, GL_SHADER_STORAGE_BLOCK, "variables"), 2);
-            glShaderStorageBlockBinding(shaderProgram, glGetProgramResourceIndex(shaderProgram, GL_SHADER_STORAGE_BLOCK, "newton_roots"), 4);
+            glShaderStorageBlockBinding(shaderProgram, glGetProgramResourceIndex(shaderProgram, GL_SHADER_STORAGE_BLOCK, "orbit_in"), 0);
+            glShaderStorageBlockBinding(shaderProgram, glGetProgramResourceIndex(shaderProgram, GL_SHADER_STORAGE_BLOCK, "orbit_out"), 1);
+            glShaderStorageBlockBinding(shaderProgram, glGetProgramResourceIndex(shaderProgram, GL_SHADER_STORAGE_BLOCK, "spectrum"), 2);
+            glShaderStorageBlockBinding(shaderProgram, glGetProgramResourceIndex(shaderProgram, GL_SHADER_STORAGE_BLOCK, "variables"), 3);
+            glShaderStorageBlockBinding(shaderProgram, glGetProgramResourceIndex(shaderProgram, GL_SHADER_STORAGE_BLOCK, "newton_roots"), 5);
         }
         if (textures) {
             glBindFramebuffer(GL_FRAMEBUFFER, mandelbrotFrameBuffer);
@@ -765,6 +775,7 @@ private:
                 break;
             case GLFW_RELEASE:
                 app->rightClickHold = false;
+                if (app->orbit) app->rightClick_released = true;
             }
         }
     }
@@ -874,10 +885,13 @@ private:
             glDrawArrays(GL_TRIANGLES, 0, 6);
         }
         if (orbit) {
-            glBindBuffer(GL_SHADER_STORAGE_BUFFER, orbitBuffer);
+            glBindBuffer(GL_SHADER_STORAGE_BUFFER, orbitInBuffer);
+            glBufferData(GL_SHADER_STORAGE_BUFFER, max_vertices * sizeof(vec2), nullptr, GL_DYNAMIC_COPY);
+            glBindBuffer(GL_SHADER_STORAGE_BUFFER, orbitOutBuffer);
+            glBufferData(GL_SHADER_STORAGE_BUFFER, max_vertices * sizeof(vec2), nullptr, GL_DYNAMIC_COPY);
             glUniform2d(glGetUniformLocation(shaderProgram, "mousePos"), x, ss.y - y);
             glUniform1i(glGetUniformLocation(shaderProgram, "numVertices"), max_vertices);
-            glBufferData(GL_SHADER_STORAGE_BUFFER, max_vertices * sizeof(vec2), nullptr, GL_DYNAMIC_COPY);
+            
             set_op(MV_POSTPROC);
         }
     }
@@ -925,23 +939,28 @@ private:
         config.normal_map_effect = false;
         use_config(config, true, false);
 
-        glBindBuffer(GL_SHADER_STORAGE_BUFFER, orbitBuffer);
-        glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, orbitBuffer);
-        glShaderStorageBlockBinding(shaderProgram, glGetProgramResourceIndex(shaderProgram, GL_SHADER_STORAGE_BLOCK, "orbit"), 0);
+        glBindBuffer(GL_SHADER_STORAGE_BUFFER, orbitInBuffer);
+        glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, orbitInBuffer);
+        glShaderStorageBlockBinding(shaderProgram, glGetProgramResourceIndex(shaderProgram, GL_SHADER_STORAGE_BLOCK, "orbit_in"), 0);
+
+        glBindBuffer(GL_SHADER_STORAGE_BUFFER, orbitOutBuffer);
+        glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, orbitOutBuffer);
+        glShaderStorageBlockBinding(shaderProgram, glGetProgramResourceIndex(shaderProgram, GL_SHADER_STORAGE_BLOCK, "orbit_out"), 1);
+
         glUniform1i(glGetUniformLocation(shaderProgram, "numVertices"), 0);
 
         glBindBuffer(GL_SHADER_STORAGE_BUFFER, paletteBuffer);
-        glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, paletteBuffer);
-        glShaderStorageBlockBinding(shaderProgram, glGetProgramResourceIndex(shaderProgram, GL_SHADER_STORAGE_BLOCK, "spectrum"), 1);
+        glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 2, paletteBuffer);
+        glShaderStorageBlockBinding(shaderProgram, glGetProgramResourceIndex(shaderProgram, GL_SHADER_STORAGE_BLOCK, "spectrum"), 2);
         glUniform1i(glGetUniformLocation(shaderProgram, "span"), span);
 
         glBindBuffer(GL_SHADER_STORAGE_BUFFER, sliderBuffer);
-        glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 2, sliderBuffer);
-        glShaderStorageBlockBinding(shaderProgram, glGetProgramResourceIndex(shaderProgram, GL_SHADER_STORAGE_BLOCK, "variables"), 2);
+        glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 3, sliderBuffer);
+        glShaderStorageBlockBinding(shaderProgram, glGetProgramResourceIndex(shaderProgram, GL_SHADER_STORAGE_BLOCK, "variables"), 3);
 
         glBindBuffer(GL_SHADER_STORAGE_BUFFER, kernelBuffer);
-        glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 3, kernelBuffer);
-        glShaderStorageBlockBinding(shaderProgram, glGetProgramResourceIndex(shaderProgram, GL_SHADER_STORAGE_BLOCK, "kernel"), 3);
+        glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 4, kernelBuffer);
+        glShaderStorageBlockBinding(shaderProgram, glGetProgramResourceIndex(shaderProgram, GL_SHADER_STORAGE_BLOCK, "kernel"), 4);
         glUniform1i(glGetUniformLocation(shaderProgram, "radius"), config.ssaa);
     }
 
@@ -1674,6 +1693,7 @@ public:
                         glUniform1i(glGetUniformLocation(shaderProgram, "numVertices"), max_vertices);
                         glBufferData(GL_SHADER_STORAGE_BUFFER, max_vertices * sizeof(vec2), nullptr, GL_DYNAMIC_COPY);
                     }
+                    ImGui::Checkbox("Keep orbit after releasing mouse", &persist_orbit);
                     ImGui::EndDisabled();
                     ImGui::TreePop();
                 }
@@ -1772,6 +1792,18 @@ public:
                     glUniform2i(glGetUniformLocation(shaderProgram, "screenSize"), ss.x, ss.y);
                     glDrawArrays(GL_TRIANGLES, 0, 6);
                     set_op(MV_RENDER, true);
+
+                    glCopyNamedBufferSubData(orbitOutBuffer, orbitInBuffer, 0, 0, max_vertices * sizeof(vec2));
+
+                    if (rightClick_released) {
+                        if (!persist_orbit) {
+                            set_op(MV_POSTPROC);
+                        }
+                        else {
+                            set_op(MV_RENDER, true);
+                        }
+                        rightClick_released = false;
+                    }
                 }
             }
             if (recording && !paused) {

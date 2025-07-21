@@ -31,26 +31,29 @@ uniform int    fractal;
 uniform float  power;
 uniform dvec2  initialz;
 
-layout(std430, binding = 0) coherent buffer vertices {
-    vec2 orbit[];
+layout(std430, binding = 0) coherent buffer vertices_in {
+    vec2 orbit_in[];
+};
+layout(std430, binding = 1) coherent buffer vertices_out {
+    vec2 orbit_out[];
 };
 uniform int numVertices = 0;
 
-layout(std430, binding = 1) readonly buffer spectrum {
+layout(std430, binding = 2) readonly buffer spectrum {
     vec4 spec[];
 };
 uniform int span;
 
-layout(std430, binding = 2) readonly buffer variables {
+layout(std430, binding = 3) readonly buffer variables {
     float sliders[];
 };
 
-layout(std430, binding = 3) readonly buffer kernel {
+layout(std430, binding = 4) readonly buffer kernel {
     float weights[];
 };
 uniform int radius;
 
-layout(std430, binding = 4) readonly buffer newton_roots {
+layout(std430, binding = 5) readonly buffer newton_roots {
     vec2 roots[];
 };
 
@@ -470,6 +473,20 @@ void main() {
             }
             fragColor = vec4(blurredColor, 1.f);
         }
+
+        vec2 fragCoord = gl_FragCoord.xy / blur;
+        for (int i = 1; i < numVertices - 1; i++) {
+            float m = (orbit_in[i].y - orbit_in[i-1].y) / (orbit_in[i].x - orbit_in[i-1].x);
+            float c = orbit_in[i-1].y - m * orbit_in[i-1].x;
+            if (pow(fragCoord.x - orbit_in[i].x, 2) + pow(fragCoord.y - orbit_in[i].y, 2) < 32.f ||
+                abs(m * fragCoord.x - fragCoord.y + c) / sqrt(m * m + 1) < 1.f &&
+                dot(fragCoord.xy - orbit_in[i], fragCoord.xy - orbit_in[i-1]) < 0)
+            {
+                fragColor = 1.f - fragColor;
+                return;
+            }
+        }
+
         if (ivec2(gl_FragCoord.xy) == ivec2(mousePos)) {
             ivec2 ss = screenSize / blur;
             dvec2 c = center + (dvec2(gl_FragCoord.x / ss.x, gl_FragCoord.y / ss.y) - dvec2(0.5, 0.5)) * dvec2(zoom, (ss.y * zoom) / ss.x);
@@ -479,8 +496,8 @@ void main() {
             double ysq = z.y * z.y;
             
             for (int i = 0; i < numVertices; i++) {
-                orbit[i].x = float(complex_to_pixel(z).x);
-                orbit[i].y = float(complex_to_pixel(z).y);
+                orbit_out[i].x = float(complex_to_pixel(z).x);
+                orbit_out[i].y = float(complex_to_pixel(z).y);
                 prevz = z;
                 z = advance(z, c, prevz, xsq, ysq);
                 xsq = z.x * z.x;
@@ -490,17 +507,6 @@ void main() {
     }
     if (op == 0) {
         vec4 texel = texture(postprocTex, gl_FragCoord.xy / screenSize);
-        for (int i = 1; i < numVertices - 1; i++) {
-            float m = (orbit[i].y - orbit[i-1].y) / (orbit[i].x - orbit[i-1].x);
-            float c = orbit[i-1].y - m * orbit[i-1].x;
-            if (pow(gl_FragCoord.x - orbit[i].x, 2) + pow(gl_FragCoord.y - orbit[i].y, 2) < 16.f ||
-                abs(m * gl_FragCoord.x - gl_FragCoord.y + c) / sqrt(m * m + 1) < 0.5f &&
-                dot(gl_FragCoord.xy - orbit[i], gl_FragCoord.xy - orbit[i-1]) < 0)
-            {
-                fragColor = 1.f - texel;
-                return;
-            }
-        }
         fragColor = texel;
     }
 }
