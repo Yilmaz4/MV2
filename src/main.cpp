@@ -1197,31 +1197,29 @@ public:
                 bool update = false;
 
                 ImGui::Text("Re");
-                ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x);
                 ImGui::SameLine();
                 ImGui::SetCursorPosY(ImGui::GetCursorPosY() - 3.f);
+                ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x);
                 update |= ImGui::InputDouble("##re", &config.center.x, 0.0, 0.0, "%.17g");
 
                 ImGui::Text("Im");
-                ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x);
                 ImGui::SameLine();
                 ImGui::SetCursorPosY(ImGui::GetCursorPosY() - 3.f);
+                ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x);
                 update |= ImGui::InputDouble("##im", &config.center.y, 0.0, 0.0, "%.17g");
                 
                 if (update) {
                     glUniform2d(glGetUniformLocation(shaderProgram, "center"), config.center.x, config.center.y);
                     set_op(MV_COMPUTE);
                 }
-                ImGui::SetCursorPosY(ImGui::GetCursorPosY() + 3.f);
                 ImGui::Text("Zoom"); ImGui::SetNextItemWidth(80); ImGui::SameLine();
                 ImGui::SetCursorPosY(ImGui::GetCursorPosY() - 3.f);
                 if (ImGui::InputDouble("##zoom", &config.zoom, 0.0, 0.0, "%.2e")) {
                     glUniform1d(glGetUniformLocation(shaderProgram, "zoom"), config.zoom);
                     set_op(MV_COMPUTE);
                 }
-                ImGui::SameLine();
-                ImGui::SetCursorPosY(ImGui::GetCursorPosY() - 3.f);
-                if (ImGui::Button("Save", ImVec2(ImGui::GetContentRegionAvail().x / 2.f - 1.f, 0))) {
+                
+                if (ImGui::Button("Save", ImVec2(ImGui::GetContentRegionAvail().x / 3.f - 2.f, 0))) {
                     const char* lFilterPatterns[1] = { "*.mvl" };
                     auto t = std::time(nullptr);
                     auto tm = *std::localtime(&t);
@@ -1240,8 +1238,7 @@ public:
                     }
                 }
                 ImGui::SameLine();
-                ImGui::SetCursorPosY(ImGui::GetCursorPosY() - 3.f);
-                if (ImGui::Button("Load", ImVec2(ImGui::GetContentRegionAvail().x, 0))) {
+                if (ImGui::Button("Load", ImVec2(ImGui::GetContentRegionAvail().x / 2.f - 1.f, 0))) {
                     const char* lFilterPatterns[1] = { "*.mvl" };
                     char* buf = tinyfd_openFileDialog("Open location", nullptr,
                         1, lFilterPatterns, "MV2 Location File (*.mvl)", false);
@@ -1263,6 +1260,14 @@ public:
                         glUniform1d(glGetUniformLocation(shaderProgram, "zoom"), config.zoom);
                         set_op(MV_COMPUTE);
                     }
+                }
+                ImGui::SameLine();
+                if (ImGui::Button("Reset", ImVec2(ImGui::GetContentRegionAvail().x, 0))) {
+                    config.center = Config().center;
+                    config.zoom = Config().zoom;
+                    glUniform2d(glGetUniformLocation(shaderProgram, "center"), config.center.x, config.center.y);
+                    glUniform1d(glGetUniformLocation(shaderProgram, "zoom"), config.zoom);
+                    set_op(MV_COMPUTE);
                 }
 
                 ImGui::BeginGroup();
