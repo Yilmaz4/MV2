@@ -1699,7 +1699,10 @@ public:
                 }
                 if (juliaset) {
                     if (cmplxinfo) ImGui::SeparatorText("Julia Set");
-                    ImGui::Image((void*)(intptr_t)juliaTexBuffer, ImVec2(julia_size, julia_size));
+                    ImGui::Image((void*)(intptr_t)juliaTexBuffer, ImVec2(julia_size, julia_size), {0, 1}, {1, 0});
+                    ImGui::PushStyleColor(ImGuiCol_Text, IM_COL32(150, 150, 150, 255));
+                    ImGui::Text("Double-click to switch");
+                    ImGui::PopStyleColor();
                 }
                 if (cmplxinfo || juliaset) ImGui::End();
             }
