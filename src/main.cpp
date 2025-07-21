@@ -280,24 +280,24 @@ class MV2 {
     bool paused = false;
     int progress = 0;
 
-    GLuint shaderProgram  = NULL;
-    GLuint vertexShader = NULL;
+    GLuint shaderProgram = 0;
+    GLuint vertexShader = 0;
 
-    GLuint mandelbrotFrameBuffer = NULL;
-    GLuint postprocFrameBuffer = NULL;
-    GLuint finalFrameBuffer = NULL;
-    GLuint juliaFrameBuffer = NULL;
+    GLuint mandelbrotFrameBuffer = 0;
+    GLuint postprocFrameBuffer = 0;
+    GLuint finalFrameBuffer = 0;
+    GLuint juliaFrameBuffer = 0;
 
-    GLuint mandelbrotTexBuffer = NULL;
-    GLuint postprocTexBuffer = NULL;
-    GLuint finalTexBuffer = NULL;
-    GLuint juliaTexBuffer = NULL;
+    GLuint mandelbrotTexBuffer = 0;
+    GLuint postprocTexBuffer = 0;
+    GLuint finalTexBuffer = 0;
+    GLuint juliaTexBuffer = 0;
 
-    GLuint paletteBuffer = NULL;
-    GLuint orbitInBuffer = NULL;
-    GLuint orbitOutBuffer = NULL;
-    GLuint sliderBuffer = NULL;
-    GLuint kernelBuffer = NULL;
+    GLuint paletteBuffer = 0;
+    GLuint orbitInBuffer = 0;
+    GLuint orbitOutBuffer = 0;
+    GLuint sliderBuffer = 0;
+    GLuint kernelBuffer = 0;
 
     int32_t stateID = 10;
     ImGradientHDRState state;
@@ -511,7 +511,7 @@ public:
         glVertexAttribPointer(0, 2, GL_FLOAT, false, 2 * sizeof(float), nullptr);
         glEnableVertexAttribArray(0);
 
-        glBindBuffer(GL_ARRAY_BUFFER, NULL);
+        glBindBuffer(GL_ARRAY_BUFFER, 0);
 
         glUseProgram(shaderProgram);
 
@@ -707,7 +707,7 @@ private:
                     const char* content;
                     int length;
 
-                    GLuint shader = NULL;
+                    GLuint shader = 0;
                     GLint success = false;
                     char infoLog[512];
                     embed = b::embed<"shaders/render.glsl">();
@@ -1372,7 +1372,7 @@ public:
 
                 static char* infoLog = new char[512]{'\0'};
                 static int success;
-                static GLuint shader = NULL;
+                static GLuint shader = 0;
                 embed = b::embed<"shaders/render.glsl">();
                 content = embed.data();
                 length = embed.length();
@@ -1779,14 +1779,14 @@ public:
                     glDrawArrays(GL_TRIANGLES, 0, 6);
 
                     glBindTexture(GL_TEXTURE_2D, finalTexBuffer);
-                    glBindFramebuffer(GL_FRAMEBUFFER, NULL);
+                    glBindFramebuffer(GL_FRAMEBUFFER, 0);
                     glViewport(0, 0, ss.x, ss.y);
                     glUniform2i(glGetUniformLocation(shaderProgram, "screenSize"), ss.x, ss.y);
                     glDrawArrays(GL_TRIANGLES, 0, 6);
                     set_op(MV_RENDER, true);
                 } else {
                     glBindTexture(GL_TEXTURE_2D, postprocTexBuffer);
-                    glBindFramebuffer(GL_FRAMEBUFFER, NULL);
+                    glBindFramebuffer(GL_FRAMEBUFFER, 0);
                     glUniform1i(glGetUniformLocation(shaderProgram, "op"), MV_RENDER);
                     glViewport(0, 0, ss.x, ss.y);
                     glUniform2i(glGetUniformLocation(shaderProgram, "screenSize"), ss.x, ss.y);
