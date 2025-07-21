@@ -722,12 +722,22 @@ private:
                     app->config.zoom = app->sync_zoom_julia ? sqrt(app->config.zoom) * 1.2f : 3.0;
                     app->config.center = dvec2(0.0, 0.0);
                     switch_shader();
+
+                    if (app->juliaset) {
+                        app->juliaset = false;
+                        app->juliaset_disabled_incompat = true;
+                    }
                 }
                 else if (app->rightClickHold && app->fractal == 2) {
                     app->fractal = 1;
                     app->config.center = app->tempCenter;
                     app->config.zoom = app->tempZoom;
                     switch_shader();
+
+                    if (app->juliaset_disabled_incompat) {
+                        app->juliaset = true;
+                        app->juliaset_disabled_incompat = false;
+                    }
                 }
                 else {
                     glfwGetCursorPos(window, &app->oldPos.x, &app->oldPos.y);
