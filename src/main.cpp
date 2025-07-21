@@ -94,15 +94,19 @@ void main() {
 )";
 
 constexpr double zoom_co = 0.85;
-constexpr double doubleClick_interval = 0.2;
+constexpr double doubleClick_interval = 0.4;
 ivec2 monitorSize;
 
 struct Slider {
     std::string name;
+    double def = 0.f;
     double value = 0.f;
     float slider = 0.f;
     float min = 0.f, max = 0.f;
     float step = 1.f;
+
+    Slider(const std::string& name = "", double def = 0.0, float min = 0.f, float max = 0.f, float step = 1.f)
+        : name(name), def(def), value(def), slider(static_cast<float>(def)), min(min), max(max), step(step) {}
 };
 
 struct Fractal {
@@ -134,7 +138,7 @@ std::vector<Fractal> fractals = {
         .power = 2.f,
         .continuous_compatible = true,
         .julia_compatible = false,
-        .sliders = { Slider({.name = "Re", .value = 0.0, .slider = 0.f}), Slider({.name = "Im", .value = 0.0, .slider = 0.f})}
+        .sliders = { Slider("Re", 0.f), Slider("Im", 0.f) }
     }),
     Fractal({.name = "Nova",
         .equation = "z - cdivide(cpow(z, power) - dvec2(1, 0), power * cpow(z, power - 1)) + c",
@@ -154,12 +158,12 @@ std::vector<Fractal> fractals = {
     }),
     Fractal({.name = "Newton",
         .equation = "z - cmultiply(dvec2(Re, Im), cdivide(cpow(z, power) - dvec2(1.f, 0.f), power * cpow(z, power - 1.f)))",
-        .condition = "length(cpow(z, power) - dvec2(1.0, 0.0)) < 1e-5",
+        .condition = "distance(z, prevz) < 10e-5",
         .initialz = "c",
         .power = 3.f,
         .continuous_compatible = false,
         .julia_compatible = false,
-        .sliders = { Slider({.name = "Re", .value = 1.0, .slider = 1.f}), Slider({.name = "Im", .value = 0.0, .slider = 0.f})}
+        .sliders = { Slider("Re", 1.f), Slider("Im", 0.f) }
     }),
     Fractal({.name = "Magnet 1",
         .equation = "cpow(cdivide(cpow(z, power) + c - dvec2(1, 0), power * z + c - dvec2(power, 0)), power)",
@@ -715,7 +719,7 @@ private:
                     fractals[2].sliders[1].slider = fractals[2].sliders[1].value = cmplx.y;
                     app->tempCenter = app->config.center;
                     app->tempZoom = app->config.zoom;
-                    app->config.zoom = sqrt(app->config.zoom);
+                    app->config.zoom = app->sync_zoom_julia ? sqrt(app->config.zoom) * 1.2f : 3.0;
                     app->config.center = dvec2(0.0, 0.0);
                     switch_shader();
                 }
@@ -743,7 +747,7 @@ private:
             switch (action) {
             case GLFW_PRESS:
                 app->rightClickHold = true;
-                app->julia_zoom = app->sync_zoom_julia ? sqrt(app->config.zoom) : 3.0;
+                app->julia_zoom = app->sync_zoom_julia ? sqrt(app->config.zoom) * 1.2f : 3.0;
                 glUniform1d(glGetUniformLocation(app->shaderProgram, "julia_zoom"), app->julia_zoom);
                 glUniform1i(glGetUniformLocation(app->shaderProgram, "julia_maxiters"),
                     max_iters(app->julia_zoom, zoom_co, app->config.iter_co, 3.0));
@@ -1413,11 +1417,11 @@ public:
                         update_fractal = 1;
                     }
                     ImGui::SameLine();
-                    if (index != -1 && ImGui::Button("Delete", ImVec2(80, 0))) {
+                    if (fractal == 0 && index != -1 && ImGui::Button("Delete", ImVec2(80, 0))) {
                         to_delete.push_back(index);
                         update_fractal = 1;
                     }
-                    else if (index == -1 && ImGui::Button("Reset", ImVec2(80, 0))) {
+                    else if (ImGui::Button("Reset", ImVec2(80, 0))) {
                         *ptr = def;
                         update_fractal = 1;
                     }
@@ -1430,11 +1434,11 @@ public:
                     ImGui::PopID();
                 };
                 float mouseSpeed = cbrt(pow(ImGui::GetIO().MouseDelta.x, 2) + pow(ImGui::GetIO().MouseDelta.y, 2));
-                slider("Power", &config.degree, nullptr, -1, 2.f, std::max(1e-4f, abs(round(config.degree) - config.degree)) * mouseSpeed * std::min(pow(1.1f, config.degree), 1e+3f) / 40.f, (fractal == 0) ? -FLT_MAX : 2.f, FLT_MAX);
+                slider("Power", &config.degree, nullptr, -1, fractals[fractal].power, std::max(1e-4f, abs(round(config.degree) - config.degree)) * mouseSpeed * std::min(pow(1.1f, config.degree), 1e+3f) / 40.f, (fractal == 0) ? -FLT_MAX : 2.f, FLT_MAX);
                 int numSliders = fractals[fractal].sliders.size();
                 for (int i = 0; i < numSliders; i++) {
                     Slider& s = fractals[fractal].sliders[i];
-                    slider(s.name.c_str(), &s.slider, &s.value, i, 0.f, std::max(1e-2f, abs(s.slider) * mouseSpeed / 40.f), s.min, s.max);
+                    slider(s.name.c_str(), &s.slider, &s.value, i, s.def, std::max(1e-2f, abs(s.slider) * mouseSpeed / 40.f), s.min, s.max);
                 }
                 for (const int& i : to_delete) {
                     fractals[fractal].sliders.erase(fractals[fractal].sliders.begin() + i);
