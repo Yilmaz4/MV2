@@ -201,7 +201,7 @@ std::vector<Fractal> fractals = {
 
 struct Config {
     dvec2  center = { -0.4, 0.0 };
-    ivec2  screenSize = { 1000, 600 };
+    ivec2  frameSize = { 1000, 600 };
     double zoom = 5.0;
     float  spectrum_offset = 0.f;
     float  iter_multiplier = 12.f;
@@ -260,14 +260,16 @@ class MV2 {
     bool juliaset = true;
     bool juliaset_disabled_incompat = false;
     bool orbit = true;
-    bool persist_orbit = false;
     bool cmplxinfo = true;
+
+    bool persist_orbit = false;
+    bool enable_orbit = false;
+    bool orbit_refreshed = false;
 
     dvec2 oldPos = { 0, 0 };
     dvec2 lastPresses = { -doubleClick_interval, 0 };
     bool dragging = false;
     bool rightClickHold = false;
-    bool rightClick_released = false;
     dvec2 tempCenter = config.center;
     double tempZoom = config.zoom;
 
@@ -283,12 +285,12 @@ class MV2 {
     GLuint shaderProgram = 0;
     GLuint vertexShader = 0;
 
-    GLuint mandelbrotFrameBuffer = 0;
+    GLuint computeFrameBuffer = 0;
     GLuint postprocFrameBuffer = 0;
     GLuint finalFrameBuffer = 0;
     GLuint juliaFrameBuffer = 0;
 
-    GLuint mandelbrotTexBuffer = 0;
+    GLuint computeTexBuffer = 0;
     GLuint postprocTexBuffer = 0;
     GLuint finalTexBuffer = 0;
     GLuint juliaTexBuffer = 0;
@@ -308,8 +310,6 @@ public:
     MV2() {
         glfwInit();
 
-        std::cout << "init\n";
-
         glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 4);
         glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 6);
         glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
@@ -327,10 +327,10 @@ public:
         const char* session = std::getenv("XDG_SESSION_DESKTOP");
         const char* hyprSig = std::getenv("HYPRLAND_INSTANCE_SIGNATURE");
         if ((session && std::string(session) == "Hyprland") || (hyprSig != nullptr)) {
-            system("hyprctl keyword windowrulev2 renderunfocused, class:mv2");
+            system("hyprctl keyword windowrulev2 renderunfocused, class:mv2 > /dev/null");
         }
 
-        window = glfwCreateWindow(config.screenSize.x, config.screenSize.y, "Mandelbrot Voyage", NULL, NULL);
+        window = glfwCreateWindow(config.frameSize.x, config.frameSize.y, "Mandelbrot Voyage", NULL, NULL);
         if (window == nullptr) {
             std::cout << "Failed to create OpenGL window" << std::endl;
             return;
@@ -410,12 +410,12 @@ public:
             return;
         }
 
-        glGenTextures(1, &mandelbrotTexBuffer);
+        glGenTextures(1, &computeTexBuffer);
         glActiveTexture(GL_TEXTURE0);
-        glBindTexture(GL_TEXTURE_2D, mandelbrotTexBuffer);
+        glBindTexture(GL_TEXTURE_2D, computeTexBuffer);
         
-        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA32F, config.screenSize.x * config.ssaa,
-            config.screenSize.y * config.ssaa, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA32F, config.frameSize.x * config.ssaa,
+            config.frameSize.y * config.ssaa, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
         
@@ -424,8 +424,8 @@ public:
         glActiveTexture(GL_TEXTURE1);
         glBindTexture(GL_TEXTURE_2D, postprocTexBuffer);
         
-        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA32F, config.screenSize.x * config.ssaa,
-            config.screenSize.y * config.ssaa, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA32F, config.frameSize.x * config.ssaa,
+            config.frameSize.y * config.ssaa, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
 
@@ -444,9 +444,9 @@ public:
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
 
-        glGenFramebuffers(1, &mandelbrotFrameBuffer);
-        glBindFramebuffer(GL_FRAMEBUFFER, mandelbrotFrameBuffer);
-        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, mandelbrotTexBuffer, 0);
+        glGenFramebuffers(1, &computeFrameBuffer);
+        glBindFramebuffer(GL_FRAMEBUFFER, computeFrameBuffer);
+        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, computeTexBuffer, 0);
 
         glGenFramebuffers(1, &postprocFrameBuffer);
         glBindFramebuffer(GL_FRAMEBUFFER, postprocFrameBuffer);
@@ -515,18 +515,20 @@ public:
 
         glUseProgram(shaderProgram);
 
-        glUniform1i(glGetUniformLocation(shaderProgram, "mandelbrotTex"), 0);
+        glUniform1i(glGetUniformLocation(shaderProgram, "computeTex"), 0);
         glUniform1i(glGetUniformLocation(shaderProgram, "postprocTex"), 1);
         glUniform1i(glGetUniformLocation(shaderProgram, "finalTex"), 2);
 
         glGenBuffers(1, &orbitInBuffer);
         glBindBuffer(GL_SHADER_STORAGE_BUFFER, orbitInBuffer);
         glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, orbitInBuffer);
+        glBufferData(GL_SHADER_STORAGE_BUFFER, max_vertices * sizeof(vec2), nullptr, GL_DYNAMIC_COPY);
         glShaderStorageBlockBinding(shaderProgram, glGetProgramResourceIndex(shaderProgram, GL_SHADER_STORAGE_BLOCK, "orbit_in"), 0);
 
         glGenBuffers(1, &orbitOutBuffer);
         glBindBuffer(GL_SHADER_STORAGE_BUFFER, orbitOutBuffer);
         glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, orbitOutBuffer);
+        glBufferData(GL_SHADER_STORAGE_BUFFER, max_vertices * sizeof(dvec2), nullptr, GL_DYNAMIC_COPY);
         glShaderStorageBlockBinding(shaderProgram, glGetProgramResourceIndex(shaderProgram, GL_SHADER_STORAGE_BLOCK, "orbit_out"), 1);
 
         glUniform1i(glGetUniformLocation(shaderProgram, "numVertices"), 0);
@@ -550,7 +552,7 @@ public:
         upload_kernel(config.ssaa);
 
         use_config(config, true, false);
-        on_windowResize(window, config.screenSize.x * dpi_scale, config.screenSize.y * dpi_scale);
+        on_windowResize(window, config.frameSize.x * dpi_scale, config.frameSize.y * dpi_scale);
 
         for (const vec4& c : paletteData) {
             state.AddColorMarker(c.w, { c.r, c.g, c.b }, 1.0f);
@@ -559,7 +561,7 @@ public:
 private:
     void use_config(Config config, bool variables = true, bool textures = true) {
         if (variables) {
-            glUniform2i(glGetUniformLocation(shaderProgram, "screenSize"), config.screenSize.x, config.screenSize.y);
+            glUniform2i(glGetUniformLocation(shaderProgram, "frameSize"), config.frameSize.x, config.frameSize.y);
             glUniform2d(glGetUniformLocation(shaderProgram, "center"), config.center.x, config.center.y);
             glUniform1f(glGetUniformLocation(shaderProgram, "iter_multiplier"), config.iter_multiplier);
             glUniform1d(glGetUniformLocation(shaderProgram, "zoom"), config.zoom);
@@ -574,8 +576,11 @@ private:
             glUniform3f(glGetUniformLocation(shaderProgram, "set_color"), config.set_color.x, config.set_color.y, config.set_color.z);
             glUniform1d(glGetUniformLocation(shaderProgram, "julia_zoom"), julia_zoom);
             glUniform1i(glGetUniformLocation(shaderProgram, "julia_maxiters"), max_iters(julia_zoom, zoom_co, config.iter_co, 3.0));
-            glUniform1i(glGetUniformLocation(shaderProgram, "blur"), (config.ssaa ? config.ssaa : 1));
+            glUniform1i(glGetUniformLocation(shaderProgram, "ssaa_factor"), (config.ssaa ? config.ssaa : 1));
             glUniform1i(glGetUniformLocation(shaderProgram, "transfer_function"), config.transfer_function);
+
+            glUniform1i(glGetUniformLocation(shaderProgram, "show_orbit"), false);
+            glUniform2d(glGetUniformLocation(shaderProgram, "orbit_start"), -1.0, -1.0);
 
             glUniform1f(glGetUniformLocation(shaderProgram, "power"), config.degree);
             glUniform1i(glGetUniformLocation(shaderProgram, "fractal"), fractal);
@@ -590,13 +595,13 @@ private:
             glShaderStorageBlockBinding(shaderProgram, glGetProgramResourceIndex(shaderProgram, GL_SHADER_STORAGE_BLOCK, "newton_roots"), 5);
         }
         if (textures) {
-            glBindFramebuffer(GL_FRAMEBUFFER, mandelbrotFrameBuffer);
-            glBindTexture(GL_TEXTURE_2D, mandelbrotTexBuffer);
-            glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA32F, config.screenSize.x * config.ssaa, config.screenSize.y * config.ssaa, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
+            glBindFramebuffer(GL_FRAMEBUFFER, computeFrameBuffer);
+            glBindTexture(GL_TEXTURE_2D, computeTexBuffer);
+            glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB32F, config.frameSize.x * config.ssaa, config.frameSize.y * config.ssaa, 0, GL_RGB, GL_UNSIGNED_BYTE, NULL);
 
             glBindFramebuffer(GL_FRAMEBUFFER, postprocFrameBuffer);
             glBindTexture(GL_TEXTURE_2D, postprocTexBuffer);
-            glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, config.screenSize.x * config.ssaa, config.screenSize.y * config.ssaa, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
+            glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, config.frameSize.x * config.ssaa, config.frameSize.y * config.ssaa, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
         }
     }
 
@@ -604,22 +609,22 @@ private:
         if (p > op || override) op = p;
     }
 
-    static dvec2 pixel_to_complex(MV2* app, dvec2 pixelCoord) {
-        ivec2 ss = (app->fullscreen ? monitorSize : app->config.screenSize);
+    dvec2 pixel_to_complex(dvec2 pixelCoord) {
+        ivec2 ss = (fullscreen ? monitorSize : config.frameSize);
 
         return (((dvec2(pixelCoord.x / ss.x, (ss.y - pixelCoord.y) / ss.y)) - dvec2(0.5, 0.5)) *
-            dvec2(app->config.zoom, (ss.y * app->config.zoom) / ss.x) + dvec2(app->config.center.x, app->config.center.y));
+            dvec2(config.zoom, (ss.y * config.zoom) / ss.x) + dvec2(config.center.x, config.center.y));
     }
     static dvec2 pixel_to_complex(dvec2 pixelCoord, ivec2 ss, double zoom, dvec2 center) {
         return (((dvec2(pixelCoord.x / ss.x, (ss.y - pixelCoord.y) / ss.y)) - dvec2(0.5, 0.5)) *
             dvec2(zoom, (ss.y * zoom) / ss.x) + dvec2(center.x, center.y));
     }
     
-    static dvec2 complex_to_pixel(MV2* app, dvec2 complexCoord) {
-        ivec2 ss = (app->fullscreen ? monitorSize : app->config.screenSize);
+    dvec2 complex_to_pixel(dvec2 complexCoord) {
+        ivec2 ss = (fullscreen ? monitorSize : config.frameSize);
 
-        dvec2 normalizedCoord = (complexCoord - app->config.center);
-        normalizedCoord /= dvec2(app->config.zoom, (ss.y * app->config.zoom) / ss.x);
+        dvec2 normalizedCoord = (complexCoord - config.center);
+        normalizedCoord /= dvec2(config.zoom, (ss.y * config.zoom) / ss.x);
         dvec2 pixelCoordNormalized = normalizedCoord + dvec2(0.5, 0.5);
         return dvec2(pixelCoordNormalized.x * ss.x, ss.y - pixelCoordNormalized.y * ss.y);
     }
@@ -667,20 +672,20 @@ private:
 
     static void on_windowResize(GLFWwindow* window, int width, int height) {
         MV2* app = static_cast<MV2*>(glfwGetWindowUserPointer(window));
-        if (app->config.screenSize.x == width && app->config.screenSize.y == height && app->fullscreen) {
+        if (app->config.frameSize.x == width && app->config.frameSize.y == height && app->fullscreen) {
             app->set_op(MV_RENDER);
             return;
         }
         glViewport(0, 0, width, height);
 
-        if (!app->fullscreen) app->config.screenSize = { width, height };
+        if (!app->fullscreen) app->config.frameSize = { width, height };
         if (app->shaderProgram)
-            glUniform2i(glGetUniformLocation(app->shaderProgram, "screenSize"), width, height);
+            glUniform2i(glGetUniformLocation(app->shaderProgram, "frameSize"), width, height);
         app->set_op(MV_COMPUTE);
 
-        glBindFramebuffer(GL_FRAMEBUFFER, app->mandelbrotFrameBuffer);
-        glBindTexture(GL_TEXTURE_2D, app->mandelbrotTexBuffer);
-        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA32F, width * app->config.ssaa, height * app->config.ssaa, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
+        glBindFramebuffer(GL_FRAMEBUFFER, app->computeFrameBuffer);
+        glBindTexture(GL_TEXTURE_2D, app->computeTexBuffer);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB32F, width * app->config.ssaa, height * app->config.ssaa, 0, GL_RGB, GL_UNSIGNED_BYTE, NULL);
 
         glBindFramebuffer(GL_FRAMEBUFFER, app->postprocFrameBuffer);
         glBindTexture(GL_TEXTURE_2D, app->postprocTexBuffer);
@@ -690,7 +695,7 @@ private:
     static void on_mouseButton(GLFWwindow* window, int button, int action, int mod) {
         MV2* app = static_cast<MV2*>(glfwGetWindowUserPointer(window));
         if (!app->shaderProgram) return;
-        ivec2 ss = (app->fullscreen ? monitorSize : app->config.screenSize);
+        ivec2 ss = (app->fullscreen ? monitorSize : app->config.frameSize);
         if (ImGui::GetIO().WantCaptureMouse) return;
         switch (button) {
         case GLFW_MOUSE_BUTTON_LEFT:
@@ -724,7 +729,7 @@ private:
                     glfwGetCursorPos(window, &x, &y);
                     x *= app->dpi_scale;
                     y *= app->dpi_scale;
-                    dvec2 cmplx = app->pixel_to_complex(app, dvec2(x, y));
+                    dvec2 cmplx = app->pixel_to_complex(dvec2(x, y));
                     fractals[2].sliders[0].slider = fractals[2].sliders[0].value = cmplx.x;
                     fractals[2].sliders[1].slider = fractals[2].sliders[1].value = cmplx.y;
                     app->tempCenter = app->config.center;
@@ -752,7 +757,7 @@ private:
                 else {
                     glfwGetCursorPos(window, &app->oldPos.x, &app->oldPos.y);
                     app->oldPos *= app->dpi_scale;
-                    dvec2 pos = pixel_to_complex(app, app->oldPos);
+                    dvec2 pos = app->pixel_to_complex(app->oldPos);
                     app->config.center += pos - app->config.center;
                     glUniform2d(glGetUniformLocation(app->shaderProgram, "center"), app->config.center.x, app->config.center.y);
                 }
@@ -767,15 +772,25 @@ private:
             switch (action) {
             case GLFW_PRESS:
                 app->rightClickHold = true;
-                app->julia_zoom = app->sync_zoom_julia ? sqrt(app->config.zoom) * 1.2f : 3.0;
-                glUniform1d(glGetUniformLocation(app->shaderProgram, "julia_zoom"), app->julia_zoom);
-                glUniform1i(glGetUniformLocation(app->shaderProgram, "julia_maxiters"),
-                    max_iters(app->julia_zoom, zoom_co, app->config.iter_co, 3.0));
+
+                if (app->juliaset) {
+                    app->julia_zoom = app->sync_zoom_julia ? sqrt(app->config.zoom) * 1.2f : 3.0;
+                    glUniform1d(glGetUniformLocation(app->shaderProgram, "julia_zoom"), app->julia_zoom);
+                    glUniform1i(glGetUniformLocation(app->shaderProgram, "julia_maxiters"),
+                        max_iters(app->julia_zoom, zoom_co, app->config.iter_co, 3.0));
+                }
+                if (app->orbit) {
+                    app->enable_orbit = true;
+                }
                 app->refresh_rightclick();
                 break;
             case GLFW_RELEASE:
                 app->rightClickHold = false;
-                if (app->orbit) app->rightClick_released = true;
+                if (!app->persist_orbit) {
+                    glUniform1i(glGetUniformLocation(app->shaderProgram, "show_orbit"), false);
+                }
+                glUniform2d(glGetUniformLocation(app->shaderProgram, "orbit_start"), -1.0, -1.0);
+                app->set_op(MV_POSTPROC);
             }
         }
     }
@@ -785,7 +800,7 @@ private:
         x *= app->dpi_scale;
         y *= app->dpi_scale;
         if (!app->shaderProgram) return;
-        ivec2 ss = (app->fullscreen ? monitorSize : app->config.screenSize);
+        ivec2 ss = (app->fullscreen ? monitorSize : app->config.frameSize);
         glUniform2d(glGetUniformLocation(app->shaderProgram, "mousePos"), x, y);
         if (ImGui::GetIO().WantCaptureMouse)
             return;
@@ -820,9 +835,9 @@ private:
                 cursor_x *= app->dpi_scale;
                 cursor_y *= app->dpi_scale;
                 
-                dvec2 new_pos = complex_to_pixel(pixel_to_complex(app, dvec2(cursor_x, cursor_y)), app->config.screenSize, new_zoom, app->config.center);
+                dvec2 new_pos = complex_to_pixel(app->pixel_to_complex(dvec2(cursor_x, cursor_y)), app->config.frameSize, new_zoom, app->config.center);
 
-                app->config.center = pixel_to_complex(static_cast<dvec2>(app->config.screenSize) / 2.0 + (new_pos - dvec2(cursor_x, cursor_y)), app->config.screenSize, new_zoom, app->config.center);
+                app->config.center = pixel_to_complex(static_cast<dvec2>(app->config.frameSize) / 2.0 + (new_pos - dvec2(cursor_x, cursor_y)), app->config.frameSize, new_zoom, app->config.center);
                 
                 glUniform2d(glGetUniformLocation(app->shaderProgram, "center"), app->config.center.x, app->config.center.y);
             }
@@ -855,9 +870,28 @@ private:
             }
             else {
                 app->fullscreen = false;
-                glfwSetWindowMonitor(window, nullptr, app->screenPos.x, app->screenPos.y, app->config.screenSize.x, app->config.screenSize.y, 0);
+                glfwSetWindowMonitor(window, nullptr, app->screenPos.x, app->screenPos.y, app->config.frameSize.x, app->config.frameSize.y, 0);
             }
         }
+    }
+
+    void copy_orbit_buffer() {
+        ivec2 fs = (fullscreen ? monitorSize : config.frameSize);
+
+        void* srcPtr = glMapNamedBufferRange(orbitOutBuffer, 0, max_vertices * sizeof(dvec2), GL_MAP_READ_BIT);
+        void* dstPtr = glMapNamedBufferRange(orbitInBuffer, 0, max_vertices * sizeof(vec2), GL_MAP_WRITE_BIT | GL_MAP_INVALIDATE_BUFFER_BIT);
+
+        if (srcPtr && dstPtr) {
+            dvec2* src = reinterpret_cast<dvec2*>(srcPtr);
+            vec2* dst = reinterpret_cast<vec2*>(dstPtr);
+
+            for (size_t i = 0; i < max_vertices; i++) {
+                dst[i] = static_cast<vec2>(complex_to_pixel(src[i]));
+                dst[i].y = fs.y - dst[i].y;
+            }
+        }
+        glUnmapNamedBuffer(orbitInBuffer);
+        glUnmapNamedBuffer(orbitOutBuffer);
     }
 
     void refresh_rightclick() {
@@ -865,15 +899,15 @@ private:
         glfwGetCursorPos(window, &x, &y);
         x *= dpi_scale;
         y *= dpi_scale;
-        ivec2 ss = (fullscreen ? monitorSize : config.screenSize);
+        ivec2 fs = (fullscreen ? monitorSize : config.frameSize);
 
-        cmplxCoord = pixel_to_complex(this, { x, y });
+        cmplxCoord = pixel_to_complex({ x, y });
         
         if (cmplxinfo) {
-            float texel[4];
-            glBindFramebuffer(GL_FRAMEBUFFER, mandelbrotFrameBuffer);
+            float texel[3];
+            glBindFramebuffer(GL_FRAMEBUFFER, computeFrameBuffer);
             glReadBuffer(GL_FRONT);
-            glReadPixels(x * config.ssaa, y * config.ssaa, 1, 1, GL_RGBA, GL_FLOAT, texel);
+            glReadPixels(x * config.ssaa, y * config.ssaa, 1, 1, GL_RGB, GL_FLOAT, texel);
             numIterations = static_cast<int>(texel[1]);
         }
         if (juliaset) {
@@ -881,17 +915,15 @@ private:
             glBindFramebuffer(GL_FRAMEBUFFER, juliaFrameBuffer);
             glUniform1i(glGetUniformLocation(shaderProgram, "op"), 3);
             glUniform2d(glGetUniformLocation(shaderProgram, "mouseCoord"), cmplxCoord.x, cmplxCoord.y);
-            glUniform2i(glGetUniformLocation(shaderProgram, "screenSize"), julia_size * config.ssaa, julia_size * config.ssaa);
+            glUniform2i(glGetUniformLocation(shaderProgram, "frameSize"), julia_size * config.ssaa, julia_size * config.ssaa);
             glDrawArrays(GL_TRIANGLES, 0, 6);
         }
         if (orbit) {
-            glBindBuffer(GL_SHADER_STORAGE_BUFFER, orbitInBuffer);
-            glBufferData(GL_SHADER_STORAGE_BUFFER, max_vertices * sizeof(vec2), nullptr, GL_DYNAMIC_COPY);
-            glBindBuffer(GL_SHADER_STORAGE_BUFFER, orbitOutBuffer);
-            glBufferData(GL_SHADER_STORAGE_BUFFER, max_vertices * sizeof(vec2), nullptr, GL_DYNAMIC_COPY);
-            glUniform2d(glGetUniformLocation(shaderProgram, "mousePos"), x, ss.y - y);
+            glUniform2d(glGetUniformLocation(shaderProgram, "orbit_start"), x, fs.y - y);
             glUniform1i(glGetUniformLocation(shaderProgram, "numVertices"), max_vertices);
             
+            copy_orbit_buffer();
+            orbit_refreshed = true;
             set_op(MV_POSTPROC);
         }
     }
@@ -981,7 +1013,7 @@ public:
             ImGui_ImplGlfw_NewFrame();
             ImGui::NewFrame();
 
-            ivec2 ss = (fullscreen ? monitorSize : config.screenSize);
+            ivec2 ss = (fullscreen ? monitorSize : config.frameSize);
             
             double currentTime = glfwGetTime();
 
@@ -1036,7 +1068,7 @@ public:
                         { 3840, 2160 }
                     };
                     static int res = 2;
-                    zsc.tcfg.screenSize = commonres[res];
+                    zsc.tcfg.frameSize = commonres[res];
                     auto vec_to_str = [commonres](int i) {
                         return std::format("{}x{}", commonres.at(i).x, commonres.at(i).y);
                         };
@@ -1046,10 +1078,10 @@ public:
                         for (int i = 0; i < commonres.size(); i++) {
                             const bool is_selected = (res == i);
                             if (ImGui::Selectable(vec_to_str(i).c_str(), is_selected)) {
-                                zsc.tcfg.screenSize = commonres.at(i);
+                                zsc.tcfg.frameSize = commonres.at(i);
                                 glBindFramebuffer(GL_FRAMEBUFFER, finalFrameBuffer);
                                 glBindTexture(GL_TEXTURE_2D, finalTexBuffer);
-                                glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, zsc.tcfg.screenSize.x, zsc.tcfg.screenSize.y, 0, GL_RGB, GL_UNSIGNED_BYTE, NULL);
+                                glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, zsc.tcfg.frameSize.x, zsc.tcfg.frameSize.y, 0, GL_RGB, GL_UNSIGNED_BYTE, NULL);
                                 res = i;
                             }
                             if (is_selected) ImGui::SetItemDefaultFocus();
@@ -1096,7 +1128,7 @@ public:
                         progress = 0;
                         glfwSwapInterval(0);
                         zsc.tcfg.zoom = 8.0f;
-                        //writer = cv::VideoWriter(zsc.path, cv::VideoWriter::fourcc('m', 'j', 'p', 'g'), zsc.fps, cv::Size(zsc.tcfg.screenSize.x, zsc.tcfg.screenSize.y));
+                        //writer = cv::VideoWriter(zsc.path, cv::VideoWriter::fourcc('m', 'j', 'p', 'g'), zsc.fps, cv::Size(zsc.tcfg.frameSize.x, zsc.tcfg.frameSize.y));
 
                         //if (!writer.isOpened()) throw Error("Failed to initialize sequencer");
                         use_config(zsc.tcfg, true, true);
@@ -1161,8 +1193,8 @@ public:
                         const GLFWvidmode* mode = glfwGetVideoMode(monitor);
                         w = mode->width, h = mode->height;
                     } else {
-                        w = config.screenSize.x;
-                        h = config.screenSize.y;
+                        w = config.frameSize.x;
+                        h = config.frameSize.y;
                     }
                     w *= config.ssaa;
                     h *= config.ssaa;
@@ -1313,10 +1345,10 @@ public:
                             config.ssaa = i != 0;
                             config.ssaa = pow(2, i);
                             
-                            glBindFramebuffer(GL_FRAMEBUFFER, mandelbrotFrameBuffer);
-                            glBindTexture(GL_TEXTURE_2D, mandelbrotTexBuffer);
-                            glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA32F, ss.x * config.ssaa,
-                                ss.y * config.ssaa, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
+                            glBindFramebuffer(GL_FRAMEBUFFER, computeFrameBuffer);
+                            glBindTexture(GL_TEXTURE_2D, computeTexBuffer);
+                            glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB32F, ss.x * config.ssaa,
+                                ss.y * config.ssaa, 0, GL_RGB, GL_UNSIGNED_BYTE, NULL);
 
                             glBindFramebuffer(GL_FRAMEBUFFER, postprocFrameBuffer);
                             glBindTexture(GL_TEXTURE_2D, postprocTexBuffer);
@@ -1328,7 +1360,7 @@ public:
                             glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA32F, julia_size * config.ssaa,
                                 julia_size * config.ssaa, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
 
-                            glUniform1i(glGetUniformLocation(shaderProgram, "blur"), config.ssaa);
+                            glUniform1i(glGetUniformLocation(shaderProgram, "ssaa_factor"), config.ssaa);
                             upload_kernel(config.ssaa);
                             set_op(MV_COMPUTE);
                         }
@@ -1676,7 +1708,13 @@ public:
                     ImGui::Checkbox("Julia set", &juliaset);
                     ImGui::EndDisabled();
                     ImGui::SameLine();
-                    ImGui::Checkbox("Orbit", &orbit);
+                    if (ImGui::Checkbox("Orbit", &orbit)) {
+                        if (!orbit) {
+                            glUniform1i(glGetUniformLocation(shaderProgram, "show_orbit"), false);
+                            set_op(MV_POSTPROC);
+                        }
+                    }
+                    ImGui::Separator();
                     ImGui::SetNextItemWidth(90);
                     ImGui::BeginDisabled(!juliaset);
                     if (ImGui::InputInt("Julia preview size", &julia_size, 5, 20)) {
@@ -1686,15 +1724,21 @@ public:
                     }
                     ImGui::Checkbox("Same zoom in Julia set", &sync_zoom_julia);
                     ImGui::EndDisabled();
+                    ImGui::Separator();
                     ImGui::SetNextItemWidth(90);
                     ImGui::BeginDisabled(!orbit);
                     if (ImGui::InputInt("Maximum vertices shown", &max_vertices, 5, 20)) {
                         if (max_vertices < 2) max_vertices = 2;
                         glUniform1i(glGetUniformLocation(shaderProgram, "numVertices"), max_vertices);
+                        glBindBuffer(GL_SHADER_STORAGE_BUFFER, orbitInBuffer);
                         glBufferData(GL_SHADER_STORAGE_BUFFER, max_vertices * sizeof(vec2), nullptr, GL_DYNAMIC_COPY);
+                        glBindBuffer(GL_SHADER_STORAGE_BUFFER, orbitOutBuffer);
+                        glBufferData(GL_SHADER_STORAGE_BUFFER, max_vertices * sizeof(dvec2), nullptr, GL_DYNAMIC_COPY);
                     }
                     ImGui::Checkbox("Keep orbit after releasing mouse", &persist_orbit);
+
                     ImGui::EndDisabled();
+
                     ImGui::TreePop();
                 }
                 if (ImGui::TreeNode("Zoom and navigation")) {
@@ -1745,25 +1789,24 @@ public:
                 }
                 if (cmplxinfo || juliaset) ImGui::End();
             }
-            if (!rightClickHold || !orbit) {
-                glUniform1i(glGetUniformLocation(shaderProgram, "numVertices"), 0);
-            }
             ImGui::PopFont();
             if (recording) {
-                glViewport(0, 0, zsc.tcfg.screenSize.x * zsc.tcfg.ssaa, zsc.tcfg.screenSize.y * zsc.tcfg.ssaa);
-                glUniform2i(glGetUniformLocation(shaderProgram, "screenSize"), zsc.tcfg.screenSize.x * zsc.tcfg.ssaa, zsc.tcfg.screenSize.y * zsc.tcfg.ssaa);
+                glViewport(0, 0, zsc.tcfg.frameSize.x * zsc.tcfg.ssaa, zsc.tcfg.frameSize.y * zsc.tcfg.ssaa);
+                glUniform2i(glGetUniformLocation(shaderProgram, "frameSize"), zsc.tcfg.frameSize.x * zsc.tcfg.ssaa, zsc.tcfg.frameSize.y * zsc.tcfg.ssaa);
             } else {
                 glViewport(0, 0, ss.x * config.ssaa, ss.y * config.ssaa);
-                glUniform2i(glGetUniformLocation(shaderProgram, "screenSize"), ss.x * config.ssaa, ss.y * config.ssaa);
+                glUniform2i(glGetUniformLocation(shaderProgram, "frameSize"), ss.x * config.ssaa, ss.y * config.ssaa);
             }
             switch (op) {
             case MV_COMPUTE:
-                glBindFramebuffer(GL_FRAMEBUFFER, mandelbrotFrameBuffer);
+                glBindFramebuffer(GL_FRAMEBUFFER, computeFrameBuffer);
                 glUniform1i(glGetUniformLocation(shaderProgram, "op"), MV_COMPUTE);
                 glDrawArrays(GL_TRIANGLES, 0, 6);
+                if (persist_orbit)
+                    copy_orbit_buffer();
                 [[fallthrough]];
             case MV_POSTPROC:
-                glBindTexture(GL_TEXTURE_2D, mandelbrotTexBuffer);
+                glBindTexture(GL_TEXTURE_2D, computeTexBuffer);
                 glBindFramebuffer(GL_FRAMEBUFFER, postprocFrameBuffer);
                 glUniform1i(glGetUniformLocation(shaderProgram, "op"), MV_POSTPROC);
                 glDrawArrays(GL_TRIANGLES, 0, 6);
@@ -1774,14 +1817,14 @@ public:
                     glBindTexture(GL_TEXTURE_2D, postprocTexBuffer);
                     glBindFramebuffer(GL_FRAMEBUFFER, finalFrameBuffer);
                     glUniform1i(glGetUniformLocation(shaderProgram, "op"), MV_RENDER);
-                    glViewport(0, 0, zsc.tcfg.screenSize.x, zsc.tcfg.screenSize.y);
-                    glUniform2i(glGetUniformLocation(shaderProgram, "screenSize"), zsc.tcfg.screenSize.x, zsc.tcfg.screenSize.y);
+                    glViewport(0, 0, zsc.tcfg.frameSize.x, zsc.tcfg.frameSize.y);
+                    glUniform2i(glGetUniformLocation(shaderProgram, "frameSize"), zsc.tcfg.frameSize.x, zsc.tcfg.frameSize.y);
                     glDrawArrays(GL_TRIANGLES, 0, 6);
 
                     glBindTexture(GL_TEXTURE_2D, finalTexBuffer);
                     glBindFramebuffer(GL_FRAMEBUFFER, 0);
                     glViewport(0, 0, ss.x, ss.y);
-                    glUniform2i(glGetUniformLocation(shaderProgram, "screenSize"), ss.x, ss.y);
+                    glUniform2i(glGetUniformLocation(shaderProgram, "frameSize"), ss.x, ss.y);
                     glDrawArrays(GL_TRIANGLES, 0, 6);
                     set_op(MV_RENDER, true);
                 } else {
@@ -1789,25 +1832,27 @@ public:
                     glBindFramebuffer(GL_FRAMEBUFFER, 0);
                     glUniform1i(glGetUniformLocation(shaderProgram, "op"), MV_RENDER);
                     glViewport(0, 0, ss.x, ss.y);
-                    glUniform2i(glGetUniformLocation(shaderProgram, "screenSize"), ss.x, ss.y);
+                    glUniform2i(glGetUniformLocation(shaderProgram, "frameSize"), ss.x, ss.y);
                     glDrawArrays(GL_TRIANGLES, 0, 6);
                     set_op(MV_RENDER, true);
-
-                    glCopyNamedBufferSubData(orbitOutBuffer, orbitInBuffer, 0, 0, max_vertices * sizeof(vec2));
-
-                    if (rightClick_released) {
-                        if (!persist_orbit) {
-                            set_op(MV_POSTPROC);
-                        }
-                        else {
-                            set_op(MV_RENDER, true);
-                        }
-                        rightClick_released = false;
-                    }
                 }
             }
+
+            if (enable_orbit) {
+                glUniform1i(glGetUniformLocation(shaderProgram, "show_orbit"), true);
+                copy_orbit_buffer();
+                set_op(MV_POSTPROC);
+                enable_orbit = false;
+            }
+            
+            if (orbit_refreshed) {
+                copy_orbit_buffer();
+                set_op(MV_POSTPROC);
+                orbit_refreshed = false;
+            }
+
             if (recording && !paused) {
-                int w = zsc.tcfg.screenSize.x, h = zsc.tcfg.screenSize.y;
+                int w = zsc.tcfg.frameSize.x, h = zsc.tcfg.frameSize.y;
                 unsigned char* buffer = new unsigned char[4 * w * h];
                 glGetTexImage(GL_TEXTURE_2D, 0, GL_RGB, GL_UNSIGNED_BYTE, buffer);
 
