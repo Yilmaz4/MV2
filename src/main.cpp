@@ -522,13 +522,13 @@ public:
         glGenBuffers(1, &orbitInBuffer);
         glBindBuffer(GL_SHADER_STORAGE_BUFFER, orbitInBuffer);
         glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, orbitInBuffer);
-        glBufferData(GL_SHADER_STORAGE_BUFFER, max_vertices * sizeof(vec2), nullptr, GL_DYNAMIC_COPY);
+        glBufferData(GL_SHADER_STORAGE_BUFFER, (max_vertices + 2) * sizeof(vec2), nullptr, GL_DYNAMIC_COPY);
         glShaderStorageBlockBinding(shaderProgram, glGetProgramResourceIndex(shaderProgram, GL_SHADER_STORAGE_BLOCK, "orbit_in"), 0);
 
         glGenBuffers(1, &orbitOutBuffer);
         glBindBuffer(GL_SHADER_STORAGE_BUFFER, orbitOutBuffer);
         glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, orbitOutBuffer);
-        glBufferData(GL_SHADER_STORAGE_BUFFER, max_vertices * sizeof(dvec2), nullptr, GL_DYNAMIC_COPY);
+        glBufferData(GL_SHADER_STORAGE_BUFFER, (max_vertices + 2) * sizeof(dvec2), nullptr, GL_DYNAMIC_COPY);
         glShaderStorageBlockBinding(shaderProgram, glGetProgramResourceIndex(shaderProgram, GL_SHADER_STORAGE_BLOCK, "orbit_out"), 1);
 
         glUniform1i(glGetUniformLocation(shaderProgram, "numVertices"), 0);
@@ -878,14 +878,14 @@ private:
     void copy_orbit_buffer() {
         ivec2 fs = (fullscreen ? monitorSize : config.frameSize);
 
-        void* srcPtr = glMapNamedBufferRange(orbitOutBuffer, 0, max_vertices * sizeof(dvec2), GL_MAP_READ_BIT);
-        void* dstPtr = glMapNamedBufferRange(orbitInBuffer, 0, max_vertices * sizeof(vec2), GL_MAP_WRITE_BIT | GL_MAP_INVALIDATE_BUFFER_BIT);
+        void* srcPtr = glMapNamedBufferRange(orbitOutBuffer, 0, (max_vertices + 2) * sizeof(dvec2), GL_MAP_READ_BIT);
+        void* dstPtr = glMapNamedBufferRange(orbitInBuffer, 0, (max_vertices + 2) * sizeof(vec2), GL_MAP_WRITE_BIT | GL_MAP_INVALIDATE_BUFFER_BIT);
 
         if (srcPtr && dstPtr) {
             dvec2* src = reinterpret_cast<dvec2*>(srcPtr);
             vec2* dst = reinterpret_cast<vec2*>(dstPtr);
 
-            for (size_t i = 0; i < max_vertices; i++) {
+            for (size_t i = 0; i < max_vertices + 2; i++) {
                 dst[i] = static_cast<vec2>(complex_to_pixel(src[i]));
                 dst[i].y = fs.y - dst[i].y;
             }
@@ -920,7 +920,7 @@ private:
         }
         if (orbit) {
             glUniform2d(glGetUniformLocation(shaderProgram, "orbit_start"), x, fs.y - y);
-            glUniform1i(glGetUniformLocation(shaderProgram, "numVertices"), max_vertices);
+            glUniform1i(glGetUniformLocation(shaderProgram, "numVertices"), max_vertices + 2);
             
             copy_orbit_buffer();
             orbit_refreshed = true;
@@ -1013,7 +1013,7 @@ public:
             ImGui_ImplGlfw_NewFrame();
             ImGui::NewFrame();
 
-            ivec2 ss = (fullscreen ? monitorSize : config.frameSize);
+            ivec2 fs = (fullscreen ? monitorSize : config.frameSize);
             
             double currentTime = glfwGetTime();
 
@@ -1313,7 +1313,7 @@ public:
                     }
                 }
                 ImGui::SameLine();
-                if (ImGui::Button("Reset", ImVec2(ImGui::GetContentRegionAvail().x, 0))) {
+                if (ImGui::Button("Reset##params", ImVec2(ImGui::GetContentRegionAvail().x, 0))) {
                     config.center = Config().center;
                     config.zoom = Config().zoom;
                     glUniform2d(glGetUniformLocation(shaderProgram, "center"), config.center.x, config.center.y);
@@ -1347,13 +1347,13 @@ public:
                             
                             glBindFramebuffer(GL_FRAMEBUFFER, computeFrameBuffer);
                             glBindTexture(GL_TEXTURE_2D, computeTexBuffer);
-                            glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB32F, ss.x * config.ssaa,
-                                ss.y * config.ssaa, 0, GL_RGB, GL_UNSIGNED_BYTE, NULL);
+                            glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB32F, fs.x * config.ssaa,
+                                fs.y * config.ssaa, 0, GL_RGB, GL_UNSIGNED_BYTE, NULL);
 
                             glBindFramebuffer(GL_FRAMEBUFFER, postprocFrameBuffer);
                             glBindTexture(GL_TEXTURE_2D, postprocTexBuffer);
-                            glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA32F, ss.x * config.ssaa,
-                                ss.y * config.ssaa, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
+                            glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA32F, fs.x * config.ssaa,
+                                fs.y * config.ssaa, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
 
                             glBindFramebuffer(GL_FRAMEBUFFER, juliaFrameBuffer);
                             glBindTexture(GL_TEXTURE_2D, juliaTexBuffer);
@@ -1457,10 +1457,10 @@ public:
                     
                     ImGui::InputTextMultiline("##errorlist", infoLog, 512, ImVec2(ImGui::GetContentRegionAvail().x, 40), ImGuiInputTextFlags_ReadOnly);
                     ImGui::BeginDisabled(!success);
-                    if (ImGui::Button("Reload", ImVec2(ImGui::GetContentRegionAvail().x / 2.f - 1.f, 0.f)) || reverted) reload = true;
+                    if (ImGui::Button("Reload##eq", ImVec2(ImGui::GetContentRegionAvail().x / 2.f - 1.f, 0.f)) || reverted) reload = true;
                     ImGui::EndDisabled();
                     ImGui::SameLine();
-                    if (ImGui::Button("Reset", ImVec2(ImGui::GetContentRegionAvail().x, 0.f))) {
+                    if (ImGui::Button("Reset##eq", ImVec2(ImGui::GetContentRegionAvail().x, 0.f))) {
                         fractal = 0;
                         reverted = true;
                     }
@@ -1504,7 +1504,7 @@ public:
                 int numSliders = fractals[fractal].sliders.size();
                 for (int i = 0; i < numSliders; i++) {
                     Slider& s = fractals[fractal].sliders[i];
-                    slider(s.name.c_str(), &s.slider, &s.value, i, s.def, std::max(1e-2f, abs(s.slider) * mouseSpeed / 40.f), s.min, s.max);
+                    slider(s.name.c_str(), &s.slider, &s.value, i, s.def, std::max(1e-2f, abs(s.slider) * mouseSpeed / 1000.f), s.min, s.max);
                 }
                 for (const int& i : to_delete) {
                     fractals[fractal].sliders.erase(fractals[fractal].sliders.begin() + i);
@@ -1729,13 +1729,18 @@ public:
                     ImGui::BeginDisabled(!orbit);
                     if (ImGui::InputInt("Maximum vertices shown", &max_vertices, 5, 20)) {
                         if (max_vertices < 2) max_vertices = 2;
-                        glUniform1i(glGetUniformLocation(shaderProgram, "numVertices"), max_vertices);
+                        glUniform1i(glGetUniformLocation(shaderProgram, "numVertices"), max_vertices + 2);
                         glBindBuffer(GL_SHADER_STORAGE_BUFFER, orbitInBuffer);
-                        glBufferData(GL_SHADER_STORAGE_BUFFER, max_vertices * sizeof(vec2), nullptr, GL_DYNAMIC_COPY);
+                        glBufferData(GL_SHADER_STORAGE_BUFFER, (max_vertices + 2) * sizeof(vec2), nullptr, GL_DYNAMIC_COPY);
                         glBindBuffer(GL_SHADER_STORAGE_BUFFER, orbitOutBuffer);
-                        glBufferData(GL_SHADER_STORAGE_BUFFER, max_vertices * sizeof(dvec2), nullptr, GL_DYNAMIC_COPY);
+                        glBufferData(GL_SHADER_STORAGE_BUFFER, (max_vertices + 2) * sizeof(dvec2), nullptr, GL_DYNAMIC_COPY);
                     }
-                    ImGui::Checkbox("Keep orbit after releasing mouse", &persist_orbit);
+                    if (ImGui::Checkbox("Keep orbit after releasing mouse", &persist_orbit)) {
+                        if (!persist_orbit) {
+                            glUniform1i(glGetUniformLocation(shaderProgram, "show_orbit"), false);
+                            set_op(MV_POSTPROC);
+                        }
+                    }
 
                     ImGui::EndDisabled();
 
@@ -1767,10 +1772,10 @@ public:
                         ImGuiWindowFlags_NoTitleBar);
                     ImVec2 size = ImGui::GetWindowSize();
                     ImVec2 pos = { (float)x / dpi_scale + 10.f, (float)y / dpi_scale + 20.f };
-                    if (size.x > ss.x / dpi_scale - pos.x - 5.f * dpi_scale)
-                        pos.x = ss.x / dpi_scale - size.x - 5.f * dpi_scale;
-                    if (size.y > ss.y / dpi_scale - pos.y - 5.f * dpi_scale)
-                        pos.y = ss.y / dpi_scale - size.y - 5.f * dpi_scale;
+                    if (size.x > fs.x / dpi_scale - pos.x - 5.f * dpi_scale)
+                        pos.x = fs.x / dpi_scale - size.x - 5.f * dpi_scale;
+                    if (size.y > fs.y / dpi_scale - pos.y - 5.f * dpi_scale)
+                        pos.y = fs.y / dpi_scale - size.y - 5.f * dpi_scale;
                     if (pos.x < 5.f * dpi_scale) pos.x = 5.f * dpi_scale;
                     if (pos.y < 5.f * dpi_scale) pos.y = 5.f * dpi_scale;
                     ImGui::SetWindowPos(pos);
@@ -1794,8 +1799,8 @@ public:
                 glViewport(0, 0, zsc.tcfg.frameSize.x * zsc.tcfg.ssaa, zsc.tcfg.frameSize.y * zsc.tcfg.ssaa);
                 glUniform2i(glGetUniformLocation(shaderProgram, "frameSize"), zsc.tcfg.frameSize.x * zsc.tcfg.ssaa, zsc.tcfg.frameSize.y * zsc.tcfg.ssaa);
             } else {
-                glViewport(0, 0, ss.x * config.ssaa, ss.y * config.ssaa);
-                glUniform2i(glGetUniformLocation(shaderProgram, "frameSize"), ss.x * config.ssaa, ss.y * config.ssaa);
+                glViewport(0, 0, fs.x * config.ssaa, fs.y * config.ssaa);
+                glUniform2i(glGetUniformLocation(shaderProgram, "frameSize"), fs.x * config.ssaa, fs.y * config.ssaa);
             }
             switch (op) {
             case MV_COMPUTE:
@@ -1823,16 +1828,16 @@ public:
 
                     glBindTexture(GL_TEXTURE_2D, finalTexBuffer);
                     glBindFramebuffer(GL_FRAMEBUFFER, 0);
-                    glViewport(0, 0, ss.x, ss.y);
-                    glUniform2i(glGetUniformLocation(shaderProgram, "frameSize"), ss.x, ss.y);
+                    glViewport(0, 0, fs.x, fs.y);
+                    glUniform2i(glGetUniformLocation(shaderProgram, "frameSize"), fs.x, fs.y);
                     glDrawArrays(GL_TRIANGLES, 0, 6);
                     set_op(MV_RENDER, true);
                 } else {
                     glBindTexture(GL_TEXTURE_2D, postprocTexBuffer);
                     glBindFramebuffer(GL_FRAMEBUFFER, 0);
                     glUniform1i(glGetUniformLocation(shaderProgram, "op"), MV_RENDER);
-                    glViewport(0, 0, ss.x, ss.y);
-                    glUniform2i(glGetUniformLocation(shaderProgram, "frameSize"), ss.x, ss.y);
+                    glViewport(0, 0, fs.x, fs.y);
+                    glUniform2i(glGetUniformLocation(shaderProgram, "frameSize"), fs.x, fs.y);
                     glDrawArrays(GL_TRIANGLES, 0, 6);
                     set_op(MV_RENDER, true);
                 }
