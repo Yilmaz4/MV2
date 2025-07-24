@@ -65,6 +65,9 @@ Furthermore, the following variables are also exposed to the user:
   | `float power` | Uniform variable of type float, adjustable from the UI |
   | `int max_iters` | Maximum number of iterations before point is considered inside the set |
   | `double zoom` | Length of a single pixel in screen space in the complex plane |
+  | `dvec2 center` | Center point of the window in the complex plane |
+  | `dvec2 mouseCoord` | Point in the complex plane that the mouse cursor is on |
+  | `dvec2 initialz` | Initial value of $Z_n$ |
 </details>
 
 The first input (the main equation, must evaluate to a `dvec2`) is the new value of $Z_{n+1}$ after each iteration. The second input (bailout condition, must evaluate to a `bool`) is the condition which, when true, the current pixel will be considered inside the set. The third input (initial Z, must evaluate to a `dvec2`) is $Z_0$.
