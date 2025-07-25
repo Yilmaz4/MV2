@@ -201,7 +201,7 @@ std::vector<Fractal> fractals = {
 
 struct Config {
     dvec2  center = { -0.4, 0.0 };
-    ivec2  frameSize = { 1000, 600 };
+    ivec2  frameSize = { 1200, 800 };
     double zoom = 5.0;
     float  spectrum_offset = 0.f;
     float  iter_multiplier = 12.f;
@@ -1476,18 +1476,18 @@ public:
                 if (fractal == 0) ImGui::SeparatorText("Variables");
                 int update_fractal = 0;
                 std::vector<int> to_delete;
-                auto slider = [&](const char* label, float* ptr, double* real_ptr, int index, const float def, float speed, float min, float max) {
+                auto slider = [&](const char* label, float* ptr, double* real_ptr, int index, const float def, float speed, float min, float max, bool is_deletable) {
                     ImGui::PushID(ptr);
                     if (ImGui::Button("Round##", ImVec2(80, 0))) {
                         *ptr = round(*ptr);
                         update_fractal = 1;
                     }
                     ImGui::SameLine();
-                    if (fractal == 0 && index != -1 && ImGui::Button("Delete", ImVec2(80, 0))) {
+                    if (is_deletable && ImGui::Button("Delete", ImVec2(80, 0))) {
                         to_delete.push_back(index);
                         update_fractal = 1;
                     }
-                    else if (ImGui::Button("Reset", ImVec2(80, 0))) {
+                    else if (!is_deletable && ImGui::Button("Reset", ImVec2(80, 0))) {
                         *ptr = def;
                         update_fractal = 1;
                     }
@@ -1500,11 +1500,11 @@ public:
                     ImGui::PopID();
                 };
                 float mouseSpeed = cbrt(pow(ImGui::GetIO().MouseDelta.x, 2) + pow(ImGui::GetIO().MouseDelta.y, 2));
-                slider("Power", &config.degree, nullptr, -1, fractals[fractal].power, std::max(1e-4f, abs(round(config.degree) - config.degree)) * mouseSpeed * std::min(pow(1.1f, config.degree), 1e+3f) / 40.f, (fractal == 0) ? -FLT_MAX : 2.f, FLT_MAX);
+                slider("Power", &config.degree, nullptr, -1, fractals[fractal].power, std::max(1e-4f, abs(round(config.degree) - config.degree)) * mouseSpeed * std::min(pow(1.1f, config.degree), 1e+3f) / 40.f, (fractal == 0) ? -FLT_MAX : 2.f, FLT_MAX, false);
                 int numSliders = fractals[fractal].sliders.size();
                 for (int i = 0; i < numSliders; i++) {
                     Slider& s = fractals[fractal].sliders[i];
-                    slider(s.name.c_str(), &s.slider, &s.value, i, s.def, std::max(1e-2f, abs(s.slider) * mouseSpeed / 1000.f), s.min, s.max);
+                    slider(s.name.c_str(), &s.slider, &s.value, i, s.def, std::max(1e-2f, abs(s.slider) * mouseSpeed / 1000.f), s.min, s.max, fractal == 0);
                 }
                 for (const int& i : to_delete) {
                     fractals[fractal].sliders.erase(fractals[fractal].sliders.begin() + i);
