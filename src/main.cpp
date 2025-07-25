@@ -734,7 +734,7 @@ private:
                     fractals[2].sliders[1].slider = fractals[2].sliders[1].value = cmplx.y;
                     app->tempCenter = app->config.center;
                     app->tempZoom = app->config.zoom;
-                    app->config.zoom = app->sync_zoom_julia ? sqrt(app->config.zoom) * 1.2f : 3.0;
+                    app->config.zoom = app->sync_zoom_julia ? pow(app->config.zoom, 1.f / app->config.degree) * 1.2f : 3.0;
                     app->config.center = dvec2(0.0, 0.0);
                     switch_shader();
 
@@ -774,7 +774,7 @@ private:
                 app->rightClickHold = true;
 
                 if (app->juliaset) {
-                    app->julia_zoom = app->sync_zoom_julia ? sqrt(app->config.zoom) * 1.2f : 3.0;
+                    app->julia_zoom = app->sync_zoom_julia ? pow(app->config.zoom, 1.f / app->config.degree) * 1.2f : 3.0;
                     glUniform1d(glGetUniformLocation(app->shaderProgram, "julia_zoom"), app->julia_zoom);
                     glUniform1i(glGetUniformLocation(app->shaderProgram, "julia_maxiters"),
                         max_iters(app->julia_zoom, zoom_co, app->config.iter_co, 3.0));
