@@ -493,7 +493,7 @@ void main() {
             }
         }
 
-        if (ivec2(gl_FragCoord.xy) == ivec2(orbit_start)) {
+        if (dot(gl_FragCoord.xy - vec2(orbit_start), gl_FragCoord.xy - vec2(orbit_start)) < 1.f) {
             ivec2 ss = frameSize / ssaa_factor;
             dvec2 c = center + (dvec2(gl_FragCoord.x / ss.x, gl_FragCoord.y / ss.y) - dvec2(0.5, 0.5)) * dvec2(zoom, (ss.y * zoom) / ss.x);
             dvec2 z = %s;
