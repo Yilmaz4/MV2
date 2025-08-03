@@ -68,9 +68,8 @@ add_executable(${PROJECT_NAME}
     include/ImGradientHDR.cpp
 )
 
-if(NOT WIN32)
-    b_embed(${PROJECT_NAME} assets/consola.ttf)
-endif()
+b_embed(${PROJECT_NAME} assets/commitmono.otf)
+b_embed(${PROJECT_NAME} assets/adwaita.ttf)
 
 b_embed(${PROJECT_NAME} shaders/render.glsl)
 

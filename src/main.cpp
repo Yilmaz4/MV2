@@ -55,6 +55,7 @@ using namespace glm;
 #define MV_POSTPROC 1
 #define MV_RENDER   0
 
+#define U8(t) reinterpret_cast<const char*>(t)
 
 void GLAPIENTRY glMessageCallback(GLenum source, GLenum type, GLuint id, GLenum severity, GLsizei length, const GLchar* message, const void* userParam) {
     if (type != GL_DEBUG_TYPE_ERROR) return;
@@ -203,6 +204,8 @@ struct Config {
     dvec2  center = { -0.4, 0.0 };
     ivec2  frameSize = { 1200, 800 };
     double zoom = 5.0;
+    float  theta = 0.f;
+    bool   flipped = false;
     float  spectrum_offset = 0.f;
     float  iter_multiplier = 12.f;
     bool   auto_adjust_iter = true;
@@ -232,7 +235,8 @@ struct ZoomSequenceConfig {
 
 class MV2 {
     GLFWwindow* window = nullptr;
-    ImFont* font_title = nullptr;
+    ImFont* commitmono = nullptr;
+    ImFont* adwaita = nullptr;
 
     std::vector<vec4> paletteData = {
         {0.0000f, 0.0274f, 0.3921f, 0.0000f},
@@ -336,6 +340,11 @@ public:
             return;
         }
 
+#ifdef PLATFORM_WINDOWS
+        BOOL use_dark_mode = true;
+        DwmSetWindowAttribute(glfwGetWin32Window(window), 20, &use_dark_mode, sizeof(use_dark_mode));
+#endif
+
 #ifdef PLATFORM_LINUX
         const char* wayland_display = std::getenv("WAYLAND_DISPLAY");
         const char* x11_display = std::getenv("DISPLAY");
@@ -386,15 +395,20 @@ public:
         ImGui::CreateContext();
         ImGuiIO& io = ImGui::GetIO(); (void)io;
         io.Fonts->AddFontDefault();
-#ifndef PLATFORM_WINDOWS
-        auto font = b::embed<"assets/consola.ttf">();
-        font_title = io.Fonts->AddFontFromMemoryTTF((void*)font.data(), font.size(), 11.f, nullptr);
-#else
-        font_title = io.Fonts->AddFontFromFileTTF("C:\\Windows\\Fonts\\consola.ttf", 11.f, nullptr);
-        BOOL use_dark_mode = true;
-        DwmSetWindowAttribute(glfwGetWin32Window(window), 20, &use_dark_mode, sizeof(use_dark_mode));
-#endif
-        IM_ASSERT(font_title != NULL);
+
+        ImFontGlyphRangesBuilder builder;
+        builder.AddText(U8(u8"↷"));
+        builder.AddText(U8(u8"↶"));
+        ImVector<ImWchar> ranges;
+        builder.BuildRanges(&ranges);
+
+        auto font1 = b::embed<"assets/commitmono.otf">();
+        commitmono = io.Fonts->AddFontFromMemoryTTF((void*)font1.data(), font1.size(), 11.f, nullptr, ranges.Data);
+
+        auto font2 = b::embed<"assets/adwaita.ttf">();
+        adwaita = io.Fonts->AddFontFromMemoryTTF((void*)font2.data(), font2.size(), 11.f, nullptr, ranges.Data);
+
+        IM_ASSERT(commitmono != NULL);
         io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
         io.IniFilename = NULL;
         io.LogFilename = NULL;
@@ -415,7 +429,7 @@ public:
         glBindTexture(GL_TEXTURE_2D, computeTexBuffer);
         
         glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA32F, config.frameSize.x * config.ssaa,
-            config.frameSize.y * config.ssaa, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
+            config.frameSize.y * config.ssaa, 0, GL_RGBA, GL_FLOAT, NULL);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
         
@@ -425,7 +439,7 @@ public:
         glBindTexture(GL_TEXTURE_2D, postprocTexBuffer);
         
         glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA32F, config.frameSize.x * config.ssaa,
-            config.frameSize.y * config.ssaa, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
+            config.frameSize.y * config.ssaa, 0, GL_RGBA, GL_FLOAT, NULL);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
 
@@ -433,14 +447,14 @@ public:
         glActiveTexture(GL_TEXTURE2);
         glBindTexture(GL_TEXTURE_2D, finalTexBuffer);
         
-        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA32F, 1920, 1080, 0, GL_RGB, GL_UNSIGNED_BYTE, NULL);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA32F, 1920, 1080, 0, GL_RGB, GL_FLOAT, NULL);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
 
         glGenTextures(1, &juliaTexBuffer);
         glBindTexture(GL_TEXTURE_2D, juliaTexBuffer);
         glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA32F, julia_size * config.ssaa,
-            julia_size * config.ssaa, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
+            julia_size * config.ssaa, 0, GL_RGBA, GL_FLOAT, NULL);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
 
@@ -563,6 +577,8 @@ private:
         if (variables) {
             glUniform2i(glGetUniformLocation(shaderProgram, "frameSize"), config.frameSize.x, config.frameSize.y);
             glUniform2d(glGetUniformLocation(shaderProgram, "center"), config.center.x, config.center.y);
+            glUniform1f(glGetUniformLocation(shaderProgram, "theta"), config.theta * M_PI / 180.f);
+            glUniform1i(glGetUniformLocation(shaderProgram, "flipped"), config.flipped);
             glUniform1f(glGetUniformLocation(shaderProgram, "iter_multiplier"), config.iter_multiplier);
             glUniform1d(glGetUniformLocation(shaderProgram, "zoom"), config.zoom);
             if (!config.auto_adjust_iter) {
@@ -597,11 +613,11 @@ private:
         if (textures) {
             glBindFramebuffer(GL_FRAMEBUFFER, computeFrameBuffer);
             glBindTexture(GL_TEXTURE_2D, computeTexBuffer);
-            glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB32F, config.frameSize.x * config.ssaa, config.frameSize.y * config.ssaa, 0, GL_RGB, GL_UNSIGNED_BYTE, NULL);
+            glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB32F, config.frameSize.x * config.ssaa, config.frameSize.y * config.ssaa, 0, GL_RGB, GL_FLOAT, NULL);
 
             glBindFramebuffer(GL_FRAMEBUFFER, postprocFrameBuffer);
             glBindTexture(GL_TEXTURE_2D, postprocTexBuffer);
-            glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, config.frameSize.x * config.ssaa, config.frameSize.y * config.ssaa, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
+            glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, config.frameSize.x * config.ssaa, config.frameSize.y * config.ssaa, 0, GL_RGBA, GL_FLOAT, NULL);
         }
     }
 
@@ -609,26 +625,32 @@ private:
         if (p > op || override) op = p;
     }
 
+    static dvec2 cmultiply(dvec2 a, dvec2 b) {
+        return dvec2(a.x * b.x - a.y * b.y, a.x * b.y + a.y * b.x);
+    }
+
     dvec2 pixel_to_complex(dvec2 pixelCoord) {
         ivec2 ss = (fullscreen ? monitorSize : config.frameSize);
 
-        return (((dvec2(pixelCoord.x / ss.x, (ss.y - pixelCoord.y) / ss.y)) - dvec2(0.5, 0.5)) *
-            dvec2(config.zoom, (ss.y * config.zoom) / ss.x) + dvec2(config.center.x, config.center.y));
+        return config.center + cmultiply(((dvec2(pixelCoord.x / ss.x, (ss.y - pixelCoord.y) / ss.y)) - dvec2(0.5, 0.5)) *
+            dvec2(config.zoom, (ss.y * config.zoom) / ss.x), dvec2(cos(config.theta * M_PI / 180.f), sin(config.theta * M_PI / 180.f))) * dvec2(1.0, config.flipped ? -1.0 : 1.0);
     }
-    static dvec2 pixel_to_complex(dvec2 pixelCoord, ivec2 ss, double zoom, dvec2 center) {
-        return (((dvec2(pixelCoord.x / ss.x, (ss.y - pixelCoord.y) / ss.y)) - dvec2(0.5, 0.5)) *
-            dvec2(zoom, (ss.y * zoom) / ss.x) + dvec2(center.x, center.y));
+    static dvec2 pixel_to_complex(dvec2 pixelCoord, ivec2 ss, double zoom, dvec2 center, float theta, bool flipped) {
+        return center + cmultiply(((dvec2(pixelCoord.x / ss.x, (ss.y - pixelCoord.y) / ss.y)) - dvec2(0.5, 0.5)) *
+            dvec2(zoom, (ss.y * zoom) / ss.x), dvec2(cos(theta * M_PI / 180.f), sin(theta * M_PI / 180.f))) * dvec2(1.0, flipped ? -1.0 : 1.0);
     }
     
     dvec2 complex_to_pixel(dvec2 complexCoord) {
         ivec2 ss = (fullscreen ? monitorSize : config.frameSize);
 
+        complexCoord = config.center + cmultiply(complexCoord - config.center, dvec2(cos(config.theta * M_PI / 180.f), -sin(config.theta * M_PI / 180.f))) * dvec2(1.0, config.flipped ? -1.0 : 1.0);
         dvec2 normalizedCoord = (complexCoord - config.center);
         normalizedCoord /= dvec2(config.zoom, (ss.y * config.zoom) / ss.x);
         dvec2 pixelCoordNormalized = normalizedCoord + dvec2(0.5, 0.5);
         return dvec2(pixelCoordNormalized.x * ss.x, ss.y - pixelCoordNormalized.y * ss.y);
     }
-    static dvec2 complex_to_pixel(dvec2 complexCoord, ivec2 ss, double zoom, dvec2 center) {
+    static dvec2 complex_to_pixel(dvec2 complexCoord, ivec2 ss, double zoom, dvec2 center, float theta, bool flipped) {
+        complexCoord = center + cmultiply(complexCoord - center, dvec2(cos(theta * M_PI / 180.f), -sin(theta * M_PI / 180.f))) * dvec2(1.0, flipped ? -1.0 : 1.0);
         dvec2 normalizedCoord = (complexCoord - center);
         normalizedCoord /= dvec2(zoom, (ss.y * zoom) / ss.x);
         dvec2 pixelCoordNormalized = normalizedCoord + dvec2(0.5, 0.5);
@@ -685,11 +707,11 @@ private:
 
         glBindFramebuffer(GL_FRAMEBUFFER, app->computeFrameBuffer);
         glBindTexture(GL_TEXTURE_2D, app->computeTexBuffer);
-        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB32F, width * app->config.ssaa, height * app->config.ssaa, 0, GL_RGB, GL_UNSIGNED_BYTE, NULL);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB32F, width * app->config.ssaa, height * app->config.ssaa, 0, GL_RGB, GL_FLOAT, NULL);
 
         glBindFramebuffer(GL_FRAMEBUFFER, app->postprocFrameBuffer);
         glBindTexture(GL_TEXTURE_2D, app->postprocTexBuffer);
-        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, width * app->config.ssaa, height * app->config.ssaa, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, width * app->config.ssaa, height * app->config.ssaa, 0, GL_RGBA, GL_FLOAT, NULL);
     }
 
     static void on_mouseButton(GLFWwindow* window, int button, int action, int mod) {
@@ -806,8 +828,7 @@ private:
             return;
         if (app->dragging) {
             app->lastPresses = { -doubleClick_interval, 0 };
-            app->config.center.x -= ((x - app->oldPos.x) * app->config.zoom) / ss.x;
-            app->config.center.y += ((y - app->oldPos.y) * ((app->config.zoom * ss.y) / ss.x)) / ss.y;
+            app->config.center -= cmultiply(dvec2((x - app->oldPos.x) * app->config.zoom, -(y - app->oldPos.y) * ((app->config.zoom * ss.y) / ss.x)) / dvec2(ss), dvec2(cos(app->config.theta * M_PI / 180.f), sin(app->config.theta * M_PI / 180.f)))  * dvec2(1.0, app->config.flipped ? -1.0 : 1.0);
             glUniform2d(glGetUniformLocation(app->shaderProgram, "center"), app->config.center.x, app->config.center.y);
             app->oldPos = { x, y };
             app->set_op(MV_COMPUTE);
@@ -835,9 +856,9 @@ private:
                 cursor_x *= app->dpi_scale;
                 cursor_y *= app->dpi_scale;
                 
-                dvec2 new_pos = complex_to_pixel(app->pixel_to_complex(dvec2(cursor_x, cursor_y)), app->config.frameSize, new_zoom, app->config.center);
+                dvec2 new_pos = complex_to_pixel(app->pixel_to_complex(dvec2(cursor_x, cursor_y)), app->config.frameSize, new_zoom, app->config.center, app->config.theta, app->config.flipped);
 
-                app->config.center = pixel_to_complex(static_cast<dvec2>(app->config.frameSize) / 2.0 + (new_pos - dvec2(cursor_x, cursor_y)), app->config.frameSize, new_zoom, app->config.center);
+                app->config.center = pixel_to_complex(static_cast<dvec2>(app->config.frameSize) / 2.0 + (new_pos - dvec2(cursor_x, cursor_y)), app->config.frameSize, new_zoom, app->config.center, app->config.theta, app->config.flipped);
                 
                 glUniform2d(glGetUniformLocation(app->shaderProgram, "center"), app->config.center.x, app->config.center.y);
             }
@@ -1029,9 +1050,9 @@ public:
                 set_op(MV_COMPUTE);
             }
 
-            ImGui::PushFont(font_title);
+            ImGui::PushFont(commitmono);
             ImGui::SetNextWindowPos({ 5.f * dpi_scale, 5.f * dpi_scale });
-            ImGui::SetNextWindowSize(ImVec2(310.f, 0.f));
+            ImGui::SetNextWindowSize(ImVec2(320.f, 0.f));
             ImGui::SetNextWindowCollapsed(true, 1 << 1);
             if (ImGui::Begin("Settings", nullptr,
                 ImGuiWindowFlags_NoScrollbar |
@@ -1081,7 +1102,7 @@ public:
                                 zsc.tcfg.frameSize = commonres.at(i);
                                 glBindFramebuffer(GL_FRAMEBUFFER, finalFrameBuffer);
                                 glBindTexture(GL_TEXTURE_2D, finalTexBuffer);
-                                glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, zsc.tcfg.frameSize.x, zsc.tcfg.frameSize.y, 0, GL_RGB, GL_UNSIGNED_BYTE, NULL);
+                                glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, zsc.tcfg.frameSize.x, zsc.tcfg.frameSize.y, 0, GL_RGB, GL_FLOAT, NULL);
                                 res = i;
                             }
                             if (is_selected) ImGui::SetItemDefaultFocus();
@@ -1216,7 +1237,7 @@ public:
                     }
 
                     glReadBuffer(GL_COLOR_ATTACHMENT0);
-                    glReadPixels(0, 0, w, h, GL_RGBA, GL_UNSIGNED_BYTE, buffer);
+                    glReadPixels(0, 0, w, h, GL_RGBA, GL_FLOAT, buffer);
 
                     glBindFramebuffer(GL_FRAMEBUFFER, 0);
                     glDeleteFramebuffers(1, &fbo);
@@ -1269,6 +1290,53 @@ public:
                     glUniform1d(glGetUniformLocation(shaderProgram, "zoom"), config.zoom);
                     set_op(MV_COMPUTE);
                 }
+
+                ImGui::SameLine();
+                ImGui::SetCursorPosY(ImGui::GetCursorPosY() - 3.f);
+                ImGui::Text("Rotation"); ImGui::SetNextItemWidth(40); ImGui::SameLine();
+                ImGui::SetCursorPosY(ImGui::GetCursorPosY() - 3.f);
+                if (ImGui::DragFloat("##theta", &config.theta, 1.f, 0.f, 360.f, "%.0f°")) {
+                    glUniform1f(glGetUniformLocation(shaderProgram, "theta"), config.theta * M_PI / 180.f);
+                    set_op(MV_COMPUTE);
+                }
+
+                ImGui::PopFont();
+                ImGui::PushFont(adwaita);
+
+                ImGui::SameLine();
+                ImGui::SetNextItemWidth(10);
+                ImGui::SetCursorPosY(ImGui::GetCursorPosY() - 3.f);
+                if (ImGui::Button(U8(u8"↻"), ImVec2(ImGui::GetContentRegionAvail().x / 3.f - 3.f, 0.f))) {
+                    if (config.theta < 90.f || config.theta == 360.f) config.theta = 90.f;
+                    else if (config.theta < 180.f) config.theta = 180.f;
+                    else if (config.theta < 270.f) config.theta = 270.f;
+                    else if (config.theta < 360.f) config.theta = 0.f;
+                    glUniform1f(glGetUniformLocation(shaderProgram, "theta"), config.theta * M_PI / 180.f);
+                    set_op(MV_COMPUTE);
+                }
+                ImGui::SameLine();
+                ImGui::SetNextItemWidth(10);
+                ImGui::SetCursorPosY(ImGui::GetCursorPosY() - 3.f);
+                if (ImGui::Button(U8(u8"↺"), ImVec2(ImGui::GetContentRegionAvail().x / 2.f - 2.f, 0.f))) {
+                    if (config.theta > 270.f || config.theta == 0.f) config.theta = 270.f;
+                    else if (config.theta > 180.f) config.theta = 180.f;
+                    else if (config.theta > 90.f) config.theta = 90.f;
+                    else if (config.theta > 0.f) config.theta = 0.f;
+                    glUniform1f(glGetUniformLocation(shaderProgram, "theta"), config.theta * M_PI / 180.f);
+                    set_op(MV_COMPUTE);
+                }
+
+                ImGui::PopFont();
+                ImGui::PushFont(commitmono);
+
+                ImGui::SameLine();
+                ImGui::SetNextItemWidth(10);
+                ImGui::SetCursorPosY(ImGui::GetCursorPosY() - 3.f);
+                if (ImGui::Button(U8(u8"\ueb57"), ImVec2(ImGui::GetContentRegionAvail().x, 0.f))) {
+                    config.flipped ^= 1;
+                    glUniform1i(glGetUniformLocation(shaderProgram, "flipped"), config.flipped);
+                    set_op(MV_COMPUTE);
+                }
                 
                 if (ImGui::Button("Save", ImVec2(ImGui::GetContentRegionAvail().x / 3.f - 2.f, 0))) {
                     const char* lFilterPatterns[1] = { "*.mvl" };
@@ -1318,6 +1386,7 @@ public:
                     config.zoom = Config().zoom;
                     glUniform2d(glGetUniformLocation(shaderProgram, "center"), config.center.x, config.center.y);
                     glUniform1d(glGetUniformLocation(shaderProgram, "zoom"), config.zoom);
+                    glUniform1f(glGetUniformLocation(shaderProgram, "theta"), config.theta * M_PI / 180.f);
                     set_op(MV_COMPUTE);
                 }
 
@@ -1348,17 +1417,19 @@ public:
                             glBindFramebuffer(GL_FRAMEBUFFER, computeFrameBuffer);
                             glBindTexture(GL_TEXTURE_2D, computeTexBuffer);
                             glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB32F, fs.x * config.ssaa,
-                                fs.y * config.ssaa, 0, GL_RGB, GL_UNSIGNED_BYTE, NULL);
+                                fs.y * config.ssaa, 0, GL_RGB, GL_FLOAT, NULL);
 
                             glBindFramebuffer(GL_FRAMEBUFFER, postprocFrameBuffer);
                             glBindTexture(GL_TEXTURE_2D, postprocTexBuffer);
                             glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA32F, fs.x * config.ssaa,
-                                fs.y * config.ssaa, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
+                                fs.y * config.ssaa, 0, GL_RGBA, GL_FLOAT, NULL);
 
                             glBindFramebuffer(GL_FRAMEBUFFER, juliaFrameBuffer);
                             glBindTexture(GL_TEXTURE_2D, juliaTexBuffer);
                             glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA32F, julia_size * config.ssaa,
-                                julia_size * config.ssaa, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
+                                julia_size * config.ssaa, 0, GL_RGBA, GL_FLOAT, NULL);
+                            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+                            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
 
                             glUniform1i(glGetUniformLocation(shaderProgram, "ssaa_factor"), config.ssaa);
                             upload_kernel(config.ssaa);
@@ -1720,7 +1791,7 @@ public:
                     if (ImGui::InputInt("Julia preview size", &julia_size, 5, 20)) {
                         if (julia_size < 10) julia_size = 10;
                         glBindTexture(GL_TEXTURE_2D, juliaTexBuffer);
-                        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA32F, julia_size * config.ssaa, julia_size * config.ssaa, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
+                        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA32F, julia_size * config.ssaa, julia_size * config.ssaa, 0, GL_RGBA, GL_FLOAT, NULL);
                     }
                     ImGui::Checkbox("Same zoom in Julia set", &sync_zoom_julia);
                     ImGui::EndDisabled();
@@ -1787,7 +1858,7 @@ public:
                 }
                 if (juliaset) {
                     if (cmplxinfo) ImGui::SeparatorText("Julia Set");
-                    ImGui::Image((void*)(intptr_t)juliaTexBuffer, ImVec2(julia_size, julia_size));
+                    ImGui::Image((void*)(intptr_t)juliaTexBuffer, ImVec2(julia_size, julia_size), {0, 1}, {1, 0});
                     ImGui::PushStyleColor(ImGuiCol_Text, IM_COL32(150, 150, 150, 255));
                     ImGui::Text("Double-click to switch");
                     ImGui::PopStyleColor();
@@ -1859,7 +1930,7 @@ public:
             if (recording && !paused) {
                 int w = zsc.tcfg.frameSize.x, h = zsc.tcfg.frameSize.y;
                 unsigned char* buffer = new unsigned char[4 * w * h];
-                glGetTexImage(GL_TEXTURE_2D, 0, GL_RGB, GL_UNSIGNED_BYTE, buffer);
+                glGetTexImage(GL_TEXTURE_2D, 0, GL_RGB, GL_FLOAT, buffer);
 
                 if (progress > 0) {
                     //cv::Mat frame(cv::Size(w, h), CV_8UC3, buffer);

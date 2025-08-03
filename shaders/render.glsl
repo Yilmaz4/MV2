@@ -8,9 +8,11 @@ double M_EHALF = 1.6487212707001281469LF;
 
 out vec4 fragColor;
 
-uniform ivec2  frameSize;
 uniform dvec2  center;
 uniform double zoom;
+uniform float  theta;
+uniform bool   flipped;
+uniform ivec2  frameSize;
 uniform int    max_iters;
 uniform float  spectrum_offset;
 uniform float  iter_multiplier;
@@ -370,19 +372,11 @@ bool is_experimental() {
     return true;
 }
 
-dvec2 complex_to_pixel(dvec2 complexCoord) {
-    ivec2 ss = frameSize / ssaa_factor;
-    dvec2 normalizedCoord = (complexCoord - dvec2(center.x, center.y));
-    normalizedCoord /= dvec2(zoom, (ss.y * zoom) / ss.x);
-    dvec2 pixelCoordNormalized = normalizedCoord + dvec2(0.5, 0.5);
-    return dvec2(pixelCoordNormalized.x * ss.x, pixelCoordNormalized.y * ss.y);
-}
-
 void main() {
     dvec2 nv = cexp(dvec2(0.f, angle * 2.f * M_PI / 360.f));
 
     if (op == 3) {
-        dvec2 c = (dvec2(gl_FragCoord.x / frameSize.x, gl_FragCoord.y / frameSize.y) - dvec2(0.5, 0.5)) * dvec2(julia_zoom, julia_zoom);
+        dvec2 c = cmultiply((dvec2(gl_FragCoord.x / frameSize.x, gl_FragCoord.y / frameSize.y) - dvec2(0.5, 0.5)) * dvec2(julia_zoom, julia_zoom), dvec2(cos(theta), sin(theta))) * dvec2(1.0, flipped ? -1.0 : 1.0);
         dvec2 z = c;
         dvec2 prevz = z;
 
@@ -416,7 +410,7 @@ void main() {
     }
 
     if (op == 2) {
-        dvec2 c = center + (dvec2(gl_FragCoord.x / frameSize.x, gl_FragCoord.y / frameSize.y) - dvec2(0.5, 0.5)) * dvec2(zoom, (frameSize.y * zoom) / frameSize.x);
+        dvec2 c = center + cmultiply((dvec2(gl_FragCoord.x / frameSize.x, gl_FragCoord.y / frameSize.y) - dvec2(0.5, 0.5)) * dvec2(zoom, (frameSize.y * zoom) / frameSize.x), dvec2(cos(theta), sin(theta))) * dvec2(1.0, flipped ? -1.0 : 1.0);
         dvec2 z = %s;
         dvec2 prevz = dvec2(0.0);
 
@@ -495,7 +489,7 @@ void main() {
 
         if (dot(gl_FragCoord.xy - vec2(orbit_start), gl_FragCoord.xy - vec2(orbit_start)) < 1.f) {
             ivec2 ss = frameSize / ssaa_factor;
-            dvec2 c = center + (dvec2(gl_FragCoord.x / ss.x, gl_FragCoord.y / ss.y) - dvec2(0.5, 0.5)) * dvec2(zoom, (ss.y * zoom) / ss.x);
+            dvec2 c = center + cmultiply((dvec2(gl_FragCoord.x / ss.x, gl_FragCoord.y / ss.y) - dvec2(0.5, 0.5)) * dvec2(zoom, (ss.y * zoom) / ss.x), dvec2(cos(theta), sin(theta))) * dvec2(1.0, flipped ? -1.0 : 1.0);
             dvec2 z = %s;
             dvec2 prevz = dvec2(0.0);
             double xsq = z.x * z.x;
