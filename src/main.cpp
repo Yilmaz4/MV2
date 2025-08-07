@@ -8,6 +8,9 @@
 #define STB_IMAGE_WRITE_IMPLEMENTATION
 #define NOMINMAX
 #define GLFW_EXPOSE_NATIVE_WIN32
+#define MINIAUDIO_IMPLEMENTATION
+#define _USE_MATH_DEFINES
+#define GLM_ENABLE_EXPERIMENTAL
 
 #include <imgui.h>
 #include <imgui_impl_glfw.h>
@@ -23,8 +26,8 @@
 #include <tinyfiledialogs/tinyfiledialogs.h>
 #include <imgui_ext.h>
 #include <nlohmann/json.hpp>
+#include <miniaudio.h>
 
-#define GLM_ENABLE_EXPERIMENTAL
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/type_ptr.hpp>
@@ -40,6 +43,7 @@
 
 #include <iostream>
 #include <fstream>
+#include <atomic>
 #include <sstream>
 #include <vector>
 #include <iomanip>
@@ -47,6 +51,8 @@
 #include <string>
 #include <filesystem>
 #include <algorithm>
+#include <cmath>
+#include <complex>
 #include <regex>
 
 using namespace glm;
@@ -146,7 +152,7 @@ std::vector<Fractal> fractals = {
         .condition = "distance(z, prevz) < 10e-5",
         .initialz = "dvec2(1, 0)",
         .power = 3.f,
-        .continuous_compatible = false,
+        .continuous_compatible = true,
         .julia_compatible = false,
     }),
     Fractal({.name = "Burning ship",
@@ -162,7 +168,7 @@ std::vector<Fractal> fractals = {
         .condition = "distance(z, prevz) < 10e-5",
         .initialz = "c",
         .power = 3.f,
-        .continuous_compatible = false,
+        .continuous_compatible = true,
         .julia_compatible = false,
         .sliders = { Slider("Re", 1.f), Slider("Im", 0.f) }
     }),
@@ -205,7 +211,8 @@ struct Config {
     ivec2  frameSize = { 1200, 800 };
     double zoom = 5.0;
     float  theta = 0.f;
-    bool   flipped = false;
+    bool   vflip = false;
+    bool   hflip = false;
     float  spectrum_offset = 0.f;
     float  iter_multiplier = 12.f;
     bool   auto_adjust_iter = true;
@@ -264,7 +271,9 @@ class MV2 {
     bool juliaset = true;
     bool juliaset_disabled_incompat = false;
     bool orbit = true;
+    bool audio = true;
     bool cmplxinfo = true;
+    bool always_refresh_main = false;
 
     bool persist_orbit = false;
     bool enable_orbit = false;
@@ -308,6 +317,16 @@ class MV2 {
     int32_t stateID = 10;
     ImGradientHDRState state;
     ImGradientHDRTemporaryState tempState;
+
+    ma_device ma_dev;
+    float g_sampleRate = 100.0f;
+    float g_index = 0;
+    
+    vec2* orbit_buffer_front = new vec2[max_vertices + 2]{};
+    vec2* orbit_buffer_back = new vec2[max_vertices + 2]{};
+    std::atomic<bool> ready_to_copy = false;
+    int index_repeat = 0;
+    bool persist_audio = false;
 
     int op = MV_COMPUTE;
 public:
@@ -571,6 +590,19 @@ public:
         for (const vec4& c : paletteData) {
             state.AddColorMarker(c.w, { c.r, c.g, c.b }, 1.0f);
         }
+
+        ma_result result;
+        ma_device_config config  = ma_device_config_init(ma_device_type_playback);
+        config.playback.format   = ma_format_f32;
+        config.playback.channels = 2;
+        config.sampleRate        = 96000u;
+        config.dataCallback      = data_callback;
+        config.pUserData         = this;
+
+        result = ma_device_init(nullptr, &config, &ma_dev);
+        if (result != MA_SUCCESS) {
+            std::cerr << "Failed to initialize audio device\n";
+        }
     }
 private:
     void use_config(Config config, bool variables = true, bool textures = true) {
@@ -578,7 +610,8 @@ private:
             glUniform2i(glGetUniformLocation(shaderProgram, "frameSize"), config.frameSize.x, config.frameSize.y);
             glUniform2d(glGetUniformLocation(shaderProgram, "center"), config.center.x, config.center.y);
             glUniform1f(glGetUniformLocation(shaderProgram, "theta"), config.theta * M_PI / 180.f);
-            glUniform1i(glGetUniformLocation(shaderProgram, "flipped"), config.flipped);
+            glUniform1i(glGetUniformLocation(shaderProgram, "hflip"), config.hflip);
+            glUniform1i(glGetUniformLocation(shaderProgram, "vflip"), config.vflip);
             glUniform1f(glGetUniformLocation(shaderProgram, "iter_multiplier"), config.iter_multiplier);
             glUniform1d(glGetUniformLocation(shaderProgram, "zoom"), config.zoom);
             if (!config.auto_adjust_iter) {
@@ -592,11 +625,10 @@ private:
             glUniform3f(glGetUniformLocation(shaderProgram, "set_color"), config.set_color.x, config.set_color.y, config.set_color.z);
             glUniform1d(glGetUniformLocation(shaderProgram, "julia_zoom"), julia_zoom);
             glUniform1i(glGetUniformLocation(shaderProgram, "julia_maxiters"), max_iters(julia_zoom, zoom_co, config.iter_co, 3.0));
-            glUniform1i(glGetUniformLocation(shaderProgram, "ssaa_factor"), (config.ssaa ? config.ssaa : 1));
             glUniform1i(glGetUniformLocation(shaderProgram, "transfer_function"), config.transfer_function);
 
             glUniform1i(glGetUniformLocation(shaderProgram, "show_orbit"), false);
-            glUniform2d(glGetUniformLocation(shaderProgram, "orbit_start"), -1.0, -1.0);
+            glUniform2i(glGetUniformLocation(shaderProgram, "orbit_start"), -1, -1);
 
             glUniform1f(glGetUniformLocation(shaderProgram, "power"), config.degree);
             glUniform1i(glGetUniformLocation(shaderProgram, "fractal"), fractal);
@@ -628,29 +660,32 @@ private:
     static dvec2 cmultiply(dvec2 a, dvec2 b) {
         return dvec2(a.x * b.x - a.y * b.y, a.x * b.y + a.y * b.x);
     }
+    static dvec2 cdivide(dvec2 a, dvec2 b) {
+        return dvec2((a.x * b.x + a.y * b.y), (a.y * b.x - a.x * b.y)) / (b.x * b.x + b.y * b.y);
+    }
 
     dvec2 pixel_to_complex(dvec2 pixelCoord) {
         ivec2 ss = (fullscreen ? monitorSize : config.frameSize);
 
         return config.center + cmultiply(((dvec2(pixelCoord.x / ss.x, (ss.y - pixelCoord.y) / ss.y)) - dvec2(0.5, 0.5)) *
-            dvec2(config.zoom, (ss.y * config.zoom) / ss.x), dvec2(cos(config.theta * M_PI / 180.f), sin(config.theta * M_PI / 180.f))) * dvec2(1.0, config.flipped ? -1.0 : 1.0);
+            dvec2(config.zoom, (ss.y * config.zoom) / ss.x), dvec2(cos(config.theta * M_PI / 180.f), sin(config.theta * M_PI / 180.f))) * dvec2(config.hflip ? -1.0 : 1.0, config.vflip ? -1.0 : 1.0);
     }
-    static dvec2 pixel_to_complex(dvec2 pixelCoord, ivec2 ss, double zoom, dvec2 center, float theta, bool flipped) {
+    static dvec2 pixel_to_complex(dvec2 pixelCoord, ivec2 ss, double zoom, dvec2 center, float theta, bool hflip, bool vflip) {
         return center + cmultiply(((dvec2(pixelCoord.x / ss.x, (ss.y - pixelCoord.y) / ss.y)) - dvec2(0.5, 0.5)) *
-            dvec2(zoom, (ss.y * zoom) / ss.x), dvec2(cos(theta * M_PI / 180.f), sin(theta * M_PI / 180.f))) * dvec2(1.0, flipped ? -1.0 : 1.0);
+            dvec2(zoom, (ss.y * zoom) / ss.x), dvec2(cos(theta * M_PI / 180.f), sin(theta * M_PI / 180.f))) * dvec2(hflip ? -1.0 : 1.0, vflip ? -1.0 : 1.0);
     }
     
     dvec2 complex_to_pixel(dvec2 complexCoord) {
         ivec2 ss = (fullscreen ? monitorSize : config.frameSize);
 
-        complexCoord = config.center + cmultiply(complexCoord - config.center, dvec2(cos(config.theta * M_PI / 180.f), -sin(config.theta * M_PI / 180.f))) * dvec2(1.0, config.flipped ? -1.0 : 1.0);
+        complexCoord = config.center + cmultiply(complexCoord - config.center, dvec2(cos(config.theta * M_PI / 180.f), -sin(config.theta * M_PI / 180.f))) * dvec2(config.hflip ? -1.0 : 1.0, config.vflip ? -1.0 : 1.0);
         dvec2 normalizedCoord = (complexCoord - config.center);
         normalizedCoord /= dvec2(config.zoom, (ss.y * config.zoom) / ss.x);
         dvec2 pixelCoordNormalized = normalizedCoord + dvec2(0.5, 0.5);
         return dvec2(pixelCoordNormalized.x * ss.x, ss.y - pixelCoordNormalized.y * ss.y);
     }
-    static dvec2 complex_to_pixel(dvec2 complexCoord, ivec2 ss, double zoom, dvec2 center, float theta, bool flipped) {
-        complexCoord = center + cmultiply(complexCoord - center, dvec2(cos(theta * M_PI / 180.f), -sin(theta * M_PI / 180.f))) * dvec2(1.0, flipped ? -1.0 : 1.0);
+    static dvec2 complex_to_pixel(dvec2 complexCoord, ivec2 ss, double zoom, dvec2 center, float theta, bool hflip, bool vflip) {
+        complexCoord = center + cmultiply(complexCoord - center, dvec2(cos(theta * M_PI / 180.f), -sin(theta * M_PI / 180.f))) * dvec2(hflip ? -1.0 : 1.0, vflip ? -1.0 : 1.0);
         dvec2 normalizedCoord = (complexCoord - center);
         normalizedCoord /= dvec2(zoom, (ss.y * zoom) / ss.x);
         dvec2 pixelCoordNormalized = normalizedCoord + dvec2(0.5, 0.5);
@@ -804,14 +839,20 @@ private:
                 if (app->orbit) {
                     app->enable_orbit = true;
                 }
+                if (app->audio) {
+                    ma_device_start(&app->ma_dev);
+                }
                 app->refresh_rightclick();
                 break;
             case GLFW_RELEASE:
+                if (app->rightClickHold) {
+                    ma_device_stop(&app->ma_dev);
+                }
                 app->rightClickHold = false;
                 if (!app->persist_orbit) {
                     glUniform1i(glGetUniformLocation(app->shaderProgram, "show_orbit"), false);
                 }
-                glUniform2d(glGetUniformLocation(app->shaderProgram, "orbit_start"), -1.0, -1.0);
+                glUniform2i(glGetUniformLocation(app->shaderProgram, "orbit_start"), -1, -1);
                 app->set_op(MV_POSTPROC);
             }
         }
@@ -828,7 +869,7 @@ private:
             return;
         if (app->dragging) {
             app->lastPresses = { -doubleClick_interval, 0 };
-            app->config.center -= cmultiply(dvec2((x - app->oldPos.x) * app->config.zoom, -(y - app->oldPos.y) * ((app->config.zoom * ss.y) / ss.x)) / dvec2(ss), dvec2(cos(app->config.theta * M_PI / 180.f), sin(app->config.theta * M_PI / 180.f)))  * dvec2(1.0, app->config.flipped ? -1.0 : 1.0);
+            app->config.center -= cmultiply(dvec2((x - app->oldPos.x) * app->config.zoom, -(y - app->oldPos.y) * ((app->config.zoom * ss.y) / ss.x)) / dvec2(ss), dvec2(cos(app->config.theta * M_PI / 180.f), sin(app->config.theta * M_PI / 180.f))) * dvec2(app->config.hflip ? -1.0 : 1.0, app->config.vflip ? -1.0 : 1.0);
             glUniform2d(glGetUniformLocation(app->shaderProgram, "center"), app->config.center.x, app->config.center.y);
             app->oldPos = { x, y };
             app->set_op(MV_COMPUTE);
@@ -856,9 +897,9 @@ private:
                 cursor_x *= app->dpi_scale;
                 cursor_y *= app->dpi_scale;
                 
-                dvec2 new_pos = complex_to_pixel(app->pixel_to_complex(dvec2(cursor_x, cursor_y)), app->config.frameSize, new_zoom, app->config.center, app->config.theta, app->config.flipped);
+                dvec2 new_pos = complex_to_pixel(app->pixel_to_complex(dvec2(cursor_x, cursor_y)), app->config.frameSize, new_zoom, app->config.center, app->config.theta, app->config.hflip, app->config.vflip);
 
-                app->config.center = pixel_to_complex(static_cast<dvec2>(app->config.frameSize) / 2.0 + (new_pos - dvec2(cursor_x, cursor_y)), app->config.frameSize, new_zoom, app->config.center, app->config.theta, app->config.flipped);
+                app->config.center = pixel_to_complex(static_cast<dvec2>(app->config.frameSize) / 2.0 + (new_pos - dvec2(cursor_x, cursor_y)), app->config.frameSize, new_zoom, app->config.center, app->config.theta, app->config.hflip, app->config.vflip);
                 
                 glUniform2d(glGetUniformLocation(app->shaderProgram, "center"), app->config.center.x, app->config.center.y);
             }
@@ -905,11 +946,20 @@ private:
         if (srcPtr && dstPtr) {
             dvec2* src = reinterpret_cast<dvec2*>(srcPtr);
             vec2* dst = reinterpret_cast<vec2*>(dstPtr);
-
+            
+            index_repeat = 0;
+            ready_to_copy.store(false);
+            orbit_buffer_back[0] = vec2(0.f);
             for (size_t i = 0; i < max_vertices + 2; i++) {
+                if (i != max_vertices + 1) {
+                    if (distance(src[i], src[max_vertices + 1]) < 1e-2)
+                        index_repeat = i;
+                    orbit_buffer_back[i + 1] = (vec2)src[i];
+                }
                 dst[i] = static_cast<vec2>(complex_to_pixel(src[i]));
                 dst[i].y = fs.y - dst[i].y;
             }
+            ready_to_copy = true;
         }
         glUnmapNamedBuffer(orbitInBuffer);
         glUnmapNamedBuffer(orbitOutBuffer);
@@ -928,7 +978,7 @@ private:
             float texel[3];
             glBindFramebuffer(GL_FRAMEBUFFER, computeFrameBuffer);
             glReadBuffer(GL_FRONT);
-            glReadPixels(x * config.ssaa, y * config.ssaa, 1, 1, GL_RGB, GL_FLOAT, texel);
+            glReadPixels(x * config.ssaa, (fs.y - y) * config.ssaa, 1, 1, GL_RGB, GL_FLOAT, texel);
             numIterations = static_cast<int>(texel[1]);
         }
         if (juliaset) {
@@ -940,12 +990,16 @@ private:
             glDrawArrays(GL_TRIANGLES, 0, 6);
         }
         if (orbit) {
-            glUniform2d(glGetUniformLocation(shaderProgram, "orbit_start"), x, fs.y - y);
+            glUniform2i(glGetUniformLocation(shaderProgram, "orbit_start"), (int)x, (int)(fs.y - y));
             glUniform1i(glGetUniformLocation(shaderProgram, "numVertices"), max_vertices + 2);
             
             copy_orbit_buffer();
             orbit_refreshed = true;
             set_op(MV_POSTPROC);
+        }
+        if (always_refresh_main) {
+            glUniform2d(glGetUniformLocation(shaderProgram, "mouseCoord"), cmplxCoord.x, cmplxCoord.y);
+            set_op(MV_COMPUTE);
         }
     }
 
@@ -1026,6 +1080,61 @@ private:
         }
         glBufferData(GL_SHADER_STORAGE_BUFFER, values.size() * sizeof(float), values.data(), GL_DYNAMIC_DRAW);
     }
+
+    static float hermite(float y0, float y1, float y2, float y3, float t, float tension) {
+        float m0 = (y2 - y0) * tension;
+        float m1 = (y3 - y1) * tension;
+
+        float t2 = t * t;
+        float t3 = t2 * t;
+
+        float h00 =  2.0f * t3 - 3.0f * t2 + 1.0f;
+        float h10 =         t3 - 2.0f * t2 + t;
+        float h01 = -2.0f * t3 + 3.0f * t2;
+        float h11 =         t3 -        t2;
+
+        return h00 * y1 + h10 * m0 + h01 * y2 + h11 * m1;
+    }
+
+    static void data_callback(ma_device* device, void* output, const void* input, ma_uint32 frameCount) {
+        MV2* app = reinterpret_cast<MV2*>(device->pUserData);
+
+        float* out = (float*)output;
+        (void)input;
+
+        static int idxr = 0;
+
+        for (ma_uint32 i = 0; i < frameCount; i++) {
+            int idx = floor(app->g_index);
+            float t = app->g_index - idx;
+
+            int num = app->max_vertices + 2 - app->index_repeat;
+            vec2 a, b, c, d;
+
+            if ((idx + 1) % num == 0 && app->ready_to_copy.exchange(false)) {
+                std::swap(app->orbit_buffer_front, app->orbit_buffer_back);
+                app->g_index = 0.f;
+            }
+            
+            a = app->orbit_buffer_front[app->index_repeat + idx % num];
+            b = app->orbit_buffer_front[app->index_repeat + (idx + 1) % num];
+            c = app->orbit_buffer_front[app->index_repeat + (idx + 2) % num];
+            d = app->orbit_buffer_front[app->index_repeat + (idx + 3) % num];
+
+            float volume = (app->numIterations == -1) ? 1.f : 0.2f;
+
+            if (app->index_repeat == 0 && idx >= app->max_vertices + 1 || a.x * a.x + a.y * a.y > 10.f) {
+                volume = 0.f;
+            }
+            else {
+                app->g_index += 1.f / app->g_sampleRate;
+            }
+
+            out[i * 2 + 0] = std::clamp(hermite(a.x, b.x, c.x, d.x, t, 0.2f), -1.f, 1.f) * volume;
+            out[i * 2 + 1] = std::clamp(hermite(a.y, b.y, c.y, d.y, t, 0.2f), -1.f, 1.f) * volume;
+        }
+    }
+
 public:
     void mainloop() {
         do {
@@ -1051,6 +1160,7 @@ public:
             }
 
             ImGui::PushFont(commitmono);
+
             ImGui::SetNextWindowPos({ 5.f * dpi_scale, 5.f * dpi_scale });
             ImGui::SetNextWindowSize(ImVec2(320.f, 0.f));
             ImGui::SetNextWindowCollapsed(true, 1 << 1);
@@ -1265,6 +1375,9 @@ public:
                 ImGui::SameLine();
                 if (ImGui::Button("About", ImVec2(ImGui::GetContentRegionAvail().x, 0.f)))
                     ImGui::OpenPopup("About Mandelbrot Voyage II");
+
+                ImGui::DragFloat("Sample Rate", &g_sampleRate, 10.f, 0.f, 5000.f);
+                
                 ImGui::SeparatorText("Parameters");
                 bool update = false;
 
@@ -1304,9 +1417,8 @@ public:
                 ImGui::PushFont(adwaita);
 
                 ImGui::SameLine();
-                ImGui::SetNextItemWidth(10);
                 ImGui::SetCursorPosY(ImGui::GetCursorPosY() - 3.f);
-                if (ImGui::Button(U8(u8"↻"), ImVec2(ImGui::GetContentRegionAvail().x / 3.f - 3.f, 0.f))) {
+                if (ImGui::Button(U8(u8"↻"), ImVec2(ImGui::GetContentRegionAvail().x / 4.f - 5.f, 0.f))) {
                     if (config.theta < 90.f || config.theta == 360.f) config.theta = 90.f;
                     else if (config.theta < 180.f) config.theta = 180.f;
                     else if (config.theta < 270.f) config.theta = 270.f;
@@ -1314,10 +1426,15 @@ public:
                     glUniform1f(glGetUniformLocation(shaderProgram, "theta"), config.theta * M_PI / 180.f);
                     set_op(MV_COMPUTE);
                 }
+                ImGui::PopFont();
+                ImGui::PushFont(commitmono);
+                ImGui::SetItemTooltip("Rotate 90° clockwise");
+                ImGui::PopFont();
+                ImGui::PushFont(adwaita);
+                
                 ImGui::SameLine();
-                ImGui::SetNextItemWidth(10);
                 ImGui::SetCursorPosY(ImGui::GetCursorPosY() - 3.f);
-                if (ImGui::Button(U8(u8"↺"), ImVec2(ImGui::GetContentRegionAvail().x / 2.f - 2.f, 0.f))) {
+                if (ImGui::Button(U8(u8"↺"), ImVec2(ImGui::GetContentRegionAvail().x / 3.f - 4.f, 0.f))) {
                     if (config.theta > 270.f || config.theta == 0.f) config.theta = 270.f;
                     else if (config.theta > 180.f) config.theta = 180.f;
                     else if (config.theta > 90.f) config.theta = 90.f;
@@ -1325,18 +1442,43 @@ public:
                     glUniform1f(glGetUniformLocation(shaderProgram, "theta"), config.theta * M_PI / 180.f);
                     set_op(MV_COMPUTE);
                 }
-
                 ImGui::PopFont();
                 ImGui::PushFont(commitmono);
+                ImGui::SetItemTooltip("Rotate 90° anti-clockwise");
 
                 ImGui::SameLine();
-                ImGui::SetNextItemWidth(10);
                 ImGui::SetCursorPosY(ImGui::GetCursorPosY() - 3.f);
-                if (ImGui::Button(U8(u8"\ueb57"), ImVec2(ImGui::GetContentRegionAvail().x, 0.f))) {
-                    config.flipped ^= 1;
-                    glUniform1i(glGetUniformLocation(shaderProgram, "flipped"), config.flipped);
+                if (config.vflip) {
+                    ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.30f, 0.32f, 0.33f, 1.00f));
+                    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.30f, 0.32f, 0.33f, 1.00f));
+                }
+                if (ImGui::Button(U8(u8" "), ImVec2(ImGui::GetContentRegionAvail().x / 2.f - 3.f, 0.f))) {
+                    if (config.vflip) ImGui::PopStyleColor(2);
+                    config.vflip ^= 1;
+                    glUniform1i(glGetUniformLocation(shaderProgram, "vflip"), config.vflip);
                     set_op(MV_COMPUTE);
                 }
+                else if (config.vflip) {
+                    ImGui::PopStyleColor(2);
+                }
+                ImGui::SetItemTooltip("Flip vertically");
+
+                ImGui::SameLine();
+                ImGui::SetCursorPosY(ImGui::GetCursorPosY() - 3.f);
+                if (config.hflip) {
+                    ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.30f, 0.32f, 0.33f, 1.00f));
+                    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.30f, 0.32f, 0.33f, 1.00f));
+                }
+                if (ImGui::Button(U8(u8" "), ImVec2(ImGui::GetContentRegionAvail().x, 0.f))) {
+                    if (config.hflip) ImGui::PopStyleColor(2);
+                    config.hflip ^= 1;
+                    glUniform1i(glGetUniformLocation(shaderProgram, "hflip"), config.hflip);
+                    set_op(MV_COMPUTE);
+                }
+                else if (config.hflip) {
+                    ImGui::PopStyleColor(2);
+                }
+                ImGui::SetItemTooltip("Flip horizontally");
                 
                 if (ImGui::Button("Save", ImVec2(ImGui::GetContentRegionAvail().x / 3.f - 2.f, 0))) {
                     const char* lFilterPatterns[1] = { "*.mvl" };
@@ -1411,7 +1553,6 @@ public:
                     for (int i = 0; i < 4; i++) {
                         const bool is_selected = (idx == i);
                         if (ImGui::Selectable(factors[i], is_selected)) {
-                            config.ssaa = i != 0;
                             config.ssaa = pow(2, i);
                             
                             glBindFramebuffer(GL_FRAMEBUFFER, computeFrameBuffer);
@@ -1431,7 +1572,6 @@ public:
                             glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
                             glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
 
-                            glUniform1i(glGetUniformLocation(shaderProgram, "ssaa_factor"), config.ssaa);
                             upload_kernel(config.ssaa);
                             set_op(MV_COMPUTE);
                         }
@@ -1785,7 +1925,10 @@ public:
                             set_op(MV_POSTPROC);
                         }
                     }
+                    ImGui::Checkbox("Sound", &audio);
+
                     ImGui::Separator();
+
                     ImGui::SetNextItemWidth(90);
                     ImGui::BeginDisabled(!juliaset);
                     if (ImGui::InputInt("Julia preview size", &julia_size, 5, 20)) {
@@ -1795,7 +1938,9 @@ public:
                     }
                     ImGui::Checkbox("Same zoom in Julia set", &sync_zoom_julia);
                     ImGui::EndDisabled();
+
                     ImGui::Separator();
+
                     ImGui::SetNextItemWidth(90);
                     ImGui::BeginDisabled(!orbit);
                     if (ImGui::InputInt("Maximum vertices shown", &max_vertices, 5, 20)) {
@@ -1805,6 +1950,10 @@ public:
                         glBufferData(GL_SHADER_STORAGE_BUFFER, (max_vertices + 2) * sizeof(vec2), nullptr, GL_DYNAMIC_COPY);
                         glBindBuffer(GL_SHADER_STORAGE_BUFFER, orbitOutBuffer);
                         glBufferData(GL_SHADER_STORAGE_BUFFER, (max_vertices + 2) * sizeof(dvec2), nullptr, GL_DYNAMIC_COPY);
+                        if (orbit_buffer_front) delete[] orbit_buffer_front;
+                        orbit_buffer_front = new vec2[max_vertices + 2]{};
+                        if (orbit_buffer_back) delete[] orbit_buffer_back;
+                        orbit_buffer_back = new vec2[max_vertices + 2]{};
                     }
                     if (ImGui::Checkbox("Keep orbit after releasing mouse", &persist_orbit)) {
                         if (!persist_orbit) {
@@ -1812,8 +1961,11 @@ public:
                             set_op(MV_POSTPROC);
                         }
                     }
-
                     ImGui::EndDisabled();
+
+                    ImGui::Separator();
+
+                    ImGui::Checkbox("Always refresh main fractal", &always_refresh_main);
 
                     ImGui::TreePop();
                 }
@@ -1873,6 +2025,7 @@ public:
                 glViewport(0, 0, fs.x * config.ssaa, fs.y * config.ssaa);
                 glUniform2i(glGetUniformLocation(shaderProgram, "frameSize"), fs.x * config.ssaa, fs.y * config.ssaa);
             }
+            glUniform1i(glGetUniformLocation(shaderProgram, "ssaa_factor"), config.ssaa);
             switch (op) {
             case MV_COMPUTE:
                 glBindFramebuffer(GL_FRAMEBUFFER, computeFrameBuffer);
@@ -1889,6 +2042,7 @@ public:
                 glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
                 [[fallthrough]];
             case MV_RENDER:
+                glUniform1i(glGetUniformLocation(shaderProgram, "ssaa_factor"), 1);
                 if (recording) {
                     glBindTexture(GL_TEXTURE_2D, postprocTexBuffer);
                     glBindFramebuffer(GL_FRAMEBUFFER, finalFrameBuffer);
