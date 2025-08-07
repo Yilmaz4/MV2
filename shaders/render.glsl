@@ -11,7 +11,8 @@ out vec4 fragColor;
 uniform dvec2  center;
 uniform double zoom;
 uniform float  theta;
-uniform bool   flipped;
+uniform bool   hflip;
+uniform bool   vflip;
 uniform ivec2  frameSize;
 uniform int    max_iters;
 uniform float  spectrum_offset;
@@ -27,7 +28,7 @@ uniform int    ssaa_factor;
 uniform int    transfer_function;
 
 uniform bool   show_orbit;
-uniform dvec2  orbit_start;
+uniform ivec2  orbit_start;
 uniform int    numVertices = 0;
 
 //normal mapping (https://www.math.univ-toulouse.fr/~cheritat/wiki-draw/index.php/Mandelbrot_set#Normal_map_effect)
@@ -357,6 +358,20 @@ vec3 color(float i) {
     return vec3(0.f);
 }
 
+float smooth_color(dvec2 z, dvec2 prevz, float power, int i, int max_iters) {
+    float s;
+    if (distance(z, prevz) > 1e-2) {
+        s = i + 1 - log2(log(float(length(z)))) / log2(power);
+        if (s < 1 || s >= max_iters) {
+            s = i - 1;
+        }
+    }
+    else {
+        s = i + log2(-2.7f / log(float(length(z - prevz))));
+    }
+    return s;
+}
+
 dvec2 advance(dvec2 z, dvec2 c, dvec2 prevz, double xsq, double ysq) {
     return %s;
 }
@@ -376,7 +391,7 @@ void main() {
     dvec2 nv = cexp(dvec2(0.f, angle * 2.f * M_PI / 360.f));
 
     if (op == 3) {
-        dvec2 c = cmultiply((dvec2(gl_FragCoord.x / frameSize.x, gl_FragCoord.y / frameSize.y) - dvec2(0.5, 0.5)) * dvec2(julia_zoom, julia_zoom), dvec2(cos(theta), sin(theta))) * dvec2(1.0, flipped ? -1.0 : 1.0);
+        dvec2 c = cmultiply((dvec2(gl_FragCoord.x / frameSize.x, gl_FragCoord.y / frameSize.y) - dvec2(0.5, 0.5)) * dvec2(julia_zoom, julia_zoom), dvec2(cos(theta), sin(theta))) * dvec2(hflip ? -1.0 : 1.0, vflip ? -1.0 : 1.0);
         dvec2 z = c;
         dvec2 prevz = z;
 
@@ -394,7 +409,7 @@ void main() {
                     t = float(u.x * nv.x + u.y * nv.y + height) / (1.f + height);
                     if (t < 0) t = 0;
                 }
-                float s = i + 1 - log2(log2(float(length(z)))) / log2(power);
+                float s = smooth_color(z, prevz, power, i, max_iters);
                 float final = (continuous_coloring && s >= 1 && s < julia_maxiters) ? s : (i - 1);
                 fragColor = vec4(mix(vec3(0.f), vec3(color((continuous_coloring ? final : i))), normal_map_effect ? pow(t, 1.f / 1.8f) : 1.f), 1.f);
                 return;
@@ -410,7 +425,7 @@ void main() {
     }
 
     if (op == 2) {
-        dvec2 c = center + cmultiply((dvec2(gl_FragCoord.x / frameSize.x, gl_FragCoord.y / frameSize.y) - dvec2(0.5, 0.5)) * dvec2(zoom, (frameSize.y * zoom) / frameSize.x), dvec2(cos(theta), sin(theta))) * dvec2(1.0, flipped ? -1.0 : 1.0);
+        dvec2 c = center + cmultiply((dvec2(gl_FragCoord.x / frameSize.x, gl_FragCoord.y / frameSize.y) - dvec2(0.5, 0.5)) * dvec2(zoom, (frameSize.y * zoom) / frameSize.x), dvec2(cos(theta), sin(theta))) * dvec2(hflip ? -1.0 : 1.0, vflip ? -1.0 : 1.0);
         dvec2 z = %s;
         dvec2 prevz = dvec2(0.0);
 
@@ -423,7 +438,7 @@ void main() {
         int i;
         if (is_experimental() || !is_experimental() && (4.0 * p * (p + (z.x - 0.25)) > ysq && (xsq + ysq + 2 * z.x + 1) > 0.0625)) {
             for (i = 1; i < max_iters; i++) {
-                if (%s) {
+                if (i > 1 && %s) {
                     double t = 0;
                     if (normal_map_effect) {
                         dvec2 u = cdivide(z, der);
@@ -432,11 +447,8 @@ void main() {
                         if (t < 0) t = 0;
                     }
 
+                    float s = smooth_color(z, prevz, power, i, max_iters);
                     if (continuous_coloring && i > 1) {
-                        float s = i + 1 - log2(log(float(length(z)))) / log2(power);
-                        if (s < 1 || s >= max_iters) {
-                            s = i - 1;
-                        }
                         fragColor = vec4(s, i, t, 0.f);
                     }
                     else {
@@ -477,8 +489,8 @@ void main() {
             for (int i = 1; i < numVertices - 1; i++) {
                 float m = (orbit_in[i].y - orbit_in[i-1].y) / (orbit_in[i].x - orbit_in[i-1].x);
                 float c = orbit_in[i-1].y - m * orbit_in[i-1].x;
-                if (pow(fragCoord.x - orbit_in[i].x, 2) + pow(fragCoord.y - orbit_in[i].y, 2) < 32.f ||
-                    abs(m * fragCoord.x - fragCoord.y + c) / sqrt(m * m + 1) < 1.f &&
+                if (pow(fragCoord.x - orbit_in[i].x, 2) + pow(fragCoord.y - orbit_in[i].y, 2) < 16.f ||
+                    abs(m * fragCoord.x - fragCoord.y + c) / sqrt(m * m + 1) < 0.5f &&
                     dot(fragCoord.xy - orbit_in[i], fragCoord.xy - orbit_in[i-1]) < 0)
                 {
                     fragColor = 1.f - fragColor;
@@ -487,9 +499,9 @@ void main() {
             }
         }
 
-        if (dot(gl_FragCoord.xy - vec2(orbit_start), gl_FragCoord.xy - vec2(orbit_start)) < 1.f) {
+        if (ivec2(gl_FragCoord.xy) == ivec2(orbit_start)) {
             ivec2 ss = frameSize / ssaa_factor;
-            dvec2 c = center + cmultiply((dvec2(gl_FragCoord.x / ss.x, gl_FragCoord.y / ss.y) - dvec2(0.5, 0.5)) * dvec2(zoom, (ss.y * zoom) / ss.x), dvec2(cos(theta), sin(theta))) * dvec2(1.0, flipped ? -1.0 : 1.0);
+            dvec2 c = center + cmultiply((dvec2(gl_FragCoord.x / ss.x, gl_FragCoord.y / ss.y) - dvec2(0.5, 0.5)) * dvec2(zoom, (ss.y * zoom) / ss.x), dvec2(cos(theta), sin(theta))) * dvec2(hflip ? -1.0 : 1.0, vflip ? -1.0 : 1.0);
             dvec2 z = %s;
             dvec2 prevz = dvec2(0.0);
             double xsq = z.x * z.x;
