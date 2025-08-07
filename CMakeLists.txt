@@ -20,6 +20,7 @@ add_subdirectory(lib/boxer)
 add_subdirectory(lib/embed)
 add_subdirectory(lib/glm)
 add_subdirectory(lib/glfw)
+add_subdirectory(lib/miniaudio)
 
 include_directories(SYSTEM
     include
@@ -80,6 +81,7 @@ target_link_libraries(${PROJECT_NAME}
         glm::glm
         glfw
         imgui
+        miniaudio
 )
 target_include_directories(${PROJECT_NAME} PUBLIC imgui)
 

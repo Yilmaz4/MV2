@@ -13,3 +13,6 @@
 [submodule "lib/embed"]
 	path = lib/embed
 	url = https://github.com/batterycenter/embed
+[submodule "lib/miniaudio"]
+	path = lib/miniaudio
+	url = https://github.com/mackron/miniaudio
