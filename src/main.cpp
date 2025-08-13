@@ -124,6 +124,7 @@ struct Fractal {
     float power = 2.f;
     bool continuous_compatible = true;
     bool julia_compatible = true;
+    bool hflip = false, vflip = false;
 
     std::vector<Slider> sliders;
 };
@@ -162,6 +163,7 @@ std::vector<Fractal> fractals = {
         .power = 2.f,
         .continuous_compatible = true,
         .julia_compatible = true,
+        .vflip = true,
     }),
     Fractal({.name = "Newton",
         .equation = "z - cmultiply(dvec2(Re, Im), cdivide(cpow(z, power) - dvec2(1.f, 0.f), power * cpow(z, power - 1.f)))",
@@ -198,13 +200,30 @@ std::vector<Fractal> fractals = {
     }),
     Fractal({.name = "Tricorn",
         .equation = "cpow(cconj(z), power) + c",
-        .condition = "distance(z, c) > 10",
+        .condition = "xsq + ysq > 100",
         .initialz = "c",
         .power = 2.f,
         .continuous_compatible = true,
         .julia_compatible = true,
     }),
+    Fractal({.name = "Feather",
+        .equation = "cmultiply(cpow(z, 2.f), cdivide(z, dvec2(1.0 + z.x * z.x, z.y * z.y))) + c",
+        .condition = "xsq + ysq > 100",
+        .initialz = "c",
+        .power = 0.f,
+        .continuous_compatible = false,
+        .julia_compatible = true,
+    }),
+    Fractal({.name = "SFX",
+        .equation = "z * (xsq + ysq) - cmultiply(z, c * c)",
+        .condition = "xsq + ysq > 100",
+        .initialz = "c",
+        .power = 0.f,
+        .continuous_compatible = false,
+        .julia_compatible = false,
+    }),
 };
+
 
 struct Config {
     dvec2  center = { -0.4, 0.0 };
@@ -320,12 +339,13 @@ class MV2 {
 
     ma_device ma_dev;
     float g_sampleRate = 100.0f;
-    float g_index = 0;
+    int g_index = 0;
     
     vec2* orbit_buffer_front = new vec2[max_vertices + 2]{};
     vec2* orbit_buffer_back = new vec2[max_vertices + 2]{};
     std::atomic<bool> ready_to_copy = false;
     int index_repeat = 0;
+    int index_repeat_new = 0;
     bool persist_audio = false;
 
     int op = MV_COMPUTE;
@@ -603,6 +623,8 @@ public:
         if (result != MA_SUCCESS) {
             std::cerr << "Failed to initialize audio device\n";
         }
+
+        ma_device_start(&ma_dev);
     }
 private:
     void use_config(Config config, bool variables = true, bool textures = true) {
@@ -840,14 +862,11 @@ private:
                     app->enable_orbit = true;
                 }
                 if (app->audio) {
-                    ma_device_start(&app->ma_dev);
+                    app->g_index = app->index_repeat;
                 }
                 app->refresh_rightclick();
                 break;
             case GLFW_RELEASE:
-                if (app->rightClickHold) {
-                    ma_device_stop(&app->ma_dev);
-                }
                 app->rightClickHold = false;
                 if (!app->persist_orbit) {
                     glUniform1i(glGetUniformLocation(app->shaderProgram, "show_orbit"), false);
@@ -947,14 +966,13 @@ private:
             dvec2* src = reinterpret_cast<dvec2*>(srcPtr);
             vec2* dst = reinterpret_cast<vec2*>(dstPtr);
             
-            index_repeat = 0;
+            index_repeat_new = 0;
             ready_to_copy.store(false);
-            orbit_buffer_back[0] = vec2(0.f);
             for (size_t i = 0; i < max_vertices + 2; i++) {
                 if (i != max_vertices + 1) {
                     if (distance(src[i], src[max_vertices + 1]) < 1e-2)
-                        index_repeat = i;
-                    orbit_buffer_back[i + 1] = (vec2)src[i];
+                        index_repeat_new = i;
+                    orbit_buffer_back[i] = (vec2)src[i];
                 }
                 dst[i] = static_cast<vec2>(complex_to_pixel(src[i]));
                 dst[i].y = fs.y - dst[i].y;
@@ -1102,36 +1120,50 @@ private:
         float* out = (float*)output;
         (void)input;
 
-        static int idxr = 0;
+        double x, y;
+        glfwGetCursorPos(app->window, &x, &y);
+        x *= app->dpi_scale;
+        y *= app->dpi_scale;
+
+        dvec2 cmplxCoord = app->pixel_to_complex({ x, y });
 
         for (ma_uint32 i = 0; i < frameCount; i++) {
-            int idx = floor(app->g_index);
-            float t = app->g_index - idx;
+            static float t = 0.f;
 
-            int num = app->max_vertices + 2 - app->index_repeat;
+            int num = app->max_vertices + 2;
             vec2 a, b, c, d;
 
-            if ((idx + 1) % num == 0 && app->ready_to_copy.exchange(false)) {
-                std::swap(app->orbit_buffer_front, app->orbit_buffer_back);
-                app->g_index = 0.f;
-            }
-            
-            a = app->orbit_buffer_front[app->index_repeat + idx % num];
-            b = app->orbit_buffer_front[app->index_repeat + (idx + 1) % num];
-            c = app->orbit_buffer_front[app->index_repeat + (idx + 2) % num];
-            d = app->orbit_buffer_front[app->index_repeat + (idx + 3) % num];
+            int range = app->max_vertices - app->index_repeat + 2;
 
-            float volume = (app->numIterations == -1) ? 1.f : 0.2f;
+            auto idx = [&](int i) {
+                return ((i - app->index_repeat) % range + range) % range + app->index_repeat;
+            };
 
-            if (app->index_repeat == 0 && idx >= app->max_vertices + 1 || a.x * a.x + a.y * a.y > 10.f) {
+            a = app->orbit_buffer_front[idx(app->g_index)];
+            b = app->orbit_buffer_front[idx(app->g_index + 1)];
+            c = app->orbit_buffer_front[idx(app->g_index + 2)];
+            d = app->orbit_buffer_front[idx(app->g_index + 3)];
+
+            float volume = 1.f;
+            if (app->numIterations != -1 || !app->rightClickHold) {
                 volume = 0.f;
-            }
-            else {
-                app->g_index += 1.f / app->g_sampleRate;
             }
 
             out[i * 2 + 0] = std::clamp(hermite(a.x, b.x, c.x, d.x, t, 0.2f), -1.f, 1.f) * volume;
             out[i * 2 + 1] = std::clamp(hermite(a.y, b.y, c.y, d.y, t, 0.2f), -1.f, 1.f) * volume;
+
+            if (idx(app->g_index + 1) - idx(app->g_index) != 0 && app->ready_to_copy.exchange(false)) {
+                std::swap(app->orbit_buffer_front, app->orbit_buffer_back);
+                app->index_repeat = app->index_repeat_new;
+            }
+
+            if (a.x * a.x + a.y * a.y < 100.f) {
+                t += 1.f / app->g_sampleRate;
+                if (t > 1.f) {
+                    t = t - 1.f;
+                    app->g_index += 1;
+                }
+            }
         }
     }
 
@@ -1642,6 +1674,8 @@ public:
                             } else {
                                 config.degree = fractals[n].power;
                                 config.continuous_coloring = static_cast<int>(config.continuous_coloring && fractals[n].continuous_compatible);
+                                config.hflip = fractals[n].hflip;
+                                config.vflip = fractals[n].vflip;
                             }
                             fractal = n;
                             update_shader();
@@ -1711,7 +1745,9 @@ public:
                     ImGui::PopID();
                 };
                 float mouseSpeed = cbrt(pow(ImGui::GetIO().MouseDelta.x, 2) + pow(ImGui::GetIO().MouseDelta.y, 2));
-                slider("Power", &config.degree, nullptr, -1, fractals[fractal].power, std::max(1e-4f, abs(round(config.degree) - config.degree)) * mouseSpeed * std::min(pow(1.1f, config.degree), 1e+3f) / 40.f, (fractal == 0) ? -FLT_MAX : 2.f, FLT_MAX, false);
+                if (fractals[fractal].power != 0.f) {
+                    slider("Power", &config.degree, nullptr, -1, fractals[fractal].power, std::max(1e-4f, abs(round(config.degree) - config.degree)) * mouseSpeed * std::min(pow(1.1f, config.degree), 1e+3f) / 40.f, (fractal == 0) ? -FLT_MAX : 2.f, FLT_MAX, false);
+                }
                 int numSliders = fractals[fractal].sliders.size();
                 for (int i = 0; i < numSliders; i++) {
                     Slider& s = fractals[fractal].sliders[i];
@@ -1728,7 +1764,7 @@ public:
                         ImGui::OpenPopup("Create new variable");
                     }
                     ImGui::SameLine();
-                    ImGui::BeginDisabled(fractals[0].sliders.size() > 0);
+                    ImGui::BeginDisabled(fractals[0].sliders.size() == 0);
                     if (ImGui::Button("Delete all", ImVec2(ImGui::GetContentRegionAvail().x, 0))) {
                         fractals[0].sliders.clear();
                     }
