@@ -170,100 +170,56 @@ double dcos(double x) {
 }
 
 double dlog(double x) {
-    double
-        Ln2Hi = 6.93147180369123816490e-01LF, /* 3fe62e42 fee00000 */
-        Ln2Lo = 1.90821492927058770002e-10LF, /* 3dea39ef 35793c76 */
-        L0 = 7.0710678118654752440e-01LF,  /* 1/sqrt(2) */
-        L1 = 6.666666666666735130e-01LF,   /* 3FE55555 55555593 */
-        L2 = 3.999999999940941908e-01LF,   /* 3FD99999 9997FA04 */
-        L3 = 2.857142874366239149e-01LF,   /* 3FD24924 94229359 */
-        L4 = 2.222219843214978396e-01LF,   /* 3FCC71C5 1D8E78AF */
-        L5 = 1.818357216161805012e-01LF,   /* 3FC74664 96CB03DE */
-        L6 = 1.531383769920937332e-01LF,   /* 3FC39A09 D078C69F */
-        L7 = 1.479819860511658591e-01LF;   /* 3FC2F112 DF3E5244 */
+    if (x <= 0.0) return double(0.0 / 0.0);
 
-    if (isinf(x))
-        return 1.0 / 0.0; /* return +inf */
-    if (isnan(x) || x < 0)
-        return -0.0; /* nan */
-    if (x == 0)
-        return -1.0 / 0.0; /* return -inf */
+    int e = 0;
+    while (x >= 2.0) { x *= 0.5; e++; }
+    while (x <  0.5) { x *= 2.0; e--; }
 
-    int ki;
-    double f1 = frexp(x, ki);
+    double y = (x - 1.0) / (x + 1.0);
+    double y2 = y * y;
 
-    if (f1 < L0) {
-        f1 *= 2.0;
-        ki--;
+    double term = y;
+    double sum = 0.0;
+    for (int i = 1; i <= 9; i += 2) {
+        sum += term / double(i);
+        term *= y2;
     }
 
-    double f = f1 - 1.0;
-    double k = double(ki);
-
-    double s = f / (2.0 + f);
-    double s2 = s * s;
-    double s4 = s2 * s2;
-    double t1 = s2 * (L1 + s4 * (L3 + s4 * (L5 + s4 * L7)));
-    double t2 = s4 * (L2 + s4 * (L4 + s4 * L6));
-    double R = t1 + t2;
-    double hfsq = 0.5 * f * f;
-
-    return k * Ln2Hi - ((hfsq - (s * (hfsq + R) + k * Ln2Lo)) - f);
-}
-
-double exp_approx(double x) {
-    double u = 3.5438786726672135e-7LF;
-    u = u * x + 2.6579928825872315e-6LF;
-    u = u * x + 2.4868626682939294e-5LF;
-    u = u * x + 1.983843872760968e-4LF;
-    u = u * x + 1.3888965369092271e-3LF;
-    u = u * x + 8.3333320096674514e-3LF;
-    u = u * x + 4.1666666809276345e-2LF;
-    u = u * x + 1.6666666665771182e-1LF;
-    u = u * x + 5.0000000000028821e-1LF;
-    u = u * x + 9.9999999999999638e-1LF;
-    u = u * x + 1.0LF;
-    if (isnan(u) || isinf(u))
-        return 0.0LF;
-    return u;
+    return double(e) * 0.6931471805599453 + 2.0 * sum;
 }
 
 double dexp(double x) {
-    int i;
-    int n;
-    double f;
-    double e_accum = M_E;
-    double answer = 1.0LF;
-    bool invert_answer = true;
+    const double ln2 = 0.6931471805599453;
+    int n = int(floor(x / ln2));
+    double r = x - double(n) * ln2;
 
-    if (x < 0.0) {
-        x = -x;
-        invert_answer = true;
-    }
+    double r2 = r * r;
+    double r3 = r2 * r;
+    double r4 = r3 * r;
+    double r5 = r4 * r;
 
-    n = int(x);
-    f = x - double(n);
+    double poly = 1.0 + r + r2 * 0.5 + r3 / 6.0 + r4 / 24.0 + r5 / 120.0;
 
-    if (f > 0.5) {
-        f -= 0.5;
-        answer = M_EHALF;
-    }
-
-    for (i = 0; i < 8; i++) {
-        if (((n >> i) & 1) == 1)
-            answer *= e_accum;
-        e_accum *= e_accum;
-    }
-
-    answer *= exp_approx(x);
-
-    if (invert_answer)
-        answer = 1.0 / answer;
-
-    return answer;
+    return poly * double(exp2(float(n)));
 }
 
 double dpow(double x, double y) {
+    if (x == 0.0) {
+        if (y > 0.0) return 0.0;
+        else return 1.0 / 0.0;
+    }
+    
+    if (x < 0.0) {
+        double yi = floor(y + 0.5);
+        if (abs(y - yi) < 1e-10) {
+            double result = dexp(yi * dlog(-x));
+            return mod(yi, 2.0) == 1.0 ? -result : result;
+        } else {
+            return 0.0 / 0.0;
+        }
+    }
+
     return dexp(y * dlog(x));
 }
 
