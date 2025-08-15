@@ -494,7 +494,7 @@ void main() {
                     dot(fragCoord.xy - orbit_in[i], fragCoord.xy - orbit_in[i-1]) < 0)
                 {
                     fragColor = 1.f - fragColor;
-                    return;
+                    break;
                 }
             }
         }
