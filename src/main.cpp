@@ -108,12 +108,11 @@ struct Slider {
     std::string name;
     double def = 0.f;
     double value = 0.f;
-    float slider = 0.f;
-    float min = 0.f, max = 0.f;
-    float step = 1.f;
+    double min = 0.f, max = 0.f;
+    double step = 1.f;
 
-    Slider(const std::string& name = "", double def = 0.0, float min = 0.f, float max = 0.f, float step = 1.f)
-        : name(name), def(def), value(def), slider(static_cast<float>(def)), min(min), max(max), step(step) {}
+    Slider(const std::string& name = "", double def = 0.0, double min = 0.f, double max = 0.f, double step = 1.f)
+        : name(name), def(def), value(def), min(min), max(max), step(step) {}
 };
 
 struct Fractal {
@@ -150,7 +149,7 @@ std::vector<Fractal> fractals = {
     }),
     Fractal({.name = "Nova",
         .equation = "z - cdivide(cpow(z, power) - dvec2(1, 0), power * cpow(z, power - 1)) + c",
-        .condition = "distance(z, prevz) < 10e-5",
+        .condition = "distance(z, prevz) < 1e-5",
         .initialz = "dvec2(1, 0)",
         .power = 3.f,
         .continuous_compatible = true,
@@ -167,7 +166,7 @@ std::vector<Fractal> fractals = {
     }),
     Fractal({.name = "Newton",
         .equation = "z - cmultiply(dvec2(Re, Im), cdivide(cpow(z, power) - dvec2(1.f, 0.f), power * cpow(z, power - 1.f)))",
-        .condition = "distance(z, prevz) < 10e-5",
+        .condition = "distance(z, prevz) < 1e-5",
         .initialz = "c",
         .power = 3.f,
         .continuous_compatible = true,
@@ -243,7 +242,7 @@ struct Config {
     int    ssaa = 2;
     int    transfer_function = 0;
     // experimental
-    float  degree = 1.f;
+    double degree = 1.f;
     // normal mapping
     float  angle = 180.f;
     float  height = 1.5f;
@@ -338,7 +337,7 @@ class MV2 {
     ImGradientHDRTemporaryState tempState;
 
     ma_device ma_dev;
-    float g_sampleRate = 100.0f;
+    float g_pitch = 1000.0f;
     int g_index = 0;
     
     vec2* orbit_buffer_front = new vec2[max_vertices + 2]{};
@@ -347,6 +346,7 @@ class MV2 {
     int index_repeat = 0;
     int index_repeat_new = 0;
     bool persist_audio = false;
+    bool playing_audio = false;
 
     int op = MV_COMPUTE;
 public:
@@ -615,7 +615,7 @@ public:
         ma_device_config config  = ma_device_config_init(ma_device_type_playback);
         config.playback.format   = ma_format_f32;
         config.playback.channels = 2;
-        config.sampleRate        = 96000u;
+        config.sampleRate        = 48000u;
         config.dataCallback      = data_callback;
         config.pUserData         = this;
 
@@ -809,8 +809,8 @@ private:
                     x *= app->dpi_scale;
                     y *= app->dpi_scale;
                     dvec2 cmplx = app->pixel_to_complex(dvec2(x, y));
-                    fractals[2].sliders[0].slider = fractals[2].sliders[0].value = cmplx.x;
-                    fractals[2].sliders[1].slider = fractals[2].sliders[1].value = cmplx.y;
+                    fractals[2].sliders[0].value = cmplx.x;
+                    fractals[2].sliders[1].value = cmplx.y;
                     app->tempCenter = app->config.center;
                     app->tempZoom = app->config.zoom;
                     app->config.zoom = app->sync_zoom_julia ? pow(app->config.zoom, 1.f / app->config.degree) * 1.2f : 3.0;
@@ -844,6 +844,9 @@ private:
                 app->set_op(MV_COMPUTE);
             }
             else {
+                if (!app->dragging && !app->rightClickHold) {
+                    app->playing_audio = false;
+                }
                 app->dragging = false;
             }
             break;
@@ -863,6 +866,7 @@ private:
                 }
                 if (app->audio) {
                     app->g_index = app->index_repeat;
+                    app->playing_audio = true;
                 }
                 app->refresh_rightclick();
                 break;
@@ -870,6 +874,9 @@ private:
                 app->rightClickHold = false;
                 if (!app->persist_orbit) {
                     glUniform1i(glGetUniformLocation(app->shaderProgram, "show_orbit"), false);
+                }
+                if (!app->persist_audio) {
+                    app->playing_audio = false;
                 }
                 glUniform2i(glGetUniformLocation(app->shaderProgram, "orbit_start"), -1, -1);
                 app->set_op(MV_POSTPROC);
@@ -977,7 +984,7 @@ private:
                 dst[i] = static_cast<vec2>(complex_to_pixel(src[i]));
                 dst[i].y = fs.y - dst[i].y;
             }
-            ready_to_copy = true;
+            ready_to_copy.store(true);
         }
         glUnmapNamedBuffer(orbitInBuffer);
         glUnmapNamedBuffer(orbitOutBuffer);
@@ -1039,6 +1046,12 @@ private:
         replace_variables(eq);
         replace_variables(cond);
         replace_variables(init);
+
+        if (eq.find("mouseCoord") != std::string::npos || cond.find("mouseCoord") != std::string::npos || init.find("mouseCoord") != std::string::npos) {
+            always_refresh_main = true;
+        } else {
+            always_refresh_main = false;
+        }
 
         sprintf(modifiedSource, fragmentSource, eq.data(), 1, cond.data(), init.data(), cond.data(), init.data());
         glShaderSource(shader, 1, &modifiedSource, NULL);
@@ -1144,9 +1157,9 @@ private:
             c = app->orbit_buffer_front[idx(app->g_index + 2)];
             d = app->orbit_buffer_front[idx(app->g_index + 3)];
 
-            float volume = 1.f;
-            if (app->numIterations != -1 || !app->rightClickHold) {
-                volume = 0.f;
+            float volume = 0.f;
+            if (app->playing_audio) {
+                volume = 1.f;
             }
 
             out[i * 2 + 0] = std::clamp(hermite(a.x, b.x, c.x, d.x, t, 0.2f), -1.f, 1.f) * volume;
@@ -1158,9 +1171,9 @@ private:
             }
 
             if (a.x * a.x + a.y * a.y < 100.f) {
-                t += 1.f / app->g_sampleRate;
-                if (t > 1.f) {
-                    t = t - 1.f;
+                t += app->g_pitch * 2.f / 48000.f;
+                if (t >= 1.f) {
+                    t -= 1.f;
                     app->g_index += 1;
                 }
             }
@@ -1407,8 +1420,6 @@ public:
                 ImGui::SameLine();
                 if (ImGui::Button("About", ImVec2(ImGui::GetContentRegionAvail().x, 0.f)))
                     ImGui::OpenPopup("About Mandelbrot Voyage II");
-
-                ImGui::DragFloat("Sample Rate", &g_sampleRate, 10.f, 0.f, 5000.f);
                 
                 ImGui::SeparatorText("Parameters");
                 bool update = false;
@@ -1676,6 +1687,7 @@ public:
                                 config.continuous_coloring = static_cast<int>(config.continuous_coloring && fractals[n].continuous_compatible);
                                 config.hflip = fractals[n].hflip;
                                 config.vflip = fractals[n].vflip;
+                                always_refresh_main = false;
                             }
                             fractal = n;
                             update_shader();
@@ -1706,52 +1718,63 @@ public:
                     ImGui::EndDisabled();
                     ImGui::SameLine();
                     if (ImGui::Button("Reset##eq", ImVec2(ImGui::GetContentRegionAvail().x, 0.f))) {
-                        fractal = 0;
+                        fractals[0].equation  = fractals[1].equation;
+                        fractals[0].equation.resize(1024);
+                        fractals[0].condition = fractals[1].condition;
+                        fractals[0].condition.resize(1024);
+                        fractals[0].initialz  = fractals[1].initialz;
+                        fractals[0].initialz.resize(1024);
+                        fractals[0].power     = config.degree;
+                        fractals[0].sliders   = fractals[1].sliders;
                         reverted = true;
                     }
                 }
-                if (compile) {
-                    compile_shader(shader, &success, infoLog, content, length);
-                }
-                if (reload) {
-                    reload_shader(shader);
-                    set_op(MV_COMPUTE, true);
-                    reverted = false;
-                }
+
                 if (fractal == 0) ImGui::SeparatorText("Variables");
-                int update_fractal = 0;
+                bool update_fractal = 0;
                 std::vector<int> to_delete;
-                auto slider = [&](const char* label, float* ptr, double* real_ptr, int index, const float def, float speed, float min, float max, bool is_deletable) {
+                auto slider = [&](const char* label, double* ptr, int index, const double def, double speed, double min, double max, bool is_deletable) {
                     ImGui::PushID(ptr);
-                    if (ImGui::Button("Round##", ImVec2(80, 0))) {
+                    if (ImGui::Button("Round", ImVec2(60, 0))) {
                         *ptr = round(*ptr);
                         update_fractal = 1;
                     }
                     ImGui::SameLine();
-                    if (is_deletable && ImGui::Button("Delete", ImVec2(80, 0))) {
+                    if (is_deletable && ImGui::Button("Delete", ImVec2(60, 0))) {
                         to_delete.push_back(index);
                         update_fractal = 1;
                     }
-                    else if (!is_deletable && ImGui::Button("Reset", ImVec2(80, 0))) {
+                    else if (!is_deletable && ImGui::Button("Reset", ImVec2(60, 0))) {
                         *ptr = def;
                         update_fractal = 1;
                     }
                     ImGui::SameLine();
                     ImGui::SetNextItemWidth(80);
-                    update_fractal |= ImGui::DragFloat(label, ptr, speed, min, max, "%.5f", ImGuiSliderFlags_NoRoundToFormat);
-                    if (update_fractal && real_ptr) {
-                        *real_ptr = *ptr;
+                    update_fractal |= ImGui::DragScalar("##slider", ImGuiDataType_Double, ptr, speed, &min, &max, "%.7g", ImGuiSliderFlags_NoRoundToFormat);
+                    ImGui::SameLine();
+                    if (ImGui::Button("-")) {
+                        *ptr -= 1;
+                        update_fractal = true;
                     }
+                    ImGui::SameLine();
+                    if (ImGui::Button("+")) {
+                        *ptr += 1;
+                        update_fractal = true;
+                    }
+                    ImGui::SameLine();
+                    ImGui::Text(label);
+                    
                     ImGui::PopID();
                 };
-                float mouseSpeed = cbrt(pow(ImGui::GetIO().MouseDelta.x, 2) + pow(ImGui::GetIO().MouseDelta.y, 2));
+
+                float mouseSpeed = sqrt(pow(ImGui::GetIO().MouseDelta.x, 2) + pow(ImGui::GetIO().MouseDelta.y, 2));
                 if (fractals[fractal].power != 0.f) {
-                    slider("Power", &config.degree, nullptr, -1, fractals[fractal].power, std::max(1e-4f, abs(round(config.degree) - config.degree)) * mouseSpeed * std::min(pow(1.1f, config.degree), 1e+3f) / 40.f, (fractal == 0) ? -FLT_MAX : 2.f, FLT_MAX, false);
+                    slider("Power", &config.degree, -1, fractals[fractal].power, std::max(1e-4, abs(round(config.degree) - config.degree)) / 30.f, (fractal == 0) ? -DBL_MAX : 2.f, DBL_MAX, false);
                 }
                 int numSliders = fractals[fractal].sliders.size();
                 for (int i = 0; i < numSliders; i++) {
                     Slider& s = fractals[fractal].sliders[i];
-                    slider(s.name.c_str(), &s.slider, &s.value, i, s.def, std::max(1e-2f, abs(s.slider) * mouseSpeed / 1000.f), s.min, s.max, fractal == 0);
+                    slider(s.name.c_str(), &s.value, i, s.def, std::clamp(mouseSpeed * 1e-5, 1e-8, 0.1), s.min, s.max, fractal == 0);
                 }
                 for (const int& i : to_delete) {
                     fractals[fractal].sliders.erase(fractals[fractal].sliders.begin() + i);
@@ -1783,19 +1806,20 @@ public:
                         if (!upper_limit) ImGui::BeginDisabled();
                         ImGui::SameLine();
                         ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x);
-                        ImGui::DragFloat("##max", &slider.max, std::max(1e-4f, abs(slider.max) / 20.f), 0.f, 0.f, "%.9g");
+                        ImGui::DragScalar("##max", ImGuiDataType_Double, &slider.max, std::max(1e-4, abs(slider.max) / 20.0), NULL, NULL, "%.9g");
                         if (!upper_limit) ImGui::EndDisabled();
                         ImGui::Checkbox("Lower limit", &lower_limit);
                         if (!lower_limit) ImGui::BeginDisabled();
                         ImGui::SameLine();
                         ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x);
-                        ImGui::DragFloat("##min", &slider.min, std::max(1e-4f, abs(slider.min) / 20.f), 0.f, 0.f, "%.9g");
+                        ImGui::DragScalar("##min", ImGuiDataType_Double, &slider.min, std::max(1e-4, abs(slider.min) / 20.0), NULL, NULL, "%.9g");
                         if (!lower_limit) ImGui::EndDisabled();
                         if (strlen(slider.name.c_str()) == 0) ImGui::BeginDisabled();
                         if (ImGui::Button("Create", ImVec2(ImGui::GetContentRegionAvail().x / 2.f - 1.f, 0))) {
                             if (!lower_limit) slider.min = 0.f;
                             if (!upper_limit) slider.max = 0.f;
                             ImGui::CloseCurrentPopup();
+                            compile = true;
                         }
                         if (strlen(slider.name.c_str()) == 0) ImGui::EndDisabled();
                         ImGui::SameLine();
@@ -1806,9 +1830,18 @@ public:
                         ImGui::EndPopup();
                     }
                 }
+
                 if (update_fractal) {
                     update_shader();
                     set_op(MV_COMPUTE);
+                }
+                if (compile) {
+                    compile_shader(shader, &success, infoLog, content, length);
+                }
+                if (reload) {
+                    reload_shader(shader);
+                    set_op(MV_COMPUTE, true);
+                    reverted = false;
                 }
 
                 ImGui::SeparatorText("Coloring");
@@ -1949,7 +1982,7 @@ public:
                 
                 ImGui::SeparatorText("Preferences");
                 if (ImGui::TreeNode("Right-click")) {
-                    ImGui::Checkbox("Coordinate info", &cmplxinfo);
+                    ImGui::Checkbox("Info", &cmplxinfo);
                     ImGui::SameLine();
                     ImGui::BeginDisabled(!fractals[fractal].julia_compatible);
                     ImGui::Checkbox("Julia set", &juliaset);
@@ -1961,12 +1994,21 @@ public:
                             set_op(MV_POSTPROC);
                         }
                     }
-                    ImGui::Checkbox("Sound", &audio);
+                    ImGui::SameLine();
+                    if (ImGui::Checkbox("Sound", &audio)) {
+                        if (!audio) {
+                            playing_audio = false;
+                            ma_device_stop(&ma_dev);
+                        }
+                        else {
+                            ma_device_start(&ma_dev);
+                        }
+                    }
 
                     ImGui::Separator();
 
-                    ImGui::SetNextItemWidth(90);
                     ImGui::BeginDisabled(!juliaset);
+                    ImGui::SetNextItemWidth(90);
                     if (ImGui::InputInt("Julia preview size", &julia_size, 5, 20)) {
                         if (julia_size < 10) julia_size = 10;
                         glBindTexture(GL_TEXTURE_2D, juliaTexBuffer);
@@ -1977,8 +2019,9 @@ public:
 
                     ImGui::Separator();
 
-                    ImGui::SetNextItemWidth(90);
+                    
                     ImGui::BeginDisabled(!orbit);
+                    ImGui::SetNextItemWidth(90);
                     if (ImGui::InputInt("Maximum vertices shown", &max_vertices, 5, 20)) {
                         if (max_vertices < 2) max_vertices = 2;
                         glUniform1i(glGetUniformLocation(shaderProgram, "numVertices"), max_vertices + 2);
@@ -2001,7 +2044,14 @@ public:
 
                     ImGui::Separator();
 
-                    ImGui::Checkbox("Always refresh main fractal", &always_refresh_main);
+                    ImGui::BeginDisabled(!audio);
+                    ImGui::SliderFloat("Pitch", &g_pitch, 50.f, 5000.f, "%.2f");
+                    if (ImGui::Checkbox("Keep playing audio after releasing mouse", &persist_audio)) {
+                        if (!persist_audio) {
+                            playing_audio = false;
+                        }
+                    }
+                    ImGui::EndDisabled();
 
                     ImGui::TreePop();
                 }
