@@ -16,6 +16,10 @@ if(NOT CMAKE_BUILD_TYPE)
   set(CMAKE_BUILD_TYPE Release CACHE STRING "Build type" FORCE)
 endif()
 
+
+set(CMAKE_BUILD_TYPE Debug)
+set(CMAKE_CXX_FLAGS_DEBUG "-g -O0")
+
 add_subdirectory(lib/boxer)
 add_subdirectory(lib/embed)
 add_subdirectory(lib/glm)
