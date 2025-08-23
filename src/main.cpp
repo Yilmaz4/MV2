@@ -57,9 +57,9 @@
 
 using namespace glm;
 
-#define MV_COMPUTE  2
-#define MV_POSTPROC 1
-#define MV_RENDER   0
+#define MV_COMPUTE  2   // recomputes the mandelbrot set
+#define MV_POSTPROC 1   // colors the set and downscales
+#define MV_RENDER   0   // draws to the window
 
 #define U8(t) reinterpret_cast<const char*>(t)
 
@@ -79,6 +79,254 @@ public:
         std::cout << msg;
     }
 };
+
+// boilerplate for creating AVI files
+
+#pragma pack(push,1)
+struct AVIMainHeader {
+    uint32_t microSecPerFrame;
+    uint32_t maxBytesPerSec;
+    uint32_t paddingGranularity;
+    uint32_t flags;
+    uint32_t totalFrames;
+    uint32_t initialFrames;
+    uint32_t streams;
+    uint32_t suggestedBufferSize;
+    uint32_t width;
+    uint32_t height;
+    uint32_t reserved[4];
+};
+
+struct AVIStreamHeader {
+    char fccType[4];
+    char fccHandler[4];
+    uint32_t flags;
+    uint16_t priority;
+    uint16_t language;
+    uint32_t initialFrames;
+    uint32_t scale;
+    uint32_t rate;
+    uint32_t start;
+    uint32_t length;
+    uint32_t suggestedBufferSize;
+    uint32_t quality;
+    uint32_t sampleSize;
+    int16_t left;
+    int16_t top;
+    int16_t right;
+    int16_t bottom;
+};
+
+struct BitmapInfoHeader {
+    uint32_t biSize = 40;
+    int32_t  biWidth;
+    int32_t  biHeight;
+    uint16_t biPlanes = 1;
+    uint16_t biBitCount = 24;
+    uint32_t biCompression = 0; // BI_RGB
+    uint32_t biSizeImage;
+    int32_t  biXPelsPerMeter = 0;
+    int32_t  biYPelsPerMeter = 0;
+    uint32_t biClrUsed = 0;
+    uint32_t biClrImportant = 0;
+};
+#pragma pack(pop)
+
+static_assert(sizeof(AVIMainHeader) == 56, "AVIMainHeader size mismatch");
+static_assert(sizeof(AVIStreamHeader) == 56, "AVIStreamHeader size mismatch");
+static_assert(sizeof(BitmapInfoHeader) == 40, "BitmapInfoHeader size mismatch");
+
+void writeID(std::ofstream& out, const char id[4]) { out.write(id, 4); }
+void writeU32(std::ofstream& out, uint32_t v) { out.write(reinterpret_cast<char*>(&v), 4); }
+void writeU16(std::ofstream& out, uint16_t v) { out.write(reinterpret_cast<char*>(&v), 2); }
+
+std::ofstream out;
+std::streampos movi_start;
+std::streampos movi_end;
+
+std::streampos riff_size_pos;
+std::streampos hdrl_size_pos;
+std::streampos strl_size_pos;
+std::streampos movi_size_pos;
+
+struct FrameInfo {
+    uint32_t offset;
+    uint32_t size;
+};
+std::vector<FrameInfo> frames;
+
+void initAVI(std::string filename, int width, int height, int numFrames, int fps) {
+    int rowSize = ((width * 3 + 3) & ~3);  // padded row size
+    int frameSize = rowSize * height;
+
+    out = std::ofstream(filename, std::ios::binary);
+
+    // ---- RIFF 'AVI ' ----
+    writeID(out, "RIFF");
+    riff_size_pos = out.tellp();
+    writeU32(out, 0); // placeholder for file size
+    writeID(out, "AVI ");
+
+    // ---- LIST 'hdrl' ----
+    writeID(out, "LIST");
+    hdrl_size_pos = out.tellp();
+    writeU32(out, 0); // placeholder for hdrl size
+    writeID(out, "hdrl");
+
+    // ---- avih ----
+    writeID(out, "avih");
+    writeU32(out, sizeof(AVIMainHeader));
+    AVIMainHeader avih{};
+    avih.microSecPerFrame = 1000000 / fps;
+    avih.maxBytesPerSec = frameSize * fps;
+    avih.paddingGranularity = 0;
+    avih.flags = 0x10;
+    avih.totalFrames = numFrames;
+    avih.initialFrames = 0;
+    avih.streams = 1;
+    avih.suggestedBufferSize = frameSize;
+    avih.width = width;
+    avih.height = height;
+    std::memset(avih.reserved, 0, sizeof(avih.reserved));
+    out.write(reinterpret_cast<char*>(&avih), sizeof(avih));
+
+    // ---- LIST 'strl' ----
+    writeID(out, "LIST");
+    strl_size_pos = out.tellp();
+    writeU32(out, 0); // placeholder for strl size
+    writeID(out, "strl");
+
+    // ---- strh ----
+    writeID(out, "strh");
+    writeU32(out, sizeof(AVIStreamHeader));
+    AVIStreamHeader strh{};
+    std::memcpy(strh.fccType, "vids", 4);
+    std::memset(strh.fccHandler, 0, 4);
+    strh.flags = 0;
+    strh.priority = 0;
+    strh.language = 0;
+    strh.initialFrames = 0;
+    strh.scale = 1;
+    strh.rate = fps;
+    strh.start = 0;
+    strh.length = numFrames;
+    strh.suggestedBufferSize = frameSize;
+    strh.quality = 0xFFFFFFFF;
+    strh.sampleSize = frameSize;
+    strh.left = strh.top = strh.right = strh.bottom = 0;
+    out.write(reinterpret_cast<char*>(&strh), sizeof(strh));
+
+    // ---- strf ----
+    writeID(out, "strf");
+    writeU32(out, sizeof(BitmapInfoHeader));
+    BitmapInfoHeader bmp{};
+    bmp.biSize = sizeof(BitmapInfoHeader);
+    bmp.biWidth = width;
+    bmp.biHeight = -height;
+    bmp.biPlanes = 1;
+    bmp.biBitCount = 24;
+    bmp.biCompression = 0;
+    bmp.biSizeImage = frameSize;
+    bmp.biXPelsPerMeter = 0;
+    bmp.biYPelsPerMeter = 0;
+    bmp.biClrUsed = 0;
+    bmp.biClrImportant = 0;
+    out.write(reinterpret_cast<char*>(&bmp), sizeof(bmp));
+
+    // Patch strl size
+    auto strl_end = out.tellp();
+    out.seekp(strl_size_pos);
+    writeU32(out, static_cast<uint32_t>(strl_end - strl_size_pos - 4));
+    out.seekp(strl_end);
+
+    // Patch hdrl size
+    auto hdrl_end = out.tellp();
+    out.seekp(hdrl_size_pos);
+    writeU32(out, static_cast<uint32_t>(hdrl_end - hdrl_size_pos - 4));
+    out.seekp(hdrl_end);
+
+    // ---- LIST 'movi' ----
+    writeID(out, "LIST");
+    movi_size_pos = out.tellp();
+    writeU32(out, 0); // placeholder for movi size
+    writeID(out, "movi");
+    movi_start = out.tellp(); // first frame will be written here
+}
+
+static inline uint32_t RowStride24(int w) {
+    return (uint32_t)((w * 3 + 3) & ~3);
+}
+
+void writeAVI(int w, int h) {
+    glPixelStorei(GL_PACK_ALIGNMENT, 1); // ensure tight rows from GL
+
+    const uint32_t tightRow      = w * 3;          // input row size (RGB)
+    const uint32_t rowStride     = RowStride24(w); // output row size (BGR padded)
+    const uint32_t frameBytesOut = rowStride * h;
+
+    // Read from GL as RGB
+    std::vector<unsigned char> rgb(w * h * 3);
+    glGetTexImage(GL_TEXTURE_2D, 0, GL_RGB, GL_UNSIGNED_BYTE, rgb.data());
+
+    // Remember chunk start (for idx1 offset)
+    auto chunkStart = out.tellp();
+
+    // Write chunk header
+    writeID(out, "00db");
+    writeU32(out, frameBytesOut);
+
+    // Convert RGB -> BGR, bottom-up
+    std::vector<unsigned char> outRow(rowStride, 0);
+    for (int y = 0; y < h; ++y) {
+        int srcY = h - 1 - y; // bottom-up
+        const unsigned char* src = &rgb[srcY * tightRow];
+        unsigned char* dst = outRow.data();
+        for (int x = 0; x < w; ++x) {
+            dst[3*x + 0] = src[3*x + 2]; // B
+            dst[3*x + 1] = src[3*x + 1]; // G
+            dst[3*x + 2] = src[3*x + 0]; // R
+        }
+        out.write(reinterpret_cast<const char*>(outRow.data()), rowStride);
+    }
+
+    // Add padding byte if needed
+    bool padded = false;
+    if ((frameBytesOut & 1) != 0) {
+        out.put(0);
+        padded = true;
+    }
+
+    // Push frame info for idx1
+    uint32_t chunkSizeWithPadding = frameBytesOut + (padded ? 1 : 0);
+    uint32_t offsetToHeader = static_cast<uint32_t>(chunkStart - movi_start);
+    frames.push_back({ offsetToHeader, chunkSizeWithPadding });
+}
+
+void closeAVI() {
+    // Patch movi size
+    auto movi_end = out.tellp();
+    out.seekp(movi_size_pos);
+    writeU32(out, static_cast<uint32_t>(movi_end - movi_size_pos - 4));
+    out.seekp(movi_end);
+
+    // Write idx1
+    writeID(out, "idx1");
+    writeU32(out, static_cast<uint32_t>(frames.size() * 16));
+    for (auto &f : frames) {
+        writeID(out, "00db");       // chunk id
+        writeU32(out, 0x10);        // flags: keyframe
+        writeU32(out, f.offset);    // offset from start of 'movi' LIST contents to chunk header
+        writeU32(out, f.size);      // size of chunk data INCLUDING padding
+    }
+
+    // Patch RIFF file size
+    auto file_end = out.tellp();
+    out.seekp(riff_size_pos);
+    writeU32(out, static_cast<uint32_t>(file_end - riff_size_pos - 4));
+    out.seekp(file_end);
+
+    out.close();
+}
 
 float vertices[] = {
     -1.0f, -1.0f,
@@ -100,14 +348,14 @@ void main() {
 
 )";
 
-constexpr double zoom_co = 0.85;
-constexpr double doubleClick_interval = 0.4;
+constexpr double zoom_co = 0.85; // the number the zoom amount is multiplied with with each mouse scroll
+constexpr double doubleClick_interval = 0.4; // maximum time in seconds in which two consecutive mouse clicks is considered a double click
 ivec2 monitorSize;
 
 struct Slider {
     std::string name;
-    double def = 0.f;
-    double value = 0.f;
+    double def = 0.f; // default value
+    double value = 0.f; // current value
     double min = 0.f, max = 0.f;
     double step = 1.f;
 
@@ -117,13 +365,13 @@ struct Slider {
 
 struct Fractal {
     std::string name = "Mandelbrot";
-    std::string equation = "cpow(z, power) + c";
-    std::string condition = "distance(z, c) > 10";
-    std::string initialz = "c";
+    std::string equation = "cpow(z, power) + c"; // next value of Z (must be of type dvec2)
+    std::string condition = "distance(z, c) > 10"; // condition under which the point c is considered outside the set
+    std::string initialz = "c"; // initial value of Z
     float power = 2.f;
-    bool continuous_compatible = true;
-    bool julia_compatible = true;
-    bool hflip = false, vflip = false;
+    bool continuous_compatible = true; // whether the continuous coloring algorithm works for this fractal
+    bool julia_compatible = true; // whether a julia version of this fractal exists
+    bool hflip = false, vflip = false; // whether the fractal should be horizontally or vertically flipped by default (e.g burning ship fractal)
 
     std::vector<Slider> sliders;
 };
@@ -152,7 +400,7 @@ std::vector<Fractal> fractals = {
         .condition = "distance(z, prevz) < 1e-5",
         .initialz = "dvec2(1, 0)",
         .power = 3.f,
-        .continuous_compatible = true,
+        .continuous_compatible = true, // not really, still searching for a way
         .julia_compatible = false,
     }),
     Fractal({.name = "Burning ship",
@@ -162,7 +410,7 @@ std::vector<Fractal> fractals = {
         .power = 2.f,
         .continuous_compatible = true,
         .julia_compatible = true,
-        .vflip = true,
+        .vflip = true, // most images of the burning ship fractal in the internet are actually flipped vertically such that the imaginary axis increases downwards
     }),
     Fractal({.name = "Newton",
         .equation = "z - cmultiply(dvec2(Re, Im), cdivide(cpow(z, power) - dvec2(1.f, 0.f), power * cpow(z, power - 1.f)))",
@@ -227,28 +475,28 @@ std::vector<Fractal> fractals = {
 struct Config {
     dvec2  center = { -0.4, 0.0 };
     ivec2  frameSize = { 1200, 800 };
-    double zoom = 5.0;
-    float  theta = 0.f;
-    bool   vflip = false;
-    bool   hflip = false;
-    float  spectrum_offset = 0.f;
-    float  iter_multiplier = 12.f;
-    bool   auto_adjust_iter = true;
+    double zoom = 5.0; // width of a pixel in the complex plane
+    float  theta = 0.f; // rotation angle in degrees (converted to radians when passing to the shader)
+    bool   vflip = false; // vertical flip
+    bool   hflip = false; // horizontal flip
+    float  spectrum_offset = 0.f; // offset in the color gradient
+    float  iter_multiplier = 12.f; // multiplier when coloring the fractal
+    bool   auto_adjust_iter = true; // whether to automatically adjust max_iters based on zoom
     int    max_iters = 100;
-    float  iter_co = 1.04f;
+    float  iter_co = 1.04f; // the number max_iters is multiplied with with each mouse scroll
     bool   continuous_coloring = true;
     bool   normal_map_effect = false;
-    fvec3 set_color = { 0.f, 0.f, 0.f };
-    int    ssaa = 2;
-    int    transfer_function = 0;
-    // experimental
-    double degree = 1.f;
+    fvec3 set_color = { 0.f, 0.f, 0.f }; // the color of the points inside the set
+    int    ssaa = 2; // supersampling antialaising factor
+    bool   taa = false;
+    int    transfer_function = 0; // 0: linear, 1: square root, 2: cubic root, 3: logarithmic
+    double power = 1.f;
     // normal mapping
-    float  angle = 180.f;
-    float  height = 1.5f;
+    float  angle = 180.f; // angle of the incoming light (not perfectly accurate)
+    float  height = 1.5f; // height of the light source, changes how well pronounced the normal map effect is
 };
 
-struct ZoomSequenceConfig {
+struct ZoomVideoConfig {
     Config tcfg;
     int fps = 30;
     int duration = 30;
@@ -274,20 +522,22 @@ class MV2 {
     int span = 1000;
     const int max_colors = 8;
 
+    Config config;
+    ZoomVideoConfig zvc;
+
     ivec2 screenPos = { 0, 0 };
     bool fullscreen = false;
     float dpi_scale = 1.f;
-    Config config;
+    
     int fractal = 1;
-    bool startup_anim_complete = false;
-    ZoomSequenceConfig zsc;
     int julia_size = 215;
     double julia_zoom = 3;
     double fps_update_interval = 0.03;
     int max_vertices = 200;
     bool sync_zoom_julia = true;
+    
+    int zoomTowards = 1; // 0: center, 1: cursor
     bool juliaset = true;
-    bool juliaset_disabled_incompat = false;
     bool orbit = true;
     bool audio = true;
     bool cmplxinfo = true;
@@ -295,8 +545,7 @@ class MV2 {
 
     bool persist_orbit = false;
     bool enable_orbit = false;
-    bool orbit_refreshed = false;
-
+    
     dvec2 oldPos = { 0, 0 };
     dvec2 lastPresses = { -doubleClick_interval, 0 };
     bool dragging = false;
@@ -304,7 +553,9 @@ class MV2 {
     dvec2 tempCenter = config.center;
     double tempZoom = config.zoom;
 
-    int zoomTowards = 1; // 0: center, 1: cursor
+    bool startup_anim_complete = false;
+    bool juliaset_disabled_incompat = false;
+    bool orbit_refreshed = false;
 
     dvec2 cmplxCoord;
     int numIterations;
@@ -652,7 +903,7 @@ private:
             glUniform1i(glGetUniformLocation(shaderProgram, "show_orbit"), false);
             glUniform2i(glGetUniformLocation(shaderProgram, "orbit_start"), -1, -1);
 
-            glUniform1f(glGetUniformLocation(shaderProgram, "power"), config.degree);
+            glUniform1f(glGetUniformLocation(shaderProgram, "power"), config.power);
             glUniform1i(glGetUniformLocation(shaderProgram, "fractal"), fractal);
 
             glUniform1f(glGetUniformLocation(shaderProgram, "angle"), config.angle);
@@ -813,7 +1064,7 @@ private:
                     fractals[2].sliders[1].value = cmplx.y;
                     app->tempCenter = app->config.center;
                     app->tempZoom = app->config.zoom;
-                    app->config.zoom = app->sync_zoom_julia ? pow(app->config.zoom, 1.f / app->config.degree) * 1.2f : 3.0;
+                    app->config.zoom = app->sync_zoom_julia ? pow(app->config.zoom, 1.f / app->config.power) * 1.2f : 3.0;
                     app->config.center = dvec2(0.0, 0.0);
                     switch_shader();
 
@@ -856,7 +1107,7 @@ private:
                 app->rightClickHold = true;
 
                 if (app->juliaset) {
-                    app->julia_zoom = app->sync_zoom_julia ? pow(app->config.zoom, 1.f / app->config.degree) * 1.2f : 3.0;
+                    app->julia_zoom = app->sync_zoom_julia ? pow(app->config.zoom, 1.f / app->config.power) * 1.2f : 3.0;
                     glUniform1d(glGetUniformLocation(app->shaderProgram, "julia_zoom"), app->julia_zoom);
                     glUniform1i(glGetUniformLocation(app->shaderProgram, "julia_maxiters"),
                         max_iters(app->julia_zoom, zoom_co, app->config.iter_co, 3.0));
@@ -977,7 +1228,7 @@ private:
             ready_to_copy.store(false);
             for (size_t i = 0; i < max_vertices + 2; i++) {
                 if (i != max_vertices + 1) {
-                    if (distance(src[i], src[max_vertices + 1]) < 1e-2)
+                    if (distance(src[i], src[max_vertices + 1]) < 1e-2 && distance(src[i - 1], src[max_vertices + 1]) > 1e-2)
                         index_repeat_new = i;
                     orbit_buffer_back[i] = (vec2)src[i];
                 }
@@ -1103,7 +1354,7 @@ private:
     }
 
     void update_shader() const {
-        glUniform1f(glGetUniformLocation(shaderProgram, "power"), config.degree);
+        glUniform1f(glGetUniformLocation(shaderProgram, "power"), config.power);
         glBindBuffer(GL_SHADER_STORAGE_BUFFER, sliderBuffer);
         std::vector<float> values(fractals[fractal].sliders.size());
         for (int i = 0; i < values.size(); i++) {
@@ -1193,12 +1444,12 @@ public:
             double currentTime = glfwGetTime();
 
             if (currentTime < 1.6f) {
-                config.degree = (currentTime < 0.1f) ? 1.f : (2.f - pow(1.f - (currentTime - 0.2f) / 1.5f, 13));
+                config.power = (currentTime < 0.1f) ? 1.f : (2.f - pow(1.f - (currentTime - 0.2f) / 1.5f, 13));
                 update_shader();
                 set_op(MV_COMPUTE);
             }
             else if (!startup_anim_complete) {
-                config.degree = 2.f;
+                config.power = 2.f;
                 startup_anim_complete = true;
                 update_shader();
                 set_op(MV_COMPUTE);
@@ -1215,9 +1466,14 @@ public:
                 ImGuiWindowFlags_AlwaysAutoResize |
                 ImGuiWindowFlags_NoMove
             )) {
-                if (ImGui::BeginPopupModal("Zoom video creator", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+                ImGui::SetNextWindowSize(ImVec2(350.f, 0.f));
+                if (ImGui::BeginPopupModal("Zoom video creator", nullptr)) {
                     if (recording) ImGui::BeginDisabled();
-                    if (ImGui::Button("Browse...")) {
+                    
+                    ImGui::SetNextItemWidth(250);
+                    ImGui::InputTextWithHint("##output", "Output", zvc.path, 256, ImGuiInputTextFlags_None, nullptr, nullptr);
+                    ImGui::SameLine();
+                    if (ImGui::Button("Browse...", ImVec2(ImGui::GetContentRegionAvail().x, 0.f))) {
                         char const* lFilterPatterns[1] = { "*.avi" };
                         auto t = std::time(nullptr);
                         auto tm = *std::localtime(&t);
@@ -1226,52 +1482,20 @@ public:
                         char const* buf = tinyfd_saveFileDialog("Save video", oss.str().c_str(), 1, lFilterPatterns, "Video Files (*.avi)");
                         if (glfwGetWindowMonitor(window) != nullptr) glfwRestoreWindow(window);
                         glfwShowWindow(window);
-                        if (buf) strcpy(zsc.path, buf);
+                        if (buf) strcpy(zvc.path, buf);
                     }
-                    ImGui::SameLine();
-                    ImGui::PushItemWidth(330);
-                    ImGui::InputTextWithHint("##output", "Output", zsc.path, 256, ImGuiInputTextFlags_None, nullptr, nullptr);
-                    ImGui::PushItemWidth(80);
-                    ImGui::InputInt("FPS", &zsc.fps, 1, 5);
-                    ImGui::SameLine();
-                    ImGui::InputInt("Duration", &zsc.duration, 5, 20);
-                    ImGui::SameLine();
-                    const std::vector<ivec2> commonres = {
-                        { 640,  480  },
-                        { 1280, 720  },
-                        { 1920, 1080 },
-                        { 2560, 1440 },
-                        { 3840, 2160 }
-                    };
-                    static int res = 2;
-                    zsc.tcfg.frameSize = commonres[res];
-                    auto vec_to_str = [commonres](int i) {
-                        return std::format("{}x{}", commonres.at(i).x, commonres.at(i).y);
-                        };
-                    std::string preview = vec_to_str(res);
 
-                    if (ImGui::BeginCombo("Resolution", preview.c_str())) {
-                        for (int i = 0; i < commonres.size(); i++) {
-                            const bool is_selected = (res == i);
-                            if (ImGui::Selectable(vec_to_str(i).c_str(), is_selected)) {
-                                zsc.tcfg.frameSize = commonres.at(i);
-                                glBindFramebuffer(GL_FRAMEBUFFER, finalFrameBuffer);
-                                glBindTexture(GL_TEXTURE_2D, finalTexBuffer);
-                                glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, zsc.tcfg.frameSize.x, zsc.tcfg.frameSize.y, 0, GL_RGB, GL_FLOAT, NULL);
-                                res = i;
-                            }
-                            if (is_selected) ImGui::SetItemDefaultFocus();
-                        }
-                        ImGui::EndCombo();
-                    }
+                    ImGui::Dummy(ImVec2(0.f, 2.f));
+
                     const char* dirs[] = { "Zoom in", "Zoom out" };
-                    preview = dirs[zsc.direction];
+                    std::string preview = dirs[zvc.direction];
 
+                    ImGui::PushItemWidth(80);
                     if (ImGui::BeginCombo("Direction", preview.c_str())) {
                         for (int i = 0; i < 2; i++) {
-                            const bool is_selected = (zsc.direction == i);
+                            const bool is_selected = (zvc.direction == i);
                             if (ImGui::Selectable(dirs[i], is_selected)) {
-                                zsc.direction = i;
+                                zvc.direction = i;
                             }
                             if (is_selected) ImGui::SetItemDefaultFocus();
                         }
@@ -1280,7 +1504,7 @@ public:
                     ImGui::SameLine();
 
                     const char* factors[] = { "None", "2X", "4X", "8X" };
-                    int idx = static_cast<int>(log2(static_cast<float>(zsc.tcfg.ssaa)));
+                    int idx = static_cast<int>(log2(static_cast<float>(zvc.tcfg.ssaa)));
                     preview = factors[idx];
 
                     ImGui::PushItemWidth(44);
@@ -1288,7 +1512,7 @@ public:
                         for (int i = 0; i < 4; i++) {
                             const bool is_selected = (idx == i);
                             if (ImGui::Selectable(factors[i], is_selected)) {
-                                zsc.tcfg.ssaa = pow(2, i);
+                                zvc.tcfg.ssaa = pow(2, i);
                             }
                             if (is_selected) ImGui::SetItemDefaultFocus();
                         }
@@ -1296,50 +1520,108 @@ public:
                     }
                     ImGui::PopItemWidth();
                     ImGui::SameLine();
-                    ImGui::Checkbox("Ease in/out", &zsc.ease_inout);
+                    ImGui::Checkbox("Ease in/out", &zvc.ease_inout);
 
-                    if (strlen(zsc.path) == 0 && !recording) ImGui::BeginDisabled();
-                    if (!recording && ImGui::Button("Render", ImVec2(100, 0))) {
+                    ImGui::Separator();
+
+                    float halfwidth = ImGui::GetContentRegionAvail().x / 2.f - 1.f;
+
+                    ImGui::BeginChild("leftside", ImVec2(halfwidth, 40.f));
+                    ImGui::PushItemWidth(80);
+                    if (ImGui::InputInt("FPS", &zvc.fps, 1, 5)) {
+                        if (zvc.fps < 1) zvc.fps = 1;
+                    }
+                    if (ImGui::InputInt("Duration", &zvc.duration, 5, 20)) {
+                        if (zvc.duration < 1) zvc.duration = 1;
+                    }
+                    ImGui::PopItemWidth();
+                    ImGui::EndChild();
+
+                    ImGui::SameLine();
+
+                    ImGui::BeginChild("rightside", ImVec2(halfwidth, 40.f));
+
+                    const std::vector<ivec2> commonres = {
+                        { 640,  480  },
+                        { 1280, 720  },
+                        { 1366, 768  },
+                        { 1920, 1080 },
+                        { 1920, 1200 },
+                        { 2560, 1440 },
+                        { 2560, 1600 },
+                        { 3840, 2160 }
+                    };
+                    static int res = 3;
+                    zvc.tcfg.frameSize = commonres[res];
+                    auto vec_to_str = [commonres](int i) {
+                        return std::format("{}x{}", commonres.at(i).x, commonres.at(i).y);
+                        };
+                    preview = vec_to_str(res);
+                    
+                    ImGui::SetNextItemWidth(95);
+                    if (ImGui::BeginCombo("Resolution", preview.c_str())) {
+                        for (int i = 0; i < commonres.size(); i++) {
+                            const bool is_selected = (res == i);
+                            if (ImGui::Selectable(vec_to_str(i).c_str(), is_selected)) {
+                                zvc.tcfg.frameSize = commonres.at(i);
+                                glBindFramebuffer(GL_FRAMEBUFFER, finalFrameBuffer);
+                                glBindTexture(GL_TEXTURE_2D, finalTexBuffer);
+                                glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, zvc.tcfg.frameSize.x, zvc.tcfg.frameSize.y, 0, GL_RGB, GL_FLOAT, NULL);
+                                res = i;
+                            }
+                            if (is_selected) ImGui::SetItemDefaultFocus();
+                        }
+                        ImGui::EndCombo();
+                    }
+                    ImGui::PushStyleColor(ImGuiCol_Text, IM_COL32(200, 200, 200, 255));
+                    ImGui::SetCursorPosY(ImGui::GetCursorPosY() + 2.f);
+                    ImGui::Text("Estimated size:");
+                    ImGui::PopStyleColor();
+                    ImGui::SameLine();
+                    ImGui::SetCursorPosY(ImGui::GetCursorPosY() + 2.f);
+                    ImGui::Text("%.1f GiB", static_cast<int64_t>(zvc.fps) * zvc.duration * zvc.tcfg.frameSize.x * zvc.tcfg.frameSize.y * 3.f / 1'073'741'824.f);
+                    ImGui::EndChild();
+
+                    ImGui::Dummy(ImVec2(0.f, 4.f));
+
+                    if (strlen(zvc.path) == 0 && !recording) ImGui::BeginDisabled();
+                    if (!recording && ImGui::Button("Render", ImVec2(90, 0))) {
                         recording = true;
                         progress = 0;
                         glfwSwapInterval(0);
-                        zsc.tcfg.zoom = 8.0f;
-                        //writer = cv::VideoWriter(zsc.path, cv::VideoWriter::fourcc('m', 'j', 'p', 'g'), zsc.fps, cv::Size(zsc.tcfg.frameSize.x, zsc.tcfg.frameSize.y));
+                        zvc.tcfg.zoom = 8.0f;
+                        
+                        initAVI(std::string(zvc.path), zvc.tcfg.frameSize.x, zvc.tcfg.frameSize.y, zvc.duration * zvc.fps, zvc.fps);
 
-                        //if (!writer.isOpened()) throw Error("Failed to initialize sequencer");
-                        use_config(zsc.tcfg, true, true);
-                        upload_kernel(zsc.tcfg.ssaa);
+                        use_config(zvc.tcfg, true, true);
+                        upload_kernel(zvc.tcfg.ssaa);
                         ImGui::BeginDisabled();
                     }
-                    if ((strlen(zsc.path) == 0 && !recording) || recording)
+                    if ((strlen(zvc.path) == 0 && !recording) || recording)
                         ImGui::EndDisabled();
-                    if (recording && ImGui::Button(paused ? "Resume" : "Pause", ImVec2(100, 0))) {
+                    if (recording && ImGui::Button(paused ? "Resume" : "Pause", ImVec2(90, 0))) {
                         paused ^= 1;
                     }
                     ImGui::SameLine();
-                    if (ImGui::Button("Cancel", ImVec2(100, 0))) {
+                    if (ImGui::Button("Cancel", ImVec2(90, 0))) {
                         if (recording && progress != 0) {
-                            //writer.release();
-                            std::filesystem::remove(zsc.path);
+                            closeAVI();
+                            std::filesystem::remove(zvc.path);
                             glfwSwapInterval(1);
                         }
-                        recording = false;
                         progress = 0;
                         use_config(config, true, true);
                         upload_kernel(config.ssaa);
-                        ImGui::CloseCurrentPopup();
+                        if (!recording) ImGui::CloseCurrentPopup();
+                        recording = false;
                     }
                     ImGui::SameLine();
-                    if (recording) {
-                        const ImU32 col = ImGui::GetColorU32(ImGuiCol_ButtonHovered);
-                        const ImU32 bg = ImGui::GetColorU32(ImGuiCol_Button);
-
-                        ImGui::SetCursorPosY(ImGui::GetCursorPosY() - 1.f);
-                        ImGui::Spinner("##spinner", 5, 2, col);
-                        ImGui::SameLine();
-                        ImGui::SetCursorPosY(ImGui::GetCursorPosY() + 5.f);
-                        ImGui::BufferingBar("##buffer_bar", progress / static_cast<float>(zsc.fps * zsc.duration), ImVec2(182, 6), bg, col);
-                    }
+                    char buf[32]{};
+                    float p = static_cast<float>(progress) / (zvc.fps * zvc.duration);
+                    if (recording && progress != 0)
+                        sprintf(buf, "%d/%d", progress, zvc.fps * zvc.duration);
+                    else p = 0.f;
+                    ImGui::ProgressBar(p, ImVec2(ImGui::GetContentRegionAvail().x, 0.f), buf);
                     ImGui::EndPopup();
                 }
 
@@ -1414,7 +1696,7 @@ public:
                 ImGui::SameLine();
 
                 if (ImGui::Button("Create zoom video")) {
-                    zsc.tcfg = config;
+                    zvc.tcfg = config;
                     ImGui::OpenPopup("Zoom video creator");
                 }
                 ImGui::SameLine();
@@ -1624,31 +1906,7 @@ public:
                 }
 
                 ImGui::SameLine();
-                ImGui::BeginDisabled(!fractals[fractal].continuous_compatible);
-                if (ImGui::Checkbox("Smooth coloring", reinterpret_cast<bool*>(&config.continuous_coloring))) {
-                    glUniform1i(glGetUniformLocation(shaderProgram, "continuous_coloring"), config.continuous_coloring);
-                    set_op(MV_COMPUTE);
-                }
-                ImGui::EndDisabled();
-                ImGui::SameLine();
-                ImGui::BeginDisabled(fractal != 1 && fractal != 2);
-                if (ImGui::Checkbox("Normal map", &config.normal_map_effect)) {
-                    glUniform1i(glGetUniformLocation(shaderProgram, "normal_map_effect"), config.normal_map_effect);
-                    set_op(MV_COMPUTE);
-                }
-                ImGui::EndDisabled();
-                if (config.normal_map_effect) {
-                    if (ImGui::DragFloat("Angle", &config.angle, 1.f, 0.f, 0.f, "%.1f deg")) {
-                        if (config.angle > 360.f) config.angle = config.angle - 360.f;
-                        if (config.angle < 0.f) config.angle = 360.f + config.angle;
-                        glUniform1f(glGetUniformLocation(shaderProgram, "angle"), 360.f - config.angle);
-                        set_op(MV_COMPUTE);
-                    }
-                    if (ImGui::DragFloat("Height", &config.height, 0.1f, 0.f, FLT_MAX, "%.1f", ImGuiSliderFlags_AlwaysClamp)) {
-                        glUniform1f(glGetUniformLocation(shaderProgram, "height"), config.height);
-                        set_op(MV_COMPUTE);
-                    }
-                }
+                ImGui::Checkbox("TAA", &config.taa);
 
                 ImGui::SeparatorText("Fractal");
 
@@ -1680,10 +1938,10 @@ public:
                                 fractals[0].condition.resize(1024);
                                 fractals[0].initialz  = fractals[fractal].initialz;
                                 fractals[0].initialz.resize(1024);
-                                fractals[0].power     = config.degree;
+                                fractals[0].power     = config.power;
                                 fractals[0].sliders   = fractals[fractal].sliders;
                             } else {
-                                config.degree = fractals[n].power;
+                                config.power = fractals[n].power;
                                 config.continuous_coloring = static_cast<int>(config.continuous_coloring && fractals[n].continuous_compatible);
                                 config.hflip = fractals[n].hflip;
                                 config.vflip = fractals[n].vflip;
@@ -1724,7 +1982,7 @@ public:
                         fractals[0].condition.resize(1024);
                         fractals[0].initialz  = fractals[1].initialz;
                         fractals[0].initialz.resize(1024);
-                        fractals[0].power     = config.degree;
+                        fractals[0].power     = config.power;
                         fractals[0].sliders   = fractals[1].sliders;
                         reverted = true;
                     }
@@ -1769,7 +2027,7 @@ public:
 
                 float mouseSpeed = sqrt(pow(ImGui::GetIO().MouseDelta.x, 2) + pow(ImGui::GetIO().MouseDelta.y, 2));
                 if (fractals[fractal].power != 0.f) {
-                    slider("Power", &config.degree, -1, fractals[fractal].power, std::max(1e-4, abs(round(config.degree) - config.degree)) / 30.f, (fractal == 0) ? -DBL_MAX : 2.f, DBL_MAX, false);
+                    slider("Power", &config.power, -1, fractals[fractal].power, std::max(1e-4, abs(round(config.power) - config.power)) / 30.f, (fractal == 0) ? -DBL_MAX : 2.f, DBL_MAX, false);
                 }
                 int numSliders = fractals[fractal].sliders.size();
                 for (int i = 0; i < numSliders; i++) {
@@ -1848,6 +2106,33 @@ public:
 
                 if (ImGui::BeginTabBar("MyTabBar")) {
                     if (ImGui::BeginTabItem("Outside")) {
+
+                        ImGui::BeginDisabled(!fractals[fractal].continuous_compatible);
+                        if (ImGui::Checkbox("Smooth coloring", reinterpret_cast<bool*>(&config.continuous_coloring))) {
+                            glUniform1i(glGetUniformLocation(shaderProgram, "continuous_coloring"), config.continuous_coloring);
+                            set_op(MV_COMPUTE);
+                        }
+                        ImGui::EndDisabled();
+                        ImGui::SameLine();
+                        ImGui::BeginDisabled(fractal != 1 && fractal != 2);
+                        if (ImGui::Checkbox("Shadowing", &config.normal_map_effect)) {
+                            glUniform1i(glGetUniformLocation(shaderProgram, "normal_map_effect"), config.normal_map_effect);
+                            set_op(MV_COMPUTE);
+                        }
+                        ImGui::EndDisabled();
+                        if (config.normal_map_effect) {
+                            if (ImGui::DragFloat("Angle", &config.angle, 1.f, 0.f, 0.f, "%.1f deg")) {
+                                if (config.angle > 360.f) config.angle = config.angle - 360.f;
+                                if (config.angle < 0.f) config.angle = 360.f + config.angle;
+                                glUniform1f(glGetUniformLocation(shaderProgram, "angle"), 360.f - config.angle);
+                                set_op(MV_COMPUTE);
+                            }
+                            if (ImGui::DragFloat("Height", &config.height, 0.1f, 0.f, FLT_MAX, "%.1f", ImGuiSliderFlags_AlwaysClamp)) {
+                                glUniform1f(glGetUniformLocation(shaderProgram, "height"), config.height);
+                                set_op(MV_COMPUTE);
+                            }
+                        }
+
                         std::vector<std::string> functions = { "Linear", "Square root", "Cubic root", "Logarithmic" };
                         const char* preview = functions[config.transfer_function].c_str();
 
@@ -2105,8 +2390,8 @@ public:
             }
             ImGui::PopFont();
             if (recording) {
-                glViewport(0, 0, zsc.tcfg.frameSize.x * zsc.tcfg.ssaa, zsc.tcfg.frameSize.y * zsc.tcfg.ssaa);
-                glUniform2i(glGetUniformLocation(shaderProgram, "frameSize"), zsc.tcfg.frameSize.x * zsc.tcfg.ssaa, zsc.tcfg.frameSize.y * zsc.tcfg.ssaa);
+                glViewport(0, 0, zvc.tcfg.frameSize.x * zvc.tcfg.ssaa, zvc.tcfg.frameSize.y * zvc.tcfg.ssaa);
+                glUniform2i(glGetUniformLocation(shaderProgram, "frameSize"), zvc.tcfg.frameSize.x * zvc.tcfg.ssaa, zvc.tcfg.frameSize.y * zvc.tcfg.ssaa);
             } else {
                 glViewport(0, 0, fs.x * config.ssaa, fs.y * config.ssaa);
                 glUniform2i(glGetUniformLocation(shaderProgram, "frameSize"), fs.x * config.ssaa, fs.y * config.ssaa);
@@ -2133,8 +2418,8 @@ public:
                     glBindTexture(GL_TEXTURE_2D, postprocTexBuffer);
                     glBindFramebuffer(GL_FRAMEBUFFER, finalFrameBuffer);
                     glUniform1i(glGetUniformLocation(shaderProgram, "op"), MV_RENDER);
-                    glViewport(0, 0, zsc.tcfg.frameSize.x, zsc.tcfg.frameSize.y);
-                    glUniform2i(glGetUniformLocation(shaderProgram, "frameSize"), zsc.tcfg.frameSize.x, zsc.tcfg.frameSize.y);
+                    glViewport(0, 0, zvc.tcfg.frameSize.x, zvc.tcfg.frameSize.y);
+                    glUniform2i(glGetUniformLocation(shaderProgram, "frameSize"), zvc.tcfg.frameSize.x, zvc.tcfg.frameSize.y);
                     glDrawArrays(GL_TRIANGLES, 0, 6);
 
                     glBindTexture(GL_TEXTURE_2D, finalTexBuffer);
@@ -2168,37 +2453,31 @@ public:
             }
 
             if (recording && !paused) {
-                int w = zsc.tcfg.frameSize.x, h = zsc.tcfg.frameSize.y;
-                unsigned char* buffer = new unsigned char[4 * w * h];
-                glGetTexImage(GL_TEXTURE_2D, 0, GL_RGB, GL_FLOAT, buffer);
-
                 if (progress > 0) {
-                    //cv::Mat frame(cv::Size(w, h), CV_8UC3, buffer);
-                    //cv::cvtColor(frame, frame, cv::COLOR_RGB2BGR);
-                    //cv::flip(frame, frame, 0);
-                    //writer.write(frame);
+                    writeAVI(zvc.tcfg.frameSize.x, zvc.tcfg.frameSize.y);
                 }
                 progress++;
-                if (zsc.fps * zsc.duration == progress) {
+                if (zvc.fps * zvc.duration == progress) {
                     use_config(config);
                     recording = false;
-                    //writer.release();
+                    
+                    closeAVI();
+
                     glfwSwapInterval(1);
                 } else {
-                    int framecount = (zsc.fps * zsc.duration);
+                    int framecount = (zvc.fps * zvc.duration);
                     double x = static_cast<double>(progress) / framecount;
                     double z = 3 * pow(x, 2) - 2 * pow(x, 3);
-                    if (zsc.direction == 1) z = -z + 1;
+                    if (zvc.direction == 1) z = -z + 1;
                     double coeff = pow(config.zoom / 5.0, 1.0 / framecount);
-                    if (zsc.ease_inout)
-                        zsc.tcfg.zoom = 8.0 * pow(coeff, z * framecount);
+                    if (zvc.ease_inout)
+                        zvc.tcfg.zoom = 8.0 * pow(coeff, z * framecount);
                     else
-                        zsc.tcfg.zoom = 8.0 * pow(coeff, progress);
+                        zvc.tcfg.zoom = 8.0 * pow(coeff, progress);
                     glUniform1i(glGetUniformLocation(shaderProgram, "max_iters"),
-                        max_iters(zsc.tcfg.zoom, zoom_co, config.iter_co));
-                    glUniform1d(glGetUniformLocation(shaderProgram, "zoom"), zsc.tcfg.zoom);
+                        max_iters(zvc.tcfg.zoom, zoom_co, config.iter_co));
+                    glUniform1d(glGetUniformLocation(shaderProgram, "zoom"), zvc.tcfg.zoom);
                 }
-                delete[] buffer;
                 set_op(MV_COMPUTE, true);
             }
             ImGui::Render();
