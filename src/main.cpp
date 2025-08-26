@@ -949,11 +949,11 @@ private:
 
     void set_op(int p, bool override = false) {
         if (config.taa) {
-            if (p == MV_COMPUTE && !override) {
+            if ((p == MV_COMPUTE || p == MV_POSTPROC) && !override) {
                 int clearValue[4] = { 1, 1, 1, 1 };
                 glClearTexImage(accIndexTexBuffer, 0, GL_RED_INTEGER, GL_INT, clearValue);
             }
-            else p = MV_COMPUTE;
+            p = MV_COMPUTE;
         }
         if (p > op || override) op = p;
     }
