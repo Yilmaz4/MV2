@@ -8,6 +8,7 @@ double M_EHALF = 1.6487212707001281469LF;
 
 out vec4 fragColor;
 
+uniform float  time;
 uniform dvec2  center;
 uniform double zoom;
 uniform float  theta;
@@ -26,6 +27,9 @@ uniform double julia_zoom;
 uniform int    julia_maxiters;
 uniform int    ssaa_factor;
 uniform int    transfer_function;
+
+uniform bool   taa;
+uniform dvec2  prev_center;
 
 uniform bool   show_orbit;
 uniform ivec2  orbit_start;
@@ -60,15 +64,18 @@ layout(std430, binding = 4) readonly buffer kernel {
 };
 uniform int radius;
 
-layout(std430, binding = 5) readonly buffer newton_roots {
-    vec2 roots[];
-};
-
 layout(binding = 0) uniform sampler2D computeTex;
 layout(binding = 1) uniform sampler2D postprocTex;
-layout(binding = 2) uniform sampler2D finalTex;
+layout(binding = 2) uniform sampler2D juliaTex;
+
+layout(binding = 3) uniform sampler2D prevFrameTex;
+layout(r32ui, binding = 4) uniform uimage2D accIndex;
 
 uniform int op;
+
+float rand(vec2 co){
+    return fract(sin(dot(co, vec2(12.9898, 78.233))) * 43758.5453);
+}
 
 double atan2(double y, double x) {
     const double atan_tbl[] = {
@@ -318,7 +325,8 @@ float smooth_color(dvec2 z, dvec2 prevz, float power, int i, int max_iters) {
     float s;
     if (distance(z, prevz) > 1e-2) {
         s = i + 1 - log2(log(float(length(z)))) / log2(power);
-        if (s < 1 || s >= max_iters) {
+        if (s < 1) s = 1;
+        if (s >= max_iters) {
             s = i - 1;
         }
     }
@@ -381,7 +389,11 @@ void main() {
     }
 
     if (op == 2) {
-        dvec2 c = center + cmultiply((dvec2(gl_FragCoord.x / frameSize.x, gl_FragCoord.y / frameSize.y) - dvec2(0.5, 0.5)) * dvec2(zoom, (frameSize.y * zoom) / frameSize.x), dvec2(cos(theta), sin(theta))) * dvec2(hflip ? -1.0 : 1.0, vflip ? -1.0 : 1.0);
+        vec2 fragCoord = gl_FragCoord.xy;
+        if (taa) {
+            fragCoord += (vec2(rand(vec2(time, gl_FragCoord.x)), rand(vec2(time, gl_FragCoord.y))) * 2.f - 1.f) / 2.f;
+        }
+        dvec2 c = center + cmultiply((dvec2(fragCoord.x / frameSize.x, fragCoord.y / frameSize.y) - dvec2(0.5, 0.5)) * dvec2(zoom, (frameSize.y * zoom) / frameSize.x), dvec2(cos(theta), sin(theta))) * dvec2(hflip ? -1.0 : 1.0, vflip ? -1.0 : 1.0);
         dvec2 z = %s;
         dvec2 prevz = dvec2(0.0);
 
@@ -424,7 +436,7 @@ void main() {
     }
     if (op == 1) {
         if (ssaa_factor == 1) {
-            vec4 data = texture(computeTex, vec2(gl_FragCoord.x / frameSize.x, gl_FragCoord.y / frameSize.y));
+            vec4 data = texture(computeTex, gl_FragCoord.xy / frameSize);
             fragColor = vec4(mix(vec3(0.f), color(data.x), normal_map_effect ? pow(data.z, 1.f / 1.8f) : 1.f), 1.f);
         }
         else {
@@ -438,6 +450,19 @@ void main() {
                 }
             }
             fragColor = vec4(blurredColor, 1.f);
+        }
+        if (taa) {
+            vec2 dst = vec2((prev_center - center) / dvec2(zoom, (frameSize.y * zoom) / frameSize.x)) * vec2(frameSize);
+            vec2 adjusted_coord = (gl_FragCoord.xy - dst) / frameSize;
+            bool outside = any(lessThan(adjusted_coord, vec2(0.f, 0.f))) || any(greaterThan(adjusted_coord, vec2(1.f, 1.f)));
+            if (!outside) {
+                uint acc_idx = imageLoad(accIndex, ivec2(gl_FragCoord.xy)).x;
+                fragColor = mix(texture(prevFrameTex, adjusted_coord), fragColor, 1.f / float(acc_idx));
+                imageStore(accIndex, ivec2(gl_FragCoord.xy), ivec4(acc_idx + 1));
+            }
+            else {
+                imageStore(accIndex, ivec2(gl_FragCoord.xy), ivec4(1));
+            }
         }
 
         if (show_orbit) {

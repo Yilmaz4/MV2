@@ -65,7 +65,7 @@ using namespace glm;
 
 void GLAPIENTRY glMessageCallback(GLenum source, GLenum type, GLuint id, GLenum severity, GLsizei length, const GLchar* message, const void* userParam) {
     if (type != GL_DEBUG_TYPE_ERROR) return;
-    fprintf(stderr, "GL CALLBACK: %s type = 0x%x, severity = 0x%x, message = %s\n", "** GL ERROR **", type, severity, message);
+    //fprintf(stderr, "GL CALLBACK: %s type = 0x%x, severity = 0x%x, message = %s\n", "** GL ERROR **", type, severity, message);
 }
 
 class Error : public std::exception {
@@ -222,7 +222,7 @@ void initAVI(std::string filename, int width, int height, int numFrames, int fps
     BitmapInfoHeader bmp{};
     bmp.biSize = sizeof(BitmapInfoHeader);
     bmp.biWidth = width;
-    bmp.biHeight = -height;
+    bmp.biHeight = height;
     bmp.biPlanes = 1;
     bmp.biBitCount = 24;
     bmp.biCompression = 0;
@@ -266,7 +266,7 @@ void writeAVI(int w, int h) {
 
     // Read from GL as RGB
     std::vector<unsigned char> rgb(w * h * 3);
-    glGetTexImage(GL_TEXTURE_2D, 0, GL_RGB, GL_UNSIGNED_BYTE, rgb.data());
+    glGetTexImage(GL_TEXTURE_2D, 0, GL_BGR, GL_UNSIGNED_BYTE, rgb.data());
 
     // Remember chunk start (for idx1 offset)
     auto chunkStart = out.tellp();
@@ -282,9 +282,9 @@ void writeAVI(int w, int h) {
         const unsigned char* src = &rgb[srcY * tightRow];
         unsigned char* dst = outRow.data();
         for (int x = 0; x < w; ++x) {
-            dst[3*x + 0] = src[3*x + 2]; // B
+            dst[3*x + 0] = src[3*x + 0]; // B
             dst[3*x + 1] = src[3*x + 1]; // G
-            dst[3*x + 2] = src[3*x + 0]; // R
+            dst[3*x + 2] = src[3*x + 2]; // R
         }
         out.write(reinterpret_cast<const char*>(outRow.data()), rowStride);
     }
@@ -487,7 +487,7 @@ struct Config {
     bool   continuous_coloring = true;
     bool   normal_map_effect = false;
     fvec3 set_color = { 0.f, 0.f, 0.f }; // the color of the points inside the set
-    int    ssaa = 2; // supersampling antialaising factor
+    int    ssaa = 1; // supersampling antialaising factor
     bool   taa = false;
     int    transfer_function = 0; // 0: linear, 1: square root, 2: cubic root, 3: logarithmic
     double power = 1.f;
@@ -524,6 +524,8 @@ class MV2 {
 
     Config config;
     ZoomVideoConfig zvc;
+
+    dvec2 prev_center = config.center;
 
     ivec2 screenPos = { 0, 0 };
     bool fullscreen = false;
@@ -576,6 +578,8 @@ class MV2 {
     GLuint postprocTexBuffer = 0;
     GLuint finalTexBuffer = 0;
     GLuint juliaTexBuffer = 0;
+    GLuint prevFrameTexBuffer = 0;
+    GLuint accIndexTexBuffer = 0;
 
     GLuint paletteBuffer = 0;
     GLuint orbitInBuffer = 0;
@@ -621,7 +625,7 @@ public:
         const char* session = std::getenv("XDG_SESSION_DESKTOP");
         const char* hyprSig = std::getenv("HYPRLAND_INSTANCE_SIGNATURE");
         if ((session && std::string(session) == "Hyprland") || (hyprSig != nullptr)) {
-            system("hyprctl keyword windowrulev2 renderunfocused, class:mv2 > /dev/null");
+            system("hyprctl keyword windowrule renderunfocused, class:mv2 > /dev/null");
         }
 
         window = glfwCreateWindow(config.frameSize.x, config.frameSize.y, "Mandelbrot Voyage", NULL, NULL);
@@ -698,6 +702,8 @@ public:
         auto font2 = b::embed<"assets/adwaita.ttf">();
         adwaita = io.Fonts->AddFontFromMemoryTTF((void*)font2.data(), font2.size(), 11.f, nullptr, ranges.Data);
 
+        //commitmono = adwaita = io.Fonts->AddFontFromFileTTF("../assets/adwaita.ttf", 11.f, nullptr, ranges.Data);
+
         IM_ASSERT(commitmono != NULL);
         io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
         io.IniFilename = NULL;
@@ -714,37 +720,47 @@ public:
             return;
         }
 
+        glEnable(GL_DEBUG_OUTPUT);
+        glEnable(GL_DEBUG_OUTPUT_SYNCHRONOUS); // so messages are synchronous (easier for debugging)
+        glDebugMessageCallback(glMessageCallback, nullptr);
+        glDebugMessageControl(GL_DONT_CARE, GL_DONT_CARE, GL_DONT_CARE, 0, nullptr, GL_TRUE);
+
         glGenTextures(1, &computeTexBuffer);
-        glActiveTexture(GL_TEXTURE0);
         glBindTexture(GL_TEXTURE_2D, computeTexBuffer);
-        
-        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA32F, config.frameSize.x * config.ssaa,
-            config.frameSize.y * config.ssaa, 0, GL_RGBA, GL_FLOAT, NULL);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA32F, config.frameSize.x * config.ssaa, config.frameSize.y * config.ssaa, 0, GL_RGBA, GL_FLOAT, NULL);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-        
 
         glGenTextures(1, &postprocTexBuffer);
-        glActiveTexture(GL_TEXTURE1);
         glBindTexture(GL_TEXTURE_2D, postprocTexBuffer);
-        
-        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA32F, config.frameSize.x * config.ssaa,
-            config.frameSize.y * config.ssaa, 0, GL_RGBA, GL_FLOAT, NULL);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB32F, config.frameSize.x * config.ssaa, config.frameSize.y * config.ssaa, 0, GL_RGB, GL_FLOAT, NULL);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
 
-        glGenTextures(1, &finalTexBuffer);
-        glActiveTexture(GL_TEXTURE2);
+        glGenTextures(1, &finalTexBuffer); // only used when recording a zoom video
         glBindTexture(GL_TEXTURE_2D, finalTexBuffer);
-        
-        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA32F, 1920, 1080, 0, GL_RGB, GL_FLOAT, NULL);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB32F, 1920, 1080, 0, GL_RGB, GL_FLOAT, NULL);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+
+        glGenTextures(1, &prevFrameTexBuffer);
+        glBindTexture(GL_TEXTURE_2D, prevFrameTexBuffer);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB32F, config.frameSize.x * config.ssaa, config.frameSize.y * config.ssaa, 0, GL_RGB, GL_FLOAT, NULL);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+
+        glGenTextures(1, &accIndexTexBuffer);
+        glBindTexture(GL_TEXTURE_2D, accIndexTexBuffer);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_R32UI, config.frameSize.x * config.ssaa, config.frameSize.y * config.ssaa, 0, GL_RED_INTEGER, GL_UNSIGNED_INT, NULL);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+        glBindImageTexture(4, accIndexTexBuffer, 0, GL_FALSE, 0, GL_READ_WRITE, GL_R32F);
+        unsigned int clearValue[4] = { 1, 1, 1, 1 };
+        glClearTexImage(accIndexTexBuffer, 0, GL_RED_INTEGER, GL_UNSIGNED_INT, clearValue);
 
         glGenTextures(1, &juliaTexBuffer);
         glBindTexture(GL_TEXTURE_2D, juliaTexBuffer);
-        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA32F, julia_size * config.ssaa,
-            julia_size * config.ssaa, 0, GL_RGBA, GL_FLOAT, NULL);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB32F, julia_size * config.ssaa, julia_size * config.ssaa, 0, GL_RGB, GL_FLOAT, NULL);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
 
@@ -819,10 +835,6 @@ public:
 
         glUseProgram(shaderProgram);
 
-        glUniform1i(glGetUniformLocation(shaderProgram, "computeTex"), 0);
-        glUniform1i(glGetUniformLocation(shaderProgram, "postprocTex"), 1);
-        glUniform1i(glGetUniformLocation(shaderProgram, "finalTex"), 2);
-
         glGenBuffers(1, &orbitInBuffer);
         glBindBuffer(GL_SHADER_STORAGE_BUFFER, orbitInBuffer);
         glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, orbitInBuffer);
@@ -877,6 +889,12 @@ public:
 
         ma_device_start(&ma_dev);
     }
+    ~MV2() {
+        if (ma_device_is_started(&ma_dev)) {
+            ma_device_stop(&ma_dev);
+        }
+        ma_device_uninit(&ma_dev);
+    }
 private:
     void use_config(Config config, bool variables = true, bool textures = true) {
         if (variables) {
@@ -899,6 +917,7 @@ private:
             glUniform1d(glGetUniformLocation(shaderProgram, "julia_zoom"), julia_zoom);
             glUniform1i(glGetUniformLocation(shaderProgram, "julia_maxiters"), max_iters(julia_zoom, zoom_co, config.iter_co, 3.0));
             glUniform1i(glGetUniformLocation(shaderProgram, "transfer_function"), config.transfer_function);
+            glUniform1i(glGetUniformLocation(shaderProgram, "taa"), config.taa);
 
             glUniform1i(glGetUniformLocation(shaderProgram, "show_orbit"), false);
             glUniform2i(glGetUniformLocation(shaderProgram, "orbit_start"), -1, -1);
@@ -909,24 +928,29 @@ private:
             glUniform1f(glGetUniformLocation(shaderProgram, "angle"), config.angle);
             glUniform1f(glGetUniformLocation(shaderProgram, "height"), config.height);
 
-            glShaderStorageBlockBinding(shaderProgram, glGetProgramResourceIndex(shaderProgram, GL_SHADER_STORAGE_BLOCK, "orbit_in"), 0);
-            glShaderStorageBlockBinding(shaderProgram, glGetProgramResourceIndex(shaderProgram, GL_SHADER_STORAGE_BLOCK, "orbit_out"), 1);
+            glShaderStorageBlockBinding(shaderProgram, glGetProgramResourceIndex(shaderProgram, GL_SHADER_STORAGE_BLOCK, "vertices_in"), 0);
+            glShaderStorageBlockBinding(shaderProgram, glGetProgramResourceIndex(shaderProgram, GL_SHADER_STORAGE_BLOCK, "vertices_out"), 1);
             glShaderStorageBlockBinding(shaderProgram, glGetProgramResourceIndex(shaderProgram, GL_SHADER_STORAGE_BLOCK, "spectrum"), 2);
             glShaderStorageBlockBinding(shaderProgram, glGetProgramResourceIndex(shaderProgram, GL_SHADER_STORAGE_BLOCK, "variables"), 3);
-            glShaderStorageBlockBinding(shaderProgram, glGetProgramResourceIndex(shaderProgram, GL_SHADER_STORAGE_BLOCK, "newton_roots"), 5);
+            glShaderStorageBlockBinding(shaderProgram, glGetProgramResourceIndex(shaderProgram, GL_SHADER_STORAGE_BLOCK, "accumulation"), 5);
         }
         if (textures) {
-            glBindFramebuffer(GL_FRAMEBUFFER, computeFrameBuffer);
             glBindTexture(GL_TEXTURE_2D, computeTexBuffer);
+            glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA32F, config.frameSize.x * config.ssaa, config.frameSize.y * config.ssaa, 0, GL_RGBA, GL_FLOAT, NULL);
+
+            glBindTexture(GL_TEXTURE_2D, postprocTexBuffer);
             glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB32F, config.frameSize.x * config.ssaa, config.frameSize.y * config.ssaa, 0, GL_RGB, GL_FLOAT, NULL);
 
-            glBindFramebuffer(GL_FRAMEBUFFER, postprocFrameBuffer);
-            glBindTexture(GL_TEXTURE_2D, postprocTexBuffer);
-            glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, config.frameSize.x * config.ssaa, config.frameSize.y * config.ssaa, 0, GL_RGBA, GL_FLOAT, NULL);
+            glBindTexture(GL_TEXTURE_2D, prevFrameTexBuffer);
+            glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB32F, config.frameSize.x * config.ssaa, config.frameSize.y * config.ssaa, 0, GL_RGB, GL_FLOAT, NULL);
+
+            glBindTexture(GL_TEXTURE_2D, accIndexTexBuffer);
+            glTexImage2D(GL_TEXTURE_2D, 0, GL_R32UI, config.frameSize.x * config.ssaa, config.frameSize.y * config.ssaa, 0, GL_RED_INTEGER, GL_UNSIGNED_INT, NULL);
         }
     }
 
     void set_op(int p, bool override = false) {
+        if (config.taa) p = MV_COMPUTE;
         if (p > op || override) op = p;
     }
 
@@ -1013,13 +1037,17 @@ private:
             glUniform2i(glGetUniformLocation(app->shaderProgram, "frameSize"), width, height);
         app->set_op(MV_COMPUTE);
 
-        glBindFramebuffer(GL_FRAMEBUFFER, app->computeFrameBuffer);
         glBindTexture(GL_TEXTURE_2D, app->computeTexBuffer);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA32F, width * app->config.ssaa, height * app->config.ssaa, 0, GL_RGBA, GL_FLOAT, NULL);
+
+        glBindTexture(GL_TEXTURE_2D, app->postprocTexBuffer);
         glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB32F, width * app->config.ssaa, height * app->config.ssaa, 0, GL_RGB, GL_FLOAT, NULL);
 
-        glBindFramebuffer(GL_FRAMEBUFFER, app->postprocFrameBuffer);
-        glBindTexture(GL_TEXTURE_2D, app->postprocTexBuffer);
-        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, width * app->config.ssaa, height * app->config.ssaa, 0, GL_RGBA, GL_FLOAT, NULL);
+        glBindTexture(GL_TEXTURE_2D, app->prevFrameTexBuffer);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB32F, app->config.frameSize.x * app->config.ssaa, app->config.frameSize.y * app->config.ssaa, 0, GL_RGB, GL_FLOAT, NULL);
+
+        glBindTexture(GL_TEXTURE_2D, app->accIndexTexBuffer);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_R32UI, app->config.frameSize.x * app->config.ssaa, app->config.frameSize.y * app->config.ssaa, 0, GL_RED_INTEGER, GL_UNSIGNED_INT, NULL);
     }
 
     static void on_mouseButton(GLFWwindow* window, int button, int action, int mod) {
@@ -1188,6 +1216,9 @@ private:
                 glUniform1i(glGetUniformLocation(app->shaderProgram, "max_iters"), app->config.max_iters);
             }
             app->set_op(MV_COMPUTE);
+            int clearValue[4] = { 1, 1, 1, 1 };
+            glClearTexImage(app->accIndexTexBuffer, 0, GL_RED_INTEGER, GL_INT, clearValue);
+            app->prev_center = app->config.center;
         }
     }
 
@@ -1251,10 +1282,10 @@ private:
         cmplxCoord = pixel_to_complex({ x, y });
         
         if (cmplxinfo) {
-            float texel[3];
+            float texel[4];
             glBindFramebuffer(GL_FRAMEBUFFER, computeFrameBuffer);
             glReadBuffer(GL_FRONT);
-            glReadPixels(x * config.ssaa, (fs.y - y) * config.ssaa, 1, 1, GL_RGB, GL_FLOAT, texel);
+            glReadPixels(x * config.ssaa, (fs.y - y) * config.ssaa, 1, 1, GL_RGBA, GL_FLOAT, texel);
             numIterations = static_cast<int>(texel[1]);
         }
         if (juliaset) {
@@ -1443,15 +1474,22 @@ public:
             
             double currentTime = glfwGetTime();
 
-            if (currentTime < 1.6f) {
-                config.power = (currentTime < 0.1f) ? 1.f : (2.f - pow(1.f - (currentTime - 0.2f) / 1.5f, 13));
-                update_shader();
+            //currentTime /= 10.f;
+
+            if (currentTime < 0.2f) {
+                config.power = 1.f;
+                glUniform1f(glGetUniformLocation(shaderProgram, "power"), config.power);
+                set_op(MV_COMPUTE);
+            }
+            else if (currentTime < 2.f) {
+                config.power = (2.f - pow(1.f - (currentTime - 0.2f) / 1.8f, 9));
+                glUniform1f(glGetUniformLocation(shaderProgram, "power"), config.power);
                 set_op(MV_COMPUTE);
             }
             else if (!startup_anim_complete) {
                 config.power = 2.f;
                 startup_anim_complete = true;
-                update_shader();
+                glUniform1f(glGetUniformLocation(shaderProgram, "power"), config.power);
                 set_op(MV_COMPUTE);
             }
 
@@ -1566,7 +1604,7 @@ public:
                                 zvc.tcfg.frameSize = commonres.at(i);
                                 glBindFramebuffer(GL_FRAMEBUFFER, finalFrameBuffer);
                                 glBindTexture(GL_TEXTURE_2D, finalTexBuffer);
-                                glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, zvc.tcfg.frameSize.x, zvc.tcfg.frameSize.y, 0, GL_RGB, GL_FLOAT, NULL);
+                                glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB32F, zvc.tcfg.frameSize.x, zvc.tcfg.frameSize.y, 0, GL_RGB, GL_FLOAT, NULL);
                                 res = i;
                             }
                             if (is_selected) ImGui::SetItemDefaultFocus();
@@ -1657,7 +1695,7 @@ public:
                     w *= config.ssaa;
                     h *= config.ssaa;
 
-                    unsigned char* buffer = new unsigned char[4 * w * h];
+                    unsigned char* buffer = new unsigned char[3 * w * h];
 
                     GLuint fbo;
                     glGenFramebuffers(1, &fbo);
@@ -1674,7 +1712,7 @@ public:
                     }
 
                     glReadBuffer(GL_COLOR_ATTACHMENT0);
-                    glReadPixels(0, 0, w, h, GL_RGBA, GL_FLOAT, buffer);
+                    glReadPixels(0, 0, w, h, GL_RGB, GL_UNSIGNED_BYTE, buffer);
 
                     glBindFramebuffer(GL_FRAMEBUFFER, 0);
                     glDeleteFramebuffers(1, &fbo);
@@ -1689,7 +1727,7 @@ public:
                     glfwShowWindow(window);
                     if (path) {
                         stbi_flip_vertically_on_write(true);
-                        stbi_write_png(path, w, h, 4, buffer, 4 * w);
+                        stbi_write_png(path, w, h, 3, buffer, 3 * w);
                     }
                     delete[] buffer;
                 }
@@ -1880,22 +1918,20 @@ public:
                         if (ImGui::Selectable(factors[i], is_selected)) {
                             config.ssaa = pow(2, i);
                             
-                            glBindFramebuffer(GL_FRAMEBUFFER, computeFrameBuffer);
                             glBindTexture(GL_TEXTURE_2D, computeTexBuffer);
-                            glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB32F, fs.x * config.ssaa,
-                                fs.y * config.ssaa, 0, GL_RGB, GL_FLOAT, NULL);
+                            glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA32F, fs.x * config.ssaa, fs.y * config.ssaa, 0, GL_RGBA, GL_FLOAT, NULL);
 
-                            glBindFramebuffer(GL_FRAMEBUFFER, postprocFrameBuffer);
                             glBindTexture(GL_TEXTURE_2D, postprocTexBuffer);
-                            glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA32F, fs.x * config.ssaa,
-                                fs.y * config.ssaa, 0, GL_RGBA, GL_FLOAT, NULL);
+                            glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB32F, fs.x * config.ssaa, fs.y * config.ssaa, 0, GL_RGB, GL_FLOAT, NULL);
 
-                            glBindFramebuffer(GL_FRAMEBUFFER, juliaFrameBuffer);
                             glBindTexture(GL_TEXTURE_2D, juliaTexBuffer);
-                            glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA32F, julia_size * config.ssaa,
-                                julia_size * config.ssaa, 0, GL_RGBA, GL_FLOAT, NULL);
-                            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-                            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+                            glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB32F, julia_size * config.ssaa, julia_size * config.ssaa, 0, GL_RGB, GL_FLOAT, NULL);
+
+                            glBindTexture(GL_TEXTURE_2D, prevFrameTexBuffer);
+                            glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB32F, config.frameSize.x * config.ssaa, config.frameSize.y * config.ssaa, 0, GL_RGB, GL_FLOAT, NULL);
+
+                            glBindTexture(GL_TEXTURE_2D, accIndexTexBuffer);
+                            glTexImage2D(GL_TEXTURE_2D, 0, GL_R32UI, config.frameSize.x * config.ssaa, config.frameSize.y * config.ssaa, 0, GL_RED_INTEGER, GL_UNSIGNED_INT, NULL);
 
                             upload_kernel(config.ssaa);
                             set_op(MV_COMPUTE);
@@ -1906,7 +1942,13 @@ public:
                 }
 
                 ImGui::SameLine();
-                ImGui::Checkbox("TAA", &config.taa);
+                if (ImGui::Checkbox("TAA", &config.taa)) {
+                    glUniform1i(glGetUniformLocation(shaderProgram, "taa"), config.taa);
+                    if (config.taa) {
+                        int clearValue[4] = { 1, 1, 1, 1 };
+                        glClearTexImage(accIndexTexBuffer, 0, GL_RED_INTEGER, GL_INT, clearValue);
+                    }
+                }
 
                 ImGui::SeparatorText("Fractal");
 
@@ -2115,7 +2157,7 @@ public:
                         ImGui::EndDisabled();
                         ImGui::SameLine();
                         ImGui::BeginDisabled(fractal != 1 && fractal != 2);
-                        if (ImGui::Checkbox("Shadowing", &config.normal_map_effect)) {
+                        if (ImGui::Checkbox("Shadows", &config.normal_map_effect)) {
                             glUniform1i(glGetUniformLocation(shaderProgram, "normal_map_effect"), config.normal_map_effect);
                             set_op(MV_COMPUTE);
                         }
@@ -2297,7 +2339,7 @@ public:
                     if (ImGui::InputInt("Julia preview size", &julia_size, 5, 20)) {
                         if (julia_size < 10) julia_size = 10;
                         glBindTexture(GL_TEXTURE_2D, juliaTexBuffer);
-                        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA32F, julia_size * config.ssaa, julia_size * config.ssaa, 0, GL_RGBA, GL_FLOAT, NULL);
+                        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB32F, julia_size * config.ssaa, julia_size * config.ssaa, 0, GL_RGB, GL_FLOAT, NULL);
                     }
                     ImGui::Checkbox("Same zoom in Julia set", &sync_zoom_julia);
                     ImGui::EndDisabled();
@@ -2397,6 +2439,16 @@ public:
                 glUniform2i(glGetUniformLocation(shaderProgram, "frameSize"), fs.x * config.ssaa, fs.y * config.ssaa);
             }
             glUniform1i(glGetUniformLocation(shaderProgram, "ssaa_factor"), config.ssaa);
+            glUniform1f(glGetUniformLocation(shaderProgram, "time"), currentTime);
+            glUniform2d(glGetUniformLocation(shaderProgram, "prev_center"), prev_center.x, prev_center.y);
+
+            glActiveTexture(GL_TEXTURE0);
+            glBindTexture(GL_TEXTURE_2D, computeTexBuffer);
+            glActiveTexture(GL_TEXTURE1);
+            glBindTexture(GL_TEXTURE_2D, postprocTexBuffer);
+            glActiveTexture(GL_TEXTURE3);
+            glBindTexture(GL_TEXTURE_2D, prevFrameTexBuffer);
+
             switch (op) {
             case MV_COMPUTE:
                 glBindFramebuffer(GL_FRAMEBUFFER, computeFrameBuffer);
@@ -2406,7 +2458,6 @@ public:
                     copy_orbit_buffer();
                 [[fallthrough]];
             case MV_POSTPROC:
-                glBindTexture(GL_TEXTURE_2D, computeTexBuffer);
                 glBindFramebuffer(GL_FRAMEBUFFER, postprocFrameBuffer);
                 glUniform1i(glGetUniformLocation(shaderProgram, "op"), MV_POSTPROC);
                 glDrawArrays(GL_TRIANGLES, 0, 6);
@@ -2415,21 +2466,21 @@ public:
             case MV_RENDER:
                 glUniform1i(glGetUniformLocation(shaderProgram, "ssaa_factor"), 1);
                 if (recording) {
-                    glBindTexture(GL_TEXTURE_2D, postprocTexBuffer);
                     glBindFramebuffer(GL_FRAMEBUFFER, finalFrameBuffer);
                     glUniform1i(glGetUniformLocation(shaderProgram, "op"), MV_RENDER);
                     glViewport(0, 0, zvc.tcfg.frameSize.x, zvc.tcfg.frameSize.y);
                     glUniform2i(glGetUniformLocation(shaderProgram, "frameSize"), zvc.tcfg.frameSize.x, zvc.tcfg.frameSize.y);
                     glDrawArrays(GL_TRIANGLES, 0, 6);
 
+                    glActiveTexture(GL_TEXTURE1);
                     glBindTexture(GL_TEXTURE_2D, finalTexBuffer);
+
                     glBindFramebuffer(GL_FRAMEBUFFER, 0);
                     glViewport(0, 0, fs.x, fs.y);
                     glUniform2i(glGetUniformLocation(shaderProgram, "frameSize"), fs.x, fs.y);
                     glDrawArrays(GL_TRIANGLES, 0, 6);
                     set_op(MV_RENDER, true);
                 } else {
-                    glBindTexture(GL_TEXTURE_2D, postprocTexBuffer);
                     glBindFramebuffer(GL_FRAMEBUFFER, 0);
                     glUniform1i(glGetUniformLocation(shaderProgram, "op"), MV_RENDER);
                     glViewport(0, 0, fs.x, fs.y);
@@ -2438,6 +2489,13 @@ public:
                     set_op(MV_RENDER, true);
                 }
             }
+
+            glCopyImageSubData(
+                postprocTexBuffer, GL_TEXTURE_2D, 0, 0, 0, 0,
+                prevFrameTexBuffer, GL_TEXTURE_2D, 0, 0, 0, 0,
+                config.frameSize.x * config.ssaa, config.frameSize.y * config.ssaa, 1
+            );
+            prev_center = config.center;
 
             if (enable_orbit) {
                 glUniform1i(glGetUniformLocation(shaderProgram, "show_orbit"), true);
