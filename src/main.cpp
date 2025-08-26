@@ -487,8 +487,8 @@ struct Config {
     bool   continuous_coloring = true;
     bool   normal_map_effect = false;
     fvec3 set_color = { 0.f, 0.f, 0.f }; // the color of the points inside the set
-    int    ssaa = 1; // supersampling antialaising factor
-    bool   taa = false;
+    int    ssaa = 1; // supersampling anti alaising factor
+    bool   taa = false; // temporal anti aliasing
     int    transfer_function = 0; // 0: linear, 1: square root, 2: cubic root, 3: logarithmic
     double power = 1.f;
     // normal mapping
@@ -755,8 +755,6 @@ public:
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
         glBindImageTexture(4, accIndexTexBuffer, 0, GL_FALSE, 0, GL_READ_WRITE, GL_R32F);
-        unsigned int clearValue[4] = { 1, 1, 1, 1 };
-        glClearTexImage(accIndexTexBuffer, 0, GL_RED_INTEGER, GL_UNSIGNED_INT, clearValue);
 
         glGenTextures(1, &juliaTexBuffer);
         glBindTexture(GL_TEXTURE_2D, juliaTexBuffer);
@@ -950,7 +948,13 @@ private:
     }
 
     void set_op(int p, bool override = false) {
-        if (config.taa) p = MV_COMPUTE;
+        if (config.taa) {
+            if (p == MV_COMPUTE && !override) {
+                int clearValue[4] = { 1, 1, 1, 1 };
+                glClearTexImage(accIndexTexBuffer, 0, GL_RED_INTEGER, GL_INT, clearValue);
+            }
+            else p = MV_COMPUTE;
+        }
         if (p > op || override) op = p;
     }
 
@@ -1628,6 +1632,7 @@ public:
                         progress = 0;
                         glfwSwapInterval(0);
                         zvc.tcfg.zoom = 8.0f;
+                        zvc.tcfg.taa = false;
                         
                         initAVI(std::string(zvc.path), zvc.tcfg.frameSize.x, zvc.tcfg.frameSize.y, zvc.duration * zvc.fps, zvc.fps);
 
