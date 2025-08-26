@@ -11,10 +11,10 @@ Points inside the set are colored black, while points outside the set are colore
 - Fully customizable equation in GLSL syntax
 - Smooth coloring
 - Normal mapping for shadows
-- Super-sampling anti aliasing (SSAA)
+- TAA (temporal anti-aliasing) and SSAA (super sampling anti-aliasing)
 - Customizable color palette with up to 16 colors
 - Hold right-click to see the orbit and the corresponding Julia set for any point
-- Zoom video rendering
+- Zoom video creation
 
 https://github.com/Yilmaz4/MV2/assets/77583632/bc77921c-2139-464b-84e5-ba0f5cb2a3ce
 
