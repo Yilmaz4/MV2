@@ -73,8 +73,10 @@ add_executable(${PROJECT_NAME}
     include/ImGradientHDR.cpp
 )
 
-b_embed(${PROJECT_NAME} assets/commitmono.otf)
-b_embed(${PROJECT_NAME} assets/adwaita.ttf)
+if (NOT MSVC)
+    b_embed(${PROJECT_NAME} assets/commitmono.otf)
+    b_embed(${PROJECT_NAME} assets/adwaita.ttf)
+endif()
 
 b_embed(${PROJECT_NAME} shaders/render.glsl)
 
