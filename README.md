@@ -9,19 +9,20 @@ Points inside the set are colored black, while points outside the set are colore
 
 ## Features
 - Fully customizable equation in GLSL syntax
+- 11 built-in unique fractals
 - Smooth coloring
 - Normal mapping for shadows
 - TAA (temporal anti-aliasing) and SSAA (super sampling anti-aliasing)
 - Customizable color palette with up to 16 colors
-- Hold right-click to see the orbit and the corresponding Julia set for any point
-- Zoom video creation
+- Hold right-click to see the orbit, the corresponding Julia set, and hear the sound waves of the orbit for any point
+- Zoom video creation to uncompressed AVI
 
 https://github.com/Yilmaz4/MV2/assets/77583632/bc77921c-2139-464b-84e5-ba0f5cb2a3ce
 
 https://github.com/Yilmaz4/MV2/assets/77583632/b6c11774-b2cd-4895-8eef-0fd47954e4ff
 
 ## Custom equations
-Users can define custom equations to draw fractals in the complex plane. The following functions are available in addition to the standard functions in GLSL:
+Users can write custom equations to draw fractals in the complex plane. The following functions are available in addition to the standard functions in GLSL:
 
 <details>
 <summary>Custom functions reference</summary>
