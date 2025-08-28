@@ -80,253 +80,216 @@ public:
     }
 };
 
-// boilerplate for creating AVI files
+// boilerplate for creating AVI files, thanks claude
 
-#pragma pack(push,1)
-struct AVIMainHeader {
-    uint32_t microSecPerFrame;
-    uint32_t maxBytesPerSec;
-    uint32_t paddingGranularity;
-    uint32_t flags;
+struct AVIWriter {
+    std::ofstream file;
+    uint32_t width, height;
+    uint32_t fps;
     uint32_t totalFrames;
-    uint32_t initialFrames;
-    uint32_t streams;
-    uint32_t suggestedBufferSize;
-    uint32_t width;
-    uint32_t height;
-    uint32_t reserved[4];
+    uint32_t currentFrame;
+    uint32_t frameSize;
+    
+    // File positions for later updates
+    std::streampos aviHeaderSizePos;
+    std::streampos totalFramesPos;
+    std::streampos moviSizePos;
+    std::streampos fileSizePos;
+    
+    std::vector<uint32_t> indexOffsets;
+    std::vector<uint32_t> indexSizes;
+    std::streampos moviStartPos;
 };
 
-struct AVIStreamHeader {
-    char fccType[4];
-    char fccHandler[4];
-    uint32_t flags;
-    uint16_t priority;
-    uint16_t language;
-    uint32_t initialFrames;
-    uint32_t scale;
-    uint32_t rate;
-    uint32_t start;
-    uint32_t length;
-    uint32_t suggestedBufferSize;
-    uint32_t quality;
-    uint32_t sampleSize;
-    int16_t left;
-    int16_t top;
-    int16_t right;
-    int16_t bottom;
-};
-
-struct BitmapInfoHeader {
-    uint32_t biSize = 40;
-    int32_t  biWidth;
-    int32_t  biHeight;
-    uint16_t biPlanes = 1;
-    uint16_t biBitCount = 24;
-    uint32_t biCompression = 0; // BI_RGB
-    uint32_t biSizeImage;
-    int32_t  biXPelsPerMeter = 0;
-    int32_t  biYPelsPerMeter = 0;
-    uint32_t biClrUsed = 0;
-    uint32_t biClrImportant = 0;
-};
-#pragma pack(pop)
-
-static_assert(sizeof(AVIMainHeader) == 56, "AVIMainHeader size mismatch");
-static_assert(sizeof(AVIStreamHeader) == 56, "AVIStreamHeader size mismatch");
-static_assert(sizeof(BitmapInfoHeader) == 40, "BitmapInfoHeader size mismatch");
-
-void writeID(std::ofstream& out, const char id[4]) { out.write(id, 4); }
-void writeU32(std::ofstream& out, uint32_t v) { out.write(reinterpret_cast<char*>(&v), 4); }
-void writeU16(std::ofstream& out, uint16_t v) { out.write(reinterpret_cast<char*>(&v), 2); }
-
-std::ofstream out;
-std::streampos movi_start;
-std::streampos movi_end;
-
-std::streampos riff_size_pos;
-std::streampos hdrl_size_pos;
-std::streampos strl_size_pos;
-std::streampos movi_size_pos;
-
-struct FrameInfo {
-    uint32_t offset;
-    uint32_t size;
-};
-std::vector<FrameInfo> frames;
-
-void initAVI(std::string filename, int width, int height, int numFrames, int fps) {
-    int rowSize = ((width * 3 + 3) & ~3);  // padded row size
-    int frameSize = rowSize * height;
-
-    out = std::ofstream(filename, std::ios::binary);
-
-    // ---- RIFF 'AVI ' ----
-    writeID(out, "RIFF");
-    riff_size_pos = out.tellp();
-    writeU32(out, 0); // placeholder for file size
-    writeID(out, "AVI ");
-
-    // ---- LIST 'hdrl' ----
-    writeID(out, "LIST");
-    hdrl_size_pos = out.tellp();
-    writeU32(out, 0); // placeholder for hdrl size
-    writeID(out, "hdrl");
-
-    // ---- avih ----
-    writeID(out, "avih");
-    writeU32(out, sizeof(AVIMainHeader));
-    AVIMainHeader avih{};
-    avih.microSecPerFrame = 1000000 / fps;
-    avih.maxBytesPerSec = frameSize * fps;
-    avih.paddingGranularity = 0;
-    avih.flags = 0x10;
-    avih.totalFrames = numFrames;
-    avih.initialFrames = 0;
-    avih.streams = 1;
-    avih.suggestedBufferSize = frameSize;
-    avih.width = width;
-    avih.height = height;
-    std::memset(avih.reserved, 0, sizeof(avih.reserved));
-    out.write(reinterpret_cast<char*>(&avih), sizeof(avih));
-
-    // ---- LIST 'strl' ----
-    writeID(out, "LIST");
-    strl_size_pos = out.tellp();
-    writeU32(out, 0); // placeholder for strl size
-    writeID(out, "strl");
-
-    // ---- strh ----
-    writeID(out, "strh");
-    writeU32(out, sizeof(AVIStreamHeader));
-    AVIStreamHeader strh{};
-    std::memcpy(strh.fccType, "vids", 4);
-    std::memset(strh.fccHandler, 0, 4);
-    strh.flags = 0;
-    strh.priority = 0;
-    strh.language = 0;
-    strh.initialFrames = 0;
-    strh.scale = 1;
-    strh.rate = fps;
-    strh.start = 0;
-    strh.length = numFrames;
-    strh.suggestedBufferSize = frameSize;
-    strh.quality = 0xFFFFFFFF;
-    strh.sampleSize = frameSize;
-    strh.left = strh.top = strh.right = strh.bottom = 0;
-    out.write(reinterpret_cast<char*>(&strh), sizeof(strh));
-
-    // ---- strf ----
-    writeID(out, "strf");
-    writeU32(out, sizeof(BitmapInfoHeader));
-    BitmapInfoHeader bmp{};
-    bmp.biSize = sizeof(BitmapInfoHeader);
-    bmp.biWidth = width;
-    bmp.biHeight = height;
-    bmp.biPlanes = 1;
-    bmp.biBitCount = 24;
-    bmp.biCompression = 0;
-    bmp.biSizeImage = frameSize;
-    bmp.biXPelsPerMeter = 0;
-    bmp.biYPelsPerMeter = 0;
-    bmp.biClrUsed = 0;
-    bmp.biClrImportant = 0;
-    out.write(reinterpret_cast<char*>(&bmp), sizeof(bmp));
-
-    // Patch strl size
-    auto strl_end = out.tellp();
-    out.seekp(strl_size_pos);
-    writeU32(out, static_cast<uint32_t>(strl_end - strl_size_pos - 4));
-    out.seekp(strl_end);
-
-    // Patch hdrl size
-    auto hdrl_end = out.tellp();
-    out.seekp(hdrl_size_pos);
-    writeU32(out, static_cast<uint32_t>(hdrl_end - hdrl_size_pos - 4));
-    out.seekp(hdrl_end);
-
-    // ---- LIST 'movi' ----
-    writeID(out, "LIST");
-    movi_size_pos = out.tellp();
-    writeU32(out, 0); // placeholder for movi size
-    writeID(out, "movi");
-    movi_start = out.tellp(); // first frame will be written here
+// Helper function to write little-endian values
+template<typename T>
+void writeLittleEndian(std::ofstream& file, T value) {
+    file.write(reinterpret_cast<const char*>(&value), sizeof(T));
 }
 
-static inline uint32_t RowStride24(int w) {
-    return (uint32_t)((w * 3 + 3) & ~3);
+// Helper function to write FOURCC codes
+void writeFourCC(std::ofstream& file, const char* fourcc) {
+    file.write(fourcc, 4);
 }
 
-void writeAVI(int w, int h) {
-    glPixelStorei(GL_PACK_ALIGNMENT, 1); // ensure tight rows from GL
+// Helper function to write strings with padding
+void writeString(std::ofstream& file, const char* str, size_t length) {
+    file.write(str, length);
+}
 
-    const uint32_t tightRow      = w * 3;          // input row size (RGB)
-    const uint32_t rowStride     = RowStride24(w); // output row size (BGR padded)
-    const uint32_t frameBytesOut = rowStride * h;
-
-    // Read from GL as RGB
-    std::vector<unsigned char> rgb(w * h * 3);
-    glGetTexImage(GL_TEXTURE_2D, 0, GL_BGR, GL_UNSIGNED_BYTE, rgb.data());
-
-    // Remember chunk start (for idx1 offset)
-    auto chunkStart = out.tellp();
-
-    // Write chunk header
-    writeID(out, "00db");
-    writeU32(out, frameBytesOut);
-
-    // Convert RGB -> BGR, bottom-up
-    std::vector<unsigned char> outRow(rowStride, 0);
-    for (int y = 0; y < h; ++y) {
-        int srcY = h - 1 - y; // bottom-up
-        const unsigned char* src = &rgb[srcY * tightRow];
-        unsigned char* dst = outRow.data();
-        for (int x = 0; x < w; ++x) {
-            dst[3*x + 0] = src[3*x + 0]; // B
-            dst[3*x + 1] = src[3*x + 1]; // G
-            dst[3*x + 2] = src[3*x + 2]; // R
-        }
-        out.write(reinterpret_cast<const char*>(outRow.data()), rowStride);
+bool initializeAVI(AVIWriter& writer, const char* filename, uint32_t width, uint32_t height, uint32_t fps, uint32_t lengthSeconds) {
+    writer.file.open(filename, std::ios::binary);
+    if (!writer.file.is_open()) {
+        return false;
     }
-
-    // Add padding byte if needed
-    bool padded = false;
-    if ((frameBytesOut & 1) != 0) {
-        out.put(0);
-        padded = true;
-    }
-
-    // Push frame info for idx1
-    uint32_t chunkSizeWithPadding = frameBytesOut + (padded ? 1 : 0);
-    uint32_t offsetToHeader = static_cast<uint32_t>(chunkStart - movi_start);
-    frames.push_back({ offsetToHeader, chunkSizeWithPadding });
+    
+    writer.width = width;
+    writer.height = height;
+    writer.fps = fps;
+    writer.totalFrames = fps * lengthSeconds;
+    writer.currentFrame = 0;
+    writer.frameSize = width * height * 3; // RGB24 format
+    
+    // Calculate microseconds per frame
+    uint32_t microsecsPerFrame = 1000000 / fps;
+    
+    // RIFF header
+    writeFourCC(writer.file, "RIFF");
+    writer.fileSizePos = writer.file.tellp();
+    writeLittleEndian<uint32_t>(writer.file, 0); // File size - will update later
+    writeFourCC(writer.file, "AVI ");
+    
+    // LIST hdrl
+    writeFourCC(writer.file, "LIST");
+    writer.aviHeaderSizePos = writer.file.tellp();
+    writeLittleEndian<uint32_t>(writer.file, 0); // Header size - will update later
+    writeFourCC(writer.file, "hdrl");
+    
+    // Main AVI header (avih)
+    writeFourCC(writer.file, "avih");
+    writeLittleEndian<uint32_t>(writer.file, 56); // avih chunk size
+    writeLittleEndian<uint32_t>(writer.file, microsecsPerFrame); // microseconds per frame
+    writeLittleEndian<uint32_t>(writer.file, writer.frameSize * fps); // max bytes per second
+    writeLittleEndian<uint32_t>(writer.file, 0); // padding granularity
+    writeLittleEndian<uint32_t>(writer.file, 0x10); // flags (AVIF_HASINDEX)
+    writer.totalFramesPos = writer.file.tellp();
+    writeLittleEndian<uint32_t>(writer.file, writer.totalFrames); // total frames
+    writeLittleEndian<uint32_t>(writer.file, 0); // initial frames
+    writeLittleEndian<uint32_t>(writer.file, 1); // streams
+    writeLittleEndian<uint32_t>(writer.file, 0); // suggested buffer size
+    writeLittleEndian<uint32_t>(writer.file, width); // width
+    writeLittleEndian<uint32_t>(writer.file, height); // height
+    writeLittleEndian<uint32_t>(writer.file, 0); // reserved[0]
+    writeLittleEndian<uint32_t>(writer.file, 0); // reserved[1]
+    writeLittleEndian<uint32_t>(writer.file, 0); // reserved[2]
+    writeLittleEndian<uint32_t>(writer.file, 0); // reserved[3]
+    
+    // LIST strl (stream list)
+    writeFourCC(writer.file, "LIST");
+    writeLittleEndian<uint32_t>(writer.file, 108); // strl chunk size
+    writeFourCC(writer.file, "strl");
+    
+    // Stream header (strh)
+    writeFourCC(writer.file, "strh");
+    writeLittleEndian<uint32_t>(writer.file, 56); // strh chunk size
+    writeFourCC(writer.file, "vids"); // stream type: video
+    writeFourCC(writer.file, "RGB "); // codec: uncompressed RGB
+    writeLittleEndian<uint32_t>(writer.file, 0); // flags
+    writeLittleEndian<uint16_t>(writer.file, 0); // priority
+    writeLittleEndian<uint16_t>(writer.file, 0); // language
+    writeLittleEndian<uint32_t>(writer.file, 0); // initial frames
+    writeLittleEndian<uint32_t>(writer.file, 1); // scale
+    writeLittleEndian<uint32_t>(writer.file, fps); // rate (fps = rate/scale)
+    writeLittleEndian<uint32_t>(writer.file, 0); // start
+    writeLittleEndian<uint32_t>(writer.file, writer.totalFrames); // length
+    writeLittleEndian<uint32_t>(writer.file, writer.frameSize); // suggested buffer size
+    writeLittleEndian<uint32_t>(writer.file, 0); // quality
+    writeLittleEndian<uint32_t>(writer.file, 0); // sample size
+    writeLittleEndian<uint16_t>(writer.file, 0); // rect.left
+    writeLittleEndian<uint16_t>(writer.file, 0); // rect.top
+    writeLittleEndian<uint16_t>(writer.file, width); // rect.right
+    writeLittleEndian<uint16_t>(writer.file, height); // rect.bottom
+    
+    // Stream format (strf) - BITMAPINFOHEADER
+    writeFourCC(writer.file, "strf");
+    writeLittleEndian<uint32_t>(writer.file, 40); // strf chunk size
+    writeLittleEndian<uint32_t>(writer.file, 40); // BITMAPINFOHEADER size
+    writeLittleEndian<uint32_t>(writer.file, width); // width
+    writeLittleEndian<uint32_t>(writer.file, height); // height
+    writeLittleEndian<uint16_t>(writer.file, 1); // planes
+    writeLittleEndian<uint16_t>(writer.file, 24); // bits per pixel
+    writeLittleEndian<uint32_t>(writer.file, 0); // compression (BI_RGB)
+    writeLittleEndian<uint32_t>(writer.file, writer.frameSize); // image size
+    writeLittleEndian<uint32_t>(writer.file, 0); // x pixels per meter
+    writeLittleEndian<uint32_t>(writer.file, 0); // y pixels per meter
+    writeLittleEndian<uint32_t>(writer.file, 0); // colors used
+    writeLittleEndian<uint32_t>(writer.file, 0); // important colors
+    
+    // Update header size
+    std::streampos currentPos = writer.file.tellp();
+    std::streampos headerSize = currentPos - writer.aviHeaderSizePos - 4;
+    writer.file.seekp(writer.aviHeaderSizePos);
+    writeLittleEndian<uint32_t>(writer.file, static_cast<uint32_t>(headerSize));
+    writer.file.seekp(currentPos);
+    
+    // LIST movi
+    writeFourCC(writer.file, "LIST");
+    writer.moviSizePos = writer.file.tellp();
+    writeLittleEndian<uint32_t>(writer.file, 0); // movi size - will update later
+    writeFourCC(writer.file, "movi");
+    writer.moviStartPos = writer.file.tellp();
+    
+    return true;
 }
 
-void closeAVI() {
-    // Patch movi size
-    auto movi_end = out.tellp();
-    out.seekp(movi_size_pos);
-    writeU32(out, static_cast<uint32_t>(movi_end - movi_size_pos - 4));
-    out.seekp(movi_end);
-
-    // Write idx1
-    writeID(out, "idx1");
-    writeU32(out, static_cast<uint32_t>(frames.size() * 16));
-    for (auto &f : frames) {
-        writeID(out, "00db");       // chunk id
-        writeU32(out, 0x10);        // flags: keyframe
-        writeU32(out, f.offset);    // offset from start of 'movi' LIST contents to chunk header
-        writeU32(out, f.size);      // size of chunk data INCLUDING padding
+bool writeFrame(AVIWriter& writer, GLuint textureId) {
+    if (writer.currentFrame >= writer.totalFrames) {
+        return false;
     }
-
-    // Patch RIFF file size
-    auto file_end = out.tellp();
-    out.seekp(riff_size_pos);
-    writeU32(out, static_cast<uint32_t>(file_end - riff_size_pos - 4));
-    out.seekp(file_end);
-
-    out.close();
+    
+    // Bind texture and read pixels
+    glBindTexture(GL_TEXTURE_2D, textureId);
+    
+    // Allocate buffer for pixel data
+    std::vector<uint8_t> pixels(writer.frameSize);
+    
+    // Read pixels from texture (this requires a framebuffer setup in practice)
+    // For direct texture reading, you'd typically need to render to a framebuffer first
+    glGetTexImage(GL_TEXTURE_2D, 0, GL_BGR, GL_UNSIGNED_BYTE, pixels.data());
+    
+    // Record index information
+    writer.indexOffsets.push_back(static_cast<uint32_t>(writer.file.tellp() - writer.moviStartPos));
+    writer.indexSizes.push_back(writer.frameSize);
+    
+    // Write frame chunk
+    writeFourCC(writer.file, "00db"); // uncompressed DIB
+    writeLittleEndian<uint32_t>(writer.file, writer.frameSize);
+    writer.file.write(reinterpret_cast<const char*>(pixels.data()), writer.frameSize);
+    
+    // Pad to even byte boundary
+    if (writer.frameSize % 2 != 0) {
+        writer.file.put(0);
+    }
+    
+    writer.currentFrame++;
+    return true;
 }
+
+bool closeAVI(AVIWriter& writer) {
+    // Update movi size
+    std::streampos currentPos = writer.file.tellp();
+    std::streampos moviSize = currentPos - writer.moviSizePos - 4;
+    writer.file.seekp(writer.moviSizePos);
+    writeLittleEndian<uint32_t>(writer.file, static_cast<uint32_t>(moviSize));
+    writer.file.seekp(currentPos);
+    
+    // Write index chunk (idx1)
+    writeFourCC(writer.file, "idx1");
+    writeLittleEndian<uint32_t>(writer.file, writer.currentFrame * 16); // index size
+    
+    for (uint32_t i = 0; i < writer.currentFrame; i++) {
+        writeFourCC(writer.file, "00db"); // chunk ID
+        writeLittleEndian<uint32_t>(writer.file, 0x10); // flags (AVIIF_KEYFRAME)
+        writeLittleEndian<uint32_t>(writer.file, writer.indexOffsets[i]); // offset
+        writeLittleEndian<uint32_t>(writer.file, writer.indexSizes[i]); // size
+    }
+    
+    // Update total frames in header if different from planned
+    if (writer.currentFrame != writer.totalFrames) {
+        writer.file.seekp(writer.totalFramesPos);
+        writeLittleEndian<uint32_t>(writer.file, writer.currentFrame);
+    }
+    
+    // Update file size
+    currentPos = writer.file.tellp();
+    uint32_t fileSize = static_cast<uint32_t>(currentPos) - 8;
+    writer.file.seekp(writer.fileSizePos);
+    writeLittleEndian<uint32_t>(writer.file, fileSize);
+    
+    writer.file.close();
+    return true;
+}
+
 
 float vertices[] = {
     -1.0f, -1.0f,
@@ -486,11 +449,12 @@ struct Config {
     float  iter_co = 1.04f; // the number max_iters is multiplied with with each mouse scroll
     bool   continuous_coloring = true;
     bool   normal_map_effect = false;
-    fvec3 set_color = { 0.f, 0.f, 0.f }; // the color of the points inside the set
+    fvec3  set_color = { 0.f, 0.f, 0.f }; // the color of the points inside the set
     int    ssaa = 1; // supersampling anti alaising factor
     bool   taa = false; // temporal anti aliasing
     int    transfer_function = 0; // 0: linear, 1: square root, 2: cubic root, 3: logarithmic
     double power = 1.f;
+    bool   perturbation = false;
     // normal mapping
     float  angle = 180.f; // angle of the incoming light (not perfectly accurate)
     float  height = 1.5f; // height of the light source, changes how well pronounced the normal map effect is
@@ -524,6 +488,7 @@ class MV2 {
 
     Config config;
     ZoomVideoConfig zvc;
+    AVIWriter writer;
 
     dvec2 prev_center = config.center;
 
@@ -1549,7 +1514,7 @@ public:
                     int idx = static_cast<int>(log2(static_cast<float>(zvc.tcfg.ssaa)));
                     preview = factors[idx];
 
-                    ImGui::PushItemWidth(44);
+                    ImGui::SetNextItemWidth(50);
                     if (ImGui::BeginCombo("SSAA", preview.c_str())) {
                         for (int i = 0; i < 4; i++) {
                             const bool is_selected = (idx == i);
@@ -1633,8 +1598,9 @@ public:
                         glfwSwapInterval(0);
                         zvc.tcfg.zoom = 8.0f;
                         zvc.tcfg.taa = false;
-                        
-                        initAVI(std::string(zvc.path), zvc.tcfg.frameSize.x, zvc.tcfg.frameSize.y, zvc.duration * zvc.fps, zvc.fps);
+
+                        writer = AVIWriter();
+                        initializeAVI(writer, zvc.path, zvc.tcfg.frameSize.x, zvc.tcfg.frameSize.y, zvc.fps, zvc.duration);
 
                         use_config(zvc.tcfg, true, true);
                         upload_kernel(zvc.tcfg.ssaa);
@@ -1648,7 +1614,7 @@ public:
                     ImGui::SameLine();
                     if (ImGui::Button("Cancel", ImVec2(90, 0))) {
                         if (recording && progress != 0) {
-                            closeAVI();
+                            closeAVI(writer);
                             std::filesystem::remove(zvc.path);
                             glfwSwapInterval(1);
                         }
@@ -1954,6 +1920,9 @@ public:
                         glClearTexImage(accIndexTexBuffer, 0, GL_RED_INTEGER, GL_INT, clearValue);
                     }
                 }
+
+                ImGui::SameLine();
+                ImGui::Checkbox("Perturbation", &config.perturbation);
 
                 ImGui::SeparatorText("Fractal");
 
@@ -2517,14 +2486,14 @@ public:
 
             if (recording && !paused) {
                 if (progress > 0) {
-                    writeAVI(zvc.tcfg.frameSize.x, zvc.tcfg.frameSize.y);
+                    writeFrame(writer, postprocTexBuffer);
                 }
                 progress++;
                 if (zvc.fps * zvc.duration == progress) {
                     use_config(config);
                     recording = false;
                     
-                    closeAVI();
+                    closeAVI(writer);
 
                     glfwSwapInterval(1);
                 } else {
