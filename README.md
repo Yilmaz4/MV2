@@ -114,7 +114,7 @@ You can then find the binary in the `bin` directory
 This project has been tested on Windows and Linux.
 
 ## Limitations
-- Any custom equation utilizing `dvec2 cpow(dvec2, float)` where the second argument $\not\in [1,4] \cap \mathbb{N}$ will be limited to single-precision floating point, therefore limiting amount of zoom to $10^4$.
+- Any custom equation utilizing `dvec2 cpow(dvec2, float)` where the second argument $\not\in \{2, 3, 4\}$ will be limited to single-precision floating point, therefore limiting amount of zoom to $10^4$.
 - Most of the double-precision transcendental functions are software emulated, which means performance will be severely impacted.
 - Maximum zoom is $10^{14}$ due to finite precision.
 
