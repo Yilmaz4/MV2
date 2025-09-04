@@ -6,6 +6,8 @@ set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED True)
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_SOURCE_DIR}/bin)
 
+list(APPEND CMAKE_MODULE_PATH "${CMAKE_SOURCE_DIR}/cmake")
+
 set(IMGUI_DIR ${CMAKE_SOURCE_DIR}/lib/imgui)
 set(B_PRODUCTION_MODE ON)
 set(JSON_BuildTests OFF CACHE INTERNAL "")
@@ -39,6 +41,14 @@ include_directories(SYSTEM
 )
 
 find_package(OpenGL REQUIRED)
+find_package(GMP REQUIRED)
+find_package(MPFR REQUIRED)
+find_package(MPC REQUIRED)
+
+if (GMP_FOUND)
+    message(STATUS "Found GMP: ${GMP_LIBRARIES}")
+    include_directories(${GMP_INCLUDES})
+endif()
 
 file(GLOB_RECURSE SOURCES src/*.cpp)
 file(GLOB IMGUI_GLOB
@@ -88,8 +98,17 @@ target_link_libraries(${PROJECT_NAME}
         glfw
         imgui
         miniaudio
+        gmp
+        mpfr
+        mpc
 )
-target_include_directories(${PROJECT_NAME} PUBLIC imgui)
+target_include_directories(${PROJECT_NAME}
+    PUBLIC
+        imgui
+        ${GMP_INCLUDES}
+        ${MPFR_INCLUDE_DIR}
+        ${MPC_INCLUDE_DIR}
+)
 
 target_compile_definitions(${PROJECT_NAME} PRIVATE CV_STATIC)
 
