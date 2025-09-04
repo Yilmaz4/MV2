@@ -27,6 +27,9 @@
 #include <imgui_ext.h>
 #include <nlohmann/json.hpp>
 #include <miniaudio.h>
+#include <gmp.h>
+#include <mpfr.h>
+#include <mpc.h>
 
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
@@ -311,6 +314,182 @@ void main() {
 
 )";
 
+class MPC {
+    mpfr_prec_t prec;
+    mpc_rnd_t mode = MPC_RNDZZ;
+public:
+    mpc_t value;
+
+    MPC(mpfr_prec_t p) : prec(p) {
+        mpc_init2(value, prec);
+        mpc_set_d_d(value, 0.0, 0.0, mode);
+    }
+    MPC(const MPC& z) {
+        prec = mpc_get_prec(z.value);
+        mpc_init2(value, prec);
+        mpc_set(value, z.value, mode);
+    }
+    template <typename T, glm::qualifier Q>
+    MPC(const glm::vec<2, T, Q>& v, mpfr_prec_t p) : prec(p) {
+        mpc_init2(value, prec);
+        mpc_set_d_d(value, (double)v.x, (double)v.y, mode);
+    }
+    MPC(const char* str, mpfr_prec_t p) : prec(p) {
+        mpc_init2(value, p);
+        if (mpc_strtoc(value, str, nullptr, 10, mode) == -1) {
+            throw std::runtime_error("Invalid number string");
+        }
+    }
+    ~MPC() {
+        mpc_clear(value);
+    }
+
+    void change_prec(mpfr_prec_t p) {
+        prec = p;
+        mpc_t tmp;
+        mpc_init2(tmp, prec);
+        mpc_set(tmp, value, mode);
+        mpc_swap(tmp, value);
+        mpc_clear(tmp);
+    }
+
+    double real() const {
+        return mpfr_get_d(mpc_realref(value), MPFR_RNDN);
+    }
+    double imag() const {
+        return mpfr_get_d(mpc_imagref(value), MPFR_RNDN);
+    }
+
+    double abs() const {
+        mpfr_t result;
+        mpfr_init2(result, 64);
+        mpc_abs(result, value, MPFR_RNDN);
+        double out = mpfr_get_d(result, MPFR_RNDN);
+        mpfr_clear(result);
+        return out;
+    }
+
+    operator glm::dvec2() const {
+        return glm::dvec2(real(), imag());
+    }
+
+    MPC& operator=(const MPC& z) {
+        if (this != &z) {
+            mpc_set_prec(value, mpc_get_prec(z.value));
+            mpc_set(value, z.value, mode);
+        }
+        return *this;
+    }
+    template <typename T, glm::qualifier Q>
+    MPC& operator=(const glm::vec<2, T, Q>& v) {
+        return *this = MPC(v, prec);
+    }
+
+    MPC& operator+=(const MPC& z) {
+        mpc_add(value, value, z.value, mode);
+        return *this;
+    }
+    template <typename T, glm::qualifier Q>
+    MPC& operator+=(const glm::vec<2, T, Q>& v) {
+        return *this += MPC(v, prec);
+    }
+
+    MPC& operator-=(const MPC& z) {
+        mpc_sub(value, value, z.value, mode);
+        return *this;
+    }
+    template <typename T, glm::qualifier Q>
+    MPC& operator-=(const glm::vec<2, T, Q>& v) {
+        return *this -= MPC(v, prec);
+    }
+
+    MPC& operator*=(const MPC& z) {
+        mpc_mul(value, value, z.value, mode);
+        return *this;
+    }
+    template <typename T, glm::qualifier Q>
+    MPC& operator*=(const glm::vec<2, T, Q>& v) {
+        mpfr_mul_d(mpc_realref(value), mpc_realref(value), (double)v.x, mode);
+        mpfr_mul_d(mpc_imagref(value), mpc_imagref(value), (double)v.y, mode);
+        return *this;
+    }
+
+    MPC& operator/=(const MPC& z) {
+        mpc_div(value, value, z.value, mode);
+        return *this;
+    }
+    template <typename T, glm::qualifier Q>
+    MPC& operator/=(const glm::vec<2, T, Q>& v) {
+        mpfr_div_d(mpc_realref(value), mpc_realref(value), (double)v.x, mode);
+        mpfr_div_d(mpc_imagref(value), mpc_imagref(value), (double)v.y, mode);
+        return *this;
+    }
+
+    MPC operator+(const MPC& z) const {
+        MPC result(*this);
+        mpc_add(result.value, value, z.value, mode);
+        return result;
+    }
+    template <typename T, glm::qualifier Q>
+    MPC operator+(const glm::vec<2, T, Q>& v) const {
+        return *this + MPC(v, prec);
+    }
+    MPC operator-(const MPC& z) const {
+        MPC result(*this);
+        mpc_sub(result.value, value, z.value, mode);
+        return result;
+    }
+    template <typename T, glm::qualifier Q>
+    MPC operator-(const glm::vec<2, T, Q>& v) const {
+        return *this - MPC(v, prec);
+    }
+    MPC operator*(const MPC& z) const {
+        MPC result(*this);
+        mpc_mul(result.value, value, z.value, mode);
+        return result;
+    }
+    template <typename T, glm::qualifier Q>
+    MPC operator*(const glm::vec<2, T, Q>& v) const {
+        MPC result(*this);
+        mpfr_mul_d(mpc_realref(result.value), mpc_realref(value), (double)v.x, mode);
+        mpfr_mul_d(mpc_imagref(result.value), mpc_imagref(value), (double)v.y, mode);
+        return *this;
+    }
+    MPC operator/(const MPC& z) const {
+        MPC result(*this);
+        mpc_div(result.value, value, z.value, mode);
+        return result;
+    }
+    template <typename T, glm::qualifier Q>
+    MPC operator/(const glm::vec<2, T, Q>& v) const {
+        MPC result(*this);
+        mpfr_div_d(mpc_realref(result.value), mpc_realref(value), (double)v.x, mode);
+        mpfr_div_d(mpc_imagref(result.value), mpc_imagref(value), (double)v.y, mode);
+        return *this;
+    }
+
+    std::string str() const {
+        char* s = mpc_get_str(10, 0, value, mode);
+        std::string out(s);
+        mpc_free_str(s);
+        return out;
+    }
+    std::string str_re() const {
+        char* s;
+        mpfr_asprintf(&s, std::format("%.{}Rg", static_cast<int>(prec * log10(2.0))).c_str(), mpc_realref(value));
+        std::string out(s);
+        mpfr_free_str(s);
+        return out;
+    }
+    std::string str_im() const {
+        char* s;
+        mpfr_asprintf(&s, std::format("%.{}Rg", static_cast<int>(prec * log10(2.0))).c_str(), mpc_imagref(value));
+        std::string out(s);
+        mpfr_free_str(s);
+        return out;
+    }
+};
+
 constexpr double zoom_co = 0.85; // the number the zoom amount is multiplied with with each mouse scroll
 constexpr double doubleClick_interval = 0.4; // maximum time in seconds in which two consecutive mouse clicks is considered a double click
 ivec2 monitorSize;
@@ -329,7 +508,7 @@ struct Slider {
 struct Fractal {
     std::string name = "Mandelbrot";
     std::string equation = "cpow(z, power) + c"; // next value of Z (must be of type dvec2)
-    std::string condition = "distance(z, c) > 10"; // condition under which the point c is considered outside the set
+    std::string condition = "distance(z, c) > 100"; // condition under which the point c is considered outside the set
     std::string initialz = "c"; // initial value of Z
     float power = 2.f;
     bool continuous_compatible = true; // whether the continuous coloring algorithm works for this fractal
@@ -347,7 +526,7 @@ std::vector<Fractal> fractals = {
         .initialz = "c",
         .power = 2.f,
         .continuous_compatible = true,
-        .julia_compatible = true
+        .julia_compatible = true,
     }),
     Fractal({.name = "Julia Set",
         .equation = "cpow(z, power) + dvec2(Re, Im)",
@@ -434,9 +613,8 @@ std::vector<Fractal> fractals = {
     }),
 };
 
-
 struct Config {
-    dvec2  center = { -0.4, 0.0 };
+    MPC    center{"-0.4", 256};
     ivec2  frameSize = { 1200, 800 };
     double zoom = 5.0; // width of a pixel in the complex plane
     float  theta = 0.f; // rotation angle in degrees (converted to radians when passing to the shader)
@@ -490,7 +668,9 @@ class MV2 {
     ZoomVideoConfig zvc;
     AVIWriter writer;
 
-    dvec2 prev_center = config.center;
+    mpfr_prec_t prec = 256;
+    char* re_str = new char[static_cast<int>(prec * log10(2.0)) + 2]{};
+    char* im_str = new char[static_cast<int>(prec * log10(2.0)) + 2]{};
 
     ivec2 screenPos = { 0, 0 };
     bool fullscreen = false;
@@ -517,7 +697,7 @@ class MV2 {
     dvec2 lastPresses = { -doubleClick_interval, 0 };
     bool dragging = false;
     bool rightClickHold = false;
-    dvec2 tempCenter = config.center;
+    MPC tempCenter{256};
     double tempZoom = config.zoom;
 
     bool startup_anim_complete = false;
@@ -551,6 +731,7 @@ class MV2 {
     GLuint orbitOutBuffer = 0;
     GLuint sliderBuffer = 0;
     GLuint kernelBuffer = 0;
+    GLuint referenceBuffer = 0;
 
     int32_t stateID = 10;
     ImGradientHDRState state;
@@ -765,7 +946,7 @@ public:
         length = embed.length();
         
         char* modifiedSource = new char[length + 4096];
-        sprintf(modifiedSource, content, fractals[fractal].equation.data(), 0, fractals[fractal].condition.data(), fractals[fractal].initialz.data(), fractals[fractal].condition.data(), fractals[fractal].initialz.data());
+        sprintf(modifiedSource, content, fractals[fractal].equation.data(), fractals[fractal].condition.data(), fractals[fractal].initialz.data(), fractals[fractal].condition.data(), fractals[fractal].initialz.data());
         glShaderSource(fragmentShader, 1, &modifiedSource, NULL);
         glCompileShader(fragmentShader);
         glGetShaderiv(fragmentShader, GL_COMPILE_STATUS, &success);
@@ -830,6 +1011,11 @@ public:
         glShaderStorageBlockBinding(shaderProgram, glGetProgramResourceIndex(shaderProgram, GL_SHADER_STORAGE_BLOCK, "kernel"), 4);
         upload_kernel(config.ssaa);
 
+        glGenBuffers(1, &referenceBuffer);
+        glBindBuffer(GL_SHADER_STORAGE_BUFFER, referenceBuffer);
+        glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 5, referenceBuffer);
+        glShaderStorageBlockBinding(shaderProgram, glGetProgramResourceIndex(shaderProgram, GL_SHADER_STORAGE_BLOCK, "reference_orbit"), 5);
+
         use_config(config, true, false);
         on_windowResize(window, config.frameSize.x * dpi_scale, config.frameSize.y * dpi_scale);
 
@@ -862,7 +1048,7 @@ private:
     void use_config(Config config, bool variables = true, bool textures = true) {
         if (variables) {
             glUniform2i(glGetUniformLocation(shaderProgram, "frameSize"), config.frameSize.x, config.frameSize.y);
-            glUniform2d(glGetUniformLocation(shaderProgram, "center"), config.center.x, config.center.y);
+            glUniform2d(glGetUniformLocation(shaderProgram, "center"), config.center.real(), config.center.imag());
             glUniform1f(glGetUniformLocation(shaderProgram, "theta"), config.theta * M_PI / 180.f);
             glUniform1i(glGetUniformLocation(shaderProgram, "hflip"), config.hflip);
             glUniform1i(glGetUniformLocation(shaderProgram, "vflip"), config.vflip);
@@ -881,6 +1067,7 @@ private:
             glUniform1i(glGetUniformLocation(shaderProgram, "julia_maxiters"), max_iters(julia_zoom, zoom_co, config.iter_co, 3.0));
             glUniform1i(glGetUniformLocation(shaderProgram, "transfer_function"), config.transfer_function);
             glUniform1i(glGetUniformLocation(shaderProgram, "taa"), config.taa);
+            glUniform1i(glGetUniformLocation(shaderProgram, "perturbation"), config.perturbation);
 
             glUniform1i(glGetUniformLocation(shaderProgram, "show_orbit"), false);
             glUniform2i(glGetUniformLocation(shaderProgram, "orbit_start"), -1, -1);
@@ -930,18 +1117,18 @@ private:
         return dvec2((a.x * b.x + a.y * b.y), (a.y * b.x - a.x * b.y)) / (b.x * b.x + b.y * b.y);
     }
 
-    dvec2 pixel_to_complex(dvec2 pixelCoord) {
+    MPC pixel_to_complex(dvec2 pixelCoord) {
         ivec2 ss = (fullscreen ? monitorSize : config.frameSize);
 
         return config.center + cmultiply(((dvec2(pixelCoord.x / ss.x, (ss.y - pixelCoord.y) / ss.y)) - dvec2(0.5, 0.5)) *
             dvec2(config.zoom, (ss.y * config.zoom) / ss.x), dvec2(cos(config.theta * M_PI / 180.f), sin(config.theta * M_PI / 180.f))) * dvec2(config.hflip ? -1.0 : 1.0, config.vflip ? -1.0 : 1.0);
     }
-    static dvec2 pixel_to_complex(dvec2 pixelCoord, ivec2 ss, double zoom, dvec2 center, float theta, bool hflip, bool vflip) {
+    static MPC pixel_to_complex(dvec2 pixelCoord, ivec2 ss, double zoom, MPC center, float theta, bool hflip, bool vflip) {
         return center + cmultiply(((dvec2(pixelCoord.x / ss.x, (ss.y - pixelCoord.y) / ss.y)) - dvec2(0.5, 0.5)) *
             dvec2(zoom, (ss.y * zoom) / ss.x), dvec2(cos(theta * M_PI / 180.f), sin(theta * M_PI / 180.f))) * dvec2(hflip ? -1.0 : 1.0, vflip ? -1.0 : 1.0);
     }
     
-    dvec2 complex_to_pixel(dvec2 complexCoord) {
+    dvec2 complex_to_pixel(MPC complexCoord) {
         ivec2 ss = (fullscreen ? monitorSize : config.frameSize);
 
         complexCoord = config.center + cmultiply(complexCoord - config.center, dvec2(cos(config.theta * M_PI / 180.f), -sin(config.theta * M_PI / 180.f))) * dvec2(config.hflip ? -1.0 : 1.0, config.vflip ? -1.0 : 1.0);
@@ -950,7 +1137,7 @@ private:
         dvec2 pixelCoordNormalized = normalizedCoord + dvec2(0.5, 0.5);
         return dvec2(pixelCoordNormalized.x * ss.x, ss.y - pixelCoordNormalized.y * ss.y);
     }
-    static dvec2 complex_to_pixel(dvec2 complexCoord, ivec2 ss, double zoom, dvec2 center, float theta, bool hflip, bool vflip) {
+    static dvec2 complex_to_pixel(MPC complexCoord, ivec2 ss, double zoom, MPC center, float theta, bool hflip, bool vflip) {
         complexCoord = center + cmultiply(complexCoord - center, dvec2(cos(theta * M_PI / 180.f), -sin(theta * M_PI / 180.f))) * dvec2(hflip ? -1.0 : 1.0, vflip ? -1.0 : 1.0);
         dvec2 normalizedCoord = (complexCoord - center);
         normalizedCoord /= dvec2(zoom, (ss.y * zoom) / ss.x);
@@ -1084,9 +1271,9 @@ private:
                 else {
                     glfwGetCursorPos(window, &app->oldPos.x, &app->oldPos.y);
                     app->oldPos *= app->dpi_scale;
-                    dvec2 pos = app->pixel_to_complex(app->oldPos);
+                    MPC pos = app->pixel_to_complex(app->oldPos);
                     app->config.center += pos - app->config.center;
-                    glUniform2d(glGetUniformLocation(app->shaderProgram, "center"), app->config.center.x, app->config.center.y);
+                    glUniform2d(glGetUniformLocation(app->shaderProgram, "center"), app->config.center.real(), app->config.center.imag());
                 }
                 app->dragging = false;
                 app->set_op(MV_COMPUTE);
@@ -1127,7 +1314,7 @@ private:
                     app->playing_audio = false;
                 }
                 glUniform2i(glGetUniformLocation(app->shaderProgram, "orbit_start"), -1, -1);
-                app->set_op(MV_POSTPROC);
+                app->set_op(MV_POSTPROC, true);
             }
         }
     }
@@ -1144,7 +1331,7 @@ private:
         if (app->dragging) {
             app->lastPresses = { -doubleClick_interval, 0 };
             app->config.center -= cmultiply(dvec2((x - app->oldPos.x) * app->config.zoom, -(y - app->oldPos.y) * ((app->config.zoom * ss.y) / ss.x)) / dvec2(ss), dvec2(cos(app->config.theta * M_PI / 180.f), sin(app->config.theta * M_PI / 180.f))) * dvec2(app->config.hflip ? -1.0 : 1.0, app->config.vflip ? -1.0 : 1.0);
-            glUniform2d(glGetUniformLocation(app->shaderProgram, "center"), app->config.center.x, app->config.center.y);
+            glUniform2d(glGetUniformLocation(app->shaderProgram, "center"), app->config.center.real(), app->config.center.imag());
             app->oldPos = { x, y };
             app->set_op(MV_COMPUTE);
         }
@@ -1175,7 +1362,7 @@ private:
 
                 app->config.center = pixel_to_complex(static_cast<dvec2>(app->config.frameSize) / 2.0 + (new_pos - dvec2(cursor_x, cursor_y)), app->config.frameSize, new_zoom, app->config.center, app->config.theta, app->config.hflip, app->config.vflip);
                 
-                glUniform2d(glGetUniformLocation(app->shaderProgram, "center"), app->config.center.x, app->config.center.y);
+                glUniform2d(glGetUniformLocation(app->shaderProgram, "center"), app->config.center.real(), app->config.center.imag());
             }
 
             app->config.zoom = new_zoom;
@@ -1187,7 +1374,6 @@ private:
             app->set_op(MV_COMPUTE);
             int clearValue[4] = { 1, 1, 1, 1 };
             glClearTexImage(app->accIndexTexBuffer, 0, GL_RED_INTEGER, GL_INT, clearValue);
-            app->prev_center = app->config.center;
         }
     }
 
@@ -1232,7 +1418,7 @@ private:
                         index_repeat_new = i;
                     orbit_buffer_back[i] = (vec2)src[i];
                 }
-                dst[i] = static_cast<vec2>(complex_to_pixel(src[i]));
+                dst[i] = static_cast<vec2>(complex_to_pixel(MPC(src[i], 256)));
                 dst[i].y = fs.y - dst[i].y;
             }
             ready_to_copy.store(true);
@@ -1271,7 +1457,7 @@ private:
             
             copy_orbit_buffer();
             orbit_refreshed = true;
-            set_op(MV_POSTPROC);
+            set_op(MV_POSTPROC, true);
         }
         if (always_refresh_main) {
             glUniform2d(glGetUniformLocation(shaderProgram, "mouseCoord"), cmplxCoord.x, cmplxCoord.y);
@@ -1304,7 +1490,7 @@ private:
             always_refresh_main = false;
         }
 
-        sprintf(modifiedSource, fragmentSource, eq.data(), 1, cond.data(), init.data(), cond.data(), init.data());
+        sprintf(modifiedSource, fragmentSource, eq.data(), cond.data(), init.data(), cond.data(), init.data());
         glShaderSource(shader, 1, &modifiedSource, NULL);
         glCompileShader(shader);
         glGetShaderiv(shader, GL_COMPILE_STATUS, success);
@@ -1719,16 +1905,22 @@ public:
                 ImGui::SameLine();
                 ImGui::SetCursorPosY(ImGui::GetCursorPosY() - 3.f);
                 ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x);
-                update |= ImGui::InputDouble("##re", &config.center.x, 0.0, 0.0, "%.17g");
+                strncpy(re_str, config.center.str_re().c_str(), prec * log10(2.0));
+                update |= ImGui::InputText("##re", re_str, 100);
 
                 ImGui::Text("Im");
                 ImGui::SameLine();
                 ImGui::SetCursorPosY(ImGui::GetCursorPosY() - 3.f);
                 ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x);
-                update |= ImGui::InputDouble("##im", &config.center.y, 0.0, 0.0, "%.17g");
+                strncpy(im_str, config.center.str_im().c_str(), prec * log10(2.0));
+                update |= ImGui::InputText("##im", im_str, 100);
                 
                 if (update) {
-                    glUniform2d(glGetUniformLocation(shaderProgram, "center"), config.center.x, config.center.y);
+                    try {
+                        config.center = MPC(std::format("({} {})", re_str, im_str).c_str(), 256);
+                    } catch (std::runtime_error& e) { }
+                    
+                    glUniform2d(glGetUniformLocation(shaderProgram, "center"), config.center.real(), config.center.imag());
                     set_op(MV_COMPUTE);
                 }
                 ImGui::Text("Zoom"); ImGui::SetNextItemWidth(80); ImGui::SameLine();
@@ -1827,7 +2019,7 @@ public:
                     if (buf != nullptr) {
                         std::ofstream fout;
                         fout.open(buf, std::ios::binary | std::ios::out | std::ofstream::trunc);
-                        fout.write(reinterpret_cast<const char*>(value_ptr(config.center)), sizeof(dvec2));
+                        //fout.write(reinterpret_cast<const char*>(value_ptr(config.center)), sizeof(dvec2));
                         fout.write(reinterpret_cast<const char*>(&config.zoom), sizeof(double));
                         fout.close();
                     }
@@ -1848,10 +2040,10 @@ public:
                         }
                         paletteData.resize(size);
                         fin.seekg(0);
-                        fin.read(reinterpret_cast<char*>(value_ptr(config.center)), sizeof(dvec2));
+                        //fin.read(reinterpret_cast<char*>(value_ptr(config.center)), sizeof(dvec2));
                         fin.read(reinterpret_cast<char*>(&config.zoom), sizeof(double));
                         fin.close();
-                        glUniform2d(glGetUniformLocation(shaderProgram, "center"), config.center.x, config.center.y);
+                        //glUniform2d(glGetUniformLocation(shaderProgram, "center"), config.center.x, config.center.y);
                         glUniform1d(glGetUniformLocation(shaderProgram, "zoom"), config.zoom);
                         set_op(MV_COMPUTE);
                     }
@@ -1860,7 +2052,7 @@ public:
                 if (ImGui::Button("Reset##params", ImVec2(ImGui::GetContentRegionAvail().x, 0))) {
                     config.center = Config().center;
                     config.zoom = Config().zoom;
-                    glUniform2d(glGetUniformLocation(shaderProgram, "center"), config.center.x, config.center.y);
+                    glUniform2d(glGetUniformLocation(shaderProgram, "center"), config.center.real(), config.center.imag());
                     glUniform1d(glGetUniformLocation(shaderProgram, "zoom"), config.zoom);
                     glUniform1f(glGetUniformLocation(shaderProgram, "theta"), config.theta * M_PI / 180.f);
                     set_op(MV_COMPUTE);
@@ -1877,52 +2069,27 @@ public:
                     glUniform1i(glGetUniformLocation(shaderProgram, "max_iters"), config.max_iters);
                     set_op(MV_COMPUTE);
                 }
-                    
+                
+                if (ImGui::Checkbox("Perturbation", &config.perturbation)) {
+                    glUniform1i(glGetUniformLocation(shaderProgram, "perturbation"), config.perturbation);
+                    set_op(MV_COMPUTE);
+                }
+                ImGui::SameLine();
+                ImGui::BeginDisabled(!config.perturbation);
                 ImGui::SetNextItemWidth(50);
-                const char* factors[] = { "None", "2X", "4X", "8X" };
-                int idx = static_cast<int>(log2(static_cast<float>(config.ssaa)));
-                const char* preview = factors[idx];
-
-                if (ImGui::BeginCombo("SSAA", preview)) {
-                    for (int i = 0; i < 4; i++) {
-                        const bool is_selected = (idx == i);
-                        if (ImGui::Selectable(factors[i], is_selected)) {
-                            config.ssaa = pow(2, i);
-                            
-                            glBindTexture(GL_TEXTURE_2D, computeTexBuffer);
-                            glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA32F, fs.x * config.ssaa, fs.y * config.ssaa, 0, GL_RGBA, GL_FLOAT, NULL);
-
-                            glBindTexture(GL_TEXTURE_2D, postprocTexBuffer);
-                            glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB32F, fs.x * config.ssaa, fs.y * config.ssaa, 0, GL_RGB, GL_FLOAT, NULL);
-
-                            glBindTexture(GL_TEXTURE_2D, juliaTexBuffer);
-                            glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB32F, julia_size * config.ssaa, julia_size * config.ssaa, 0, GL_RGB, GL_FLOAT, NULL);
-
-                            glBindTexture(GL_TEXTURE_2D, prevFrameTexBuffer);
-                            glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB32F, config.frameSize.x * config.ssaa, config.frameSize.y * config.ssaa, 0, GL_RGB, GL_FLOAT, NULL);
-
-                            glBindTexture(GL_TEXTURE_2D, accIndexTexBuffer);
-                            glTexImage2D(GL_TEXTURE_2D, 0, GL_R32UI, config.frameSize.x * config.ssaa, config.frameSize.y * config.ssaa, 0, GL_RED_INTEGER, GL_UNSIGNED_INT, NULL);
-
-                            upload_kernel(config.ssaa);
-                            set_op(MV_COMPUTE);
-                        }
-                        if (is_selected) ImGui::SetItemDefaultFocus();
-                    }
-                    ImGui::EndCombo();
+                static int min_prec = 6;
+                static int p2 = 8;
+                if (ImGui::DragScalar("Precision", ImGuiDataType_S32, &p2, 0.05f, &min_prec, nullptr, std::format("{}", prec).c_str(), ImGuiSliderFlags_AlwaysClamp)) {
+                    prec = pow(2, p2);
+                    config.center.change_prec(prec);
+                    delete[] re_str;
+                    delete[] im_str;
+                    re_str = new char[static_cast<int>(prec * log10(2.0)) + 2]{};
+                    im_str = new char[static_cast<int>(prec * log10(2.0)) + 2]{};
+                    glUniform2d(glGetUniformLocation(shaderProgram, "center"), config.center.real(), config.center.imag());
+                    set_op(MV_COMPUTE);
                 }
-
-                ImGui::SameLine();
-                if (ImGui::Checkbox("TAA", &config.taa)) {
-                    glUniform1i(glGetUniformLocation(shaderProgram, "taa"), config.taa);
-                    if (config.taa) {
-                        int clearValue[4] = { 1, 1, 1, 1 };
-                        glClearTexImage(accIndexTexBuffer, 0, GL_RED_INTEGER, GL_INT, clearValue);
-                    }
-                }
-
-                ImGui::SameLine();
-                ImGui::Checkbox("Perturbation", &config.perturbation);
+                ImGui::EndDisabled();
 
                 ImGui::SeparatorText("Fractal");
 
@@ -1940,7 +2107,7 @@ public:
                 bool compile = false;
                 bool reload = false;
 
-                preview = fractals[fractal].name.c_str();
+                const char* preview = fractals[fractal].name.c_str();
                 
                 ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x);
                 if (ImGui::BeginCombo("##presets", preview)) {
@@ -2123,34 +2290,85 @@ public:
                 if (ImGui::BeginTabBar("MyTabBar")) {
                     if (ImGui::BeginTabItem("Outside")) {
 
-                        ImGui::BeginDisabled(!fractals[fractal].continuous_compatible);
-                        if (ImGui::Checkbox("Smooth coloring", reinterpret_cast<bool*>(&config.continuous_coloring))) {
-                            glUniform1i(glGetUniformLocation(shaderProgram, "continuous_coloring"), config.continuous_coloring);
-                            set_op(MV_COMPUTE);
-                        }
-                        ImGui::EndDisabled();
-                        ImGui::SameLine();
                         ImGui::BeginDisabled(fractal != 1 && fractal != 2);
                         if (ImGui::Checkbox("Shadows", &config.normal_map_effect)) {
                             glUniform1i(glGetUniformLocation(shaderProgram, "normal_map_effect"), config.normal_map_effect);
                             set_op(MV_COMPUTE);
                         }
                         ImGui::EndDisabled();
-                        if (config.normal_map_effect) {
-                            if (ImGui::DragFloat("Angle", &config.angle, 1.f, 0.f, 0.f, "%.1f deg")) {
-                                if (config.angle > 360.f) config.angle = config.angle - 360.f;
-                                if (config.angle < 0.f) config.angle = 360.f + config.angle;
-                                glUniform1f(glGetUniformLocation(shaderProgram, "angle"), 360.f - config.angle);
-                                set_op(MV_COMPUTE);
+                        ImGui::SameLine();
+                        ImGui::BeginDisabled(!config.normal_map_effect);
+                        ImGui::SetNextItemWidth(40);
+                        if (ImGui::DragFloat("Angle", &config.angle, 1.f, 0.f, 0.f, "%.0f°")) {
+                            if (config.angle > 360.f) config.angle = config.angle - 360.f;
+                            if (config.angle < 0.f) config.angle = 360.f + config.angle;
+                            glUniform1f(glGetUniformLocation(shaderProgram, "angle"), 360.f - config.angle);
+                            set_op(MV_COMPUTE);
+                        }
+                        ImGui::SameLine();
+                        ImGui::SetNextItemWidth(40);
+                        if (ImGui::DragFloat("Height", &config.height, 0.1f, 0.f, FLT_MAX, "%.1f", ImGuiSliderFlags_AlwaysClamp)) {
+                            glUniform1f(glGetUniformLocation(shaderProgram, "height"), config.height);
+                            set_op(MV_COMPUTE);
+                        }
+                        ImGui::EndDisabled();
+
+                        ImGui::SetNextItemWidth(50);
+                        const char* factors[] = { "None", "2X", "4X", "8X" };
+                        int idx = static_cast<int>(log2(static_cast<float>(config.ssaa)));
+                        preview = factors[idx];
+
+                        if (ImGui::BeginCombo("SSAA", preview)) {
+                            for (int i = 0; i < 4; i++) {
+                                const bool is_selected = (idx == i);
+                                if (ImGui::Selectable(factors[i], is_selected)) {
+                                    config.ssaa = pow(2, i);
+                                    
+                                    glBindTexture(GL_TEXTURE_2D, computeTexBuffer);
+                                    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA32F, fs.x * config.ssaa, fs.y * config.ssaa, 0, GL_RGBA, GL_FLOAT, NULL);
+
+                                    glBindTexture(GL_TEXTURE_2D, postprocTexBuffer);
+                                    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB32F, fs.x * config.ssaa, fs.y * config.ssaa, 0, GL_RGB, GL_FLOAT, NULL);
+
+                                    glBindTexture(GL_TEXTURE_2D, juliaTexBuffer);
+                                    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB32F, julia_size * config.ssaa, julia_size * config.ssaa, 0, GL_RGB, GL_FLOAT, NULL);
+
+                                    glBindTexture(GL_TEXTURE_2D, prevFrameTexBuffer);
+                                    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB32F, config.frameSize.x * config.ssaa, config.frameSize.y * config.ssaa, 0, GL_RGB, GL_FLOAT, NULL);
+
+                                    glBindTexture(GL_TEXTURE_2D, accIndexTexBuffer);
+                                    glTexImage2D(GL_TEXTURE_2D, 0, GL_R32UI, config.frameSize.x * config.ssaa, config.frameSize.y * config.ssaa, 0, GL_RED_INTEGER, GL_UNSIGNED_INT, NULL);
+
+                                    upload_kernel(config.ssaa);
+                                    set_op(MV_COMPUTE);
+                                }
+                                if (is_selected) ImGui::SetItemDefaultFocus();
                             }
-                            if (ImGui::DragFloat("Height", &config.height, 0.1f, 0.f, FLT_MAX, "%.1f", ImGuiSliderFlags_AlwaysClamp)) {
-                                glUniform1f(glGetUniformLocation(shaderProgram, "height"), config.height);
-                                set_op(MV_COMPUTE);
+                            ImGui::EndCombo();
+                        }
+
+                        ImGui::SameLine();
+                        if (ImGui::Checkbox("TAA", &config.taa)) {
+                            glUniform1i(glGetUniformLocation(shaderProgram, "taa"), config.taa);
+                            if (config.taa) {
+                                int clearValue[4] = { 1, 1, 1, 1 };
+                                glClearTexImage(accIndexTexBuffer, 0, GL_RED_INTEGER, GL_INT, clearValue);
                             }
                         }
 
+                        ImGui::SameLine();
+
+                        ImGui::BeginDisabled(!fractals[fractal].continuous_compatible);
+                        if (ImGui::Checkbox("Smooth coloring", reinterpret_cast<bool*>(&config.continuous_coloring))) {
+                            glUniform1i(glGetUniformLocation(shaderProgram, "continuous_coloring"), config.continuous_coloring);
+                            set_op(MV_COMPUTE);
+                        }
+                        ImGui::EndDisabled();
+
+                        ImGui::Dummy(ImVec2(0.f, 4.f));
+
                         std::vector<std::string> functions = { "Linear", "Square root", "Cubic root", "Logarithmic" };
-                        const char* preview = functions[config.transfer_function].c_str();
+                        preview = functions[config.transfer_function].c_str();
 
                         if (ImGui::BeginCombo("Transfer function", preview)) {
                             for (int n = 0; n < functions.size(); n++) {
@@ -2414,7 +2632,19 @@ public:
             }
             glUniform1i(glGetUniformLocation(shaderProgram, "ssaa_factor"), config.ssaa);
             glUniform1f(glGetUniformLocation(shaderProgram, "time"), currentTime);
-            glUniform2d(glGetUniformLocation(shaderProgram, "prev_center"), prev_center.x, prev_center.y);
+
+            if (config.perturbation) {
+                std::vector<dvec2> orbit;
+                MPC c = config.center;
+                MPC z = c;
+                for (int i = 0; i < config.max_iters; i++) {
+                    orbit.push_back(z);
+                    z = z * z + c;
+                }
+                glBindBuffer(GL_SHADER_STORAGE_BUFFER, referenceBuffer);
+                glBufferData(GL_SHADER_STORAGE_BUFFER, orbit.size() * sizeof(dvec2), orbit.data(), GL_DYNAMIC_COPY);
+                glUniform1i(glGetUniformLocation(shaderProgram, "reforbit_size"), orbit.size());
+            }
 
             glActiveTexture(GL_TEXTURE0);
             glBindTexture(GL_TEXTURE_2D, computeTexBuffer);
@@ -2469,18 +2699,17 @@ public:
                 prevFrameTexBuffer, GL_TEXTURE_2D, 0, 0, 0, 0,
                 config.frameSize.x * config.ssaa, config.frameSize.y * config.ssaa, 1
             );
-            prev_center = config.center;
 
             if (enable_orbit) {
                 glUniform1i(glGetUniformLocation(shaderProgram, "show_orbit"), true);
                 copy_orbit_buffer();
-                set_op(MV_POSTPROC);
+                set_op(MV_POSTPROC, true);
                 enable_orbit = false;
             }
             
             if (orbit_refreshed) {
                 copy_orbit_buffer();
-                set_op(MV_POSTPROC);
+                set_op(MV_POSTPROC, true);
                 orbit_refreshed = false;
             }
 

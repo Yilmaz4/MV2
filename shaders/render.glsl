@@ -28,8 +28,9 @@ uniform int    julia_maxiters;
 uniform int    ssaa_factor;
 uniform int    transfer_function;
 
+uniform bool   perturbation;
+
 uniform bool   taa;
-uniform dvec2  prev_center;
 
 uniform bool   show_orbit;
 uniform ivec2  orbit_start;
@@ -63,6 +64,11 @@ layout(std430, binding = 4) readonly buffer kernel {
     float weights[];
 };
 uniform int radius;
+
+layout(std430, binding = 5) readonly buffer reference_orbit {
+    dvec2 reference[];
+};
+uniform int reforbit_size;
 
 layout(binding = 0) uniform sampler2D computeTex;
 layout(binding = 1) uniform sampler2D postprocTex;
@@ -345,12 +351,6 @@ dvec2 differentiate(dvec2 z, dvec2 der) {
     return der;
 }
 
-bool is_experimental() {
-    int res = %i;
-    res |= int(power != 2.f);
-    return true;
-}
-
 void main() {
     dvec2 nv = cexp(dvec2(0.f, angle * 2.f * M_PI / 360.f));
 
@@ -396,41 +396,44 @@ void main() {
         dvec2 c = center + cmultiply((dvec2(fragCoord.x / frameSize.x, fragCoord.y / frameSize.y) - dvec2(0.5, 0.5)) * dvec2(zoom, (frameSize.y * zoom) / frameSize.x), dvec2(cos(theta), sin(theta))) * dvec2(hflip ? -1.0 : 1.0, vflip ? -1.0 : 1.0);
         dvec2 z = %s;
         dvec2 prevz = dvec2(0.0);
+        dvec2 dz = c - center;
 
         dvec2 der = dvec2(1.0, 0.0);
 
         double xsq = z.x * z.x;
         double ysq = z.y * z.y;
 
-        double p = xsq - z.x / 2.0 + 0.0625 + ysq;
-        int i;
-        if (is_experimental() || !is_experimental() && (4.0 * p * (p + (z.x - 0.25)) > ysq && (xsq + ysq + 2 * z.x + 1) > 0.0625)) {
-            for (i = 1; i < max_iters; i++) {
-                if (i > 1 && %s) {
-                    double t = 0;
-                    if (normal_map_effect) {
-                        dvec2 u = cdivide(z, der);
-                        u = u / length(u);
-                        t = (u.x * nv.x + u.y * nv.y + height) / (1.f + height);
-                        if (t < 0) t = 0;
-                    }
-
-                    float s = smooth_color(z, prevz, power, i, max_iters);
-                    if (continuous_coloring && i > 1) {
-                        fragColor = vec4(s, i, t, 0.f);
-                    }
-                    else {
-                        fragColor = vec4(i, i, t, 0.f);
-                    }
-                    return;
+        for (int i = 0; i < max_iters; i++) {
+            if (i > 0 && %s) {
+                double t = 0;
+                if (normal_map_effect) {
+                    dvec2 u = cdivide(z, der);
+                    u = u / length(u);
+                    t = (u.x * nv.x + u.y * nv.y + height) / (1.f + height);
+                    if (t < 0) t = 0;
                 }
-                if (normal_map_effect)
-                    der = differentiate(z, der);
-                prevz = z;
-                z = advance(z, c, prevz, xsq, ysq);
-                xsq = z.x * z.x;
-                ysq = z.y * z.y;
+
+                float s = smooth_color(z, prevz, power, i, max_iters);
+                if (continuous_coloring && i > 0) {
+                    fragColor = vec4(s, i, t, 0.f);
+                }
+                else {
+                    fragColor = vec4(i, i, t, 0.f);
+                }
+                return;
             }
+            if (normal_map_effect)
+                der = differentiate(z, der);
+            prevz = z;
+            if (perturbation) {
+                dz = 2.0 * cmultiply(reference[i], dz) + cpow(dz, 2) + (c - center);
+                z = reference[i+1] + dz;
+            }
+            else {
+                z = advance(z, c, prevz, xsq, ysq);
+            }
+            xsq = z.x * z.x;
+            ysq = z.y * z.y;
         }
         fragColor = vec4(-1.f, -1.f, 0.f, 0.f);
     }
@@ -452,17 +455,10 @@ void main() {
             fragColor = vec4(blurredColor, 1.f);
         }
         if (taa) {
-            vec2 dst = vec2((prev_center - center) / dvec2(zoom, (frameSize.y * zoom) / frameSize.x)) * vec2(frameSize);
-            vec2 adjusted_coord = (gl_FragCoord.xy - dst) / frameSize;
-            bool outside = any(lessThan(adjusted_coord, vec2(0.f, 0.f))) || any(greaterThan(adjusted_coord, vec2(1.f, 1.f)));
-            if (!outside) {
-                uint acc_idx = imageLoad(accIndex, ivec2(gl_FragCoord.xy)).x;
-                fragColor = mix(texture(prevFrameTex, adjusted_coord), fragColor, 1.f / float(acc_idx));
-                imageStore(accIndex, ivec2(gl_FragCoord.xy), ivec4(acc_idx + 1));
-            }
-            else {
-                imageStore(accIndex, ivec2(gl_FragCoord.xy), ivec4(1));
-            }
+            uint acc_idx = imageLoad(accIndex, ivec2(gl_FragCoord.xy)).x;
+            if (acc_idx > 0)
+                fragColor = mix(texture(prevFrameTex, gl_FragCoord.xy / frameSize), fragColor, 1.f / float(acc_idx));
+            imageStore(accIndex, ivec2(gl_FragCoord.xy), ivec4(acc_idx + 1));
         }
 
         if (show_orbit) {
@@ -475,6 +471,7 @@ void main() {
                     dot(fragCoord.xy - orbit_in[i], fragCoord.xy - orbit_in[i-1]) < 0)
                 {
                     fragColor = 1.f - fragColor;
+                    imageStore(accIndex, ivec2(gl_FragCoord.xy), ivec4(0));
                     break;
                 }
             }
