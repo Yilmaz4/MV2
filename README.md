@@ -3,7 +3,7 @@ A fully interactive GPU-accelerated customizable fractal zoom program aimed at c
 
 ![snapshot_2025-07-17_11-28-00](https://github.com/user-attachments/assets/4dd5d5e4-7db7-411e-885b-816ea37e16ab)
 
-Mandelbrot set is a set defined in the complex plane, and consists of all complex numbers which satisfy $|Z_n| < 2$ for all $n$ under iteration of $Z_{n+1}=Z_n^2+c$ where $c$ is any point in the complex plane and $Z_0=0$.
+Mandelbrot set is a set defined in the complex plane, and consists of all complex numbers which satisfy $|Z_n| < 2$ for all $n$ under iteration of $Z_{n+1}=Z_n^2+c$ where $c$ is the complex number in question and $Z_0=0$.
 
 Points inside the set are colored black, while points outside the set are colored based on $n$ (how many iterations it took for the point to diverge).
 
@@ -114,7 +114,7 @@ You can then find the binary in the `bin` directory
 This project has been tested on Windows and Linux.
 
 ## Limitations
-- Any custom equation utilizing `dvec2 cpow(dvec2, float)` where the second argument $\not\in [1,4] \cap \mathbb{N}$ will be limited to single-precision floating point, therefore limiting amount of zoom to $10^4$.
+- Any custom equation utilizing `dvec2 cpow(dvec2, float)` where the second argument $\not\in \{2, 3, 4\}$ will be limited to single-precision floating point, therefore limiting amount of zoom to $10^4$.
 - Most of the double-precision transcendental functions are software emulated, which means performance will be severely impacted.
 - Maximum zoom is $10^{14}$ due to finite precision.
 
