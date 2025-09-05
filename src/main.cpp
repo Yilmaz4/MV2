@@ -2059,6 +2059,7 @@ public:
                 }
 
                 ImGui::BeginGroup();
+                ImGui::Dummy(ImVec2(0.f, 5.f));
                 ImGui::SeparatorText("Computation");
                 if (ImGui::DragInt("Maximum iterations", &config.max_iters, abs(config.max_iters) / 20.f, 10, INT_MAX, "%d", ImGuiSliderFlags_AlwaysClamp)) {
                     glUniform1i(glGetUniformLocation(shaderProgram, "max_iters"), config.max_iters);
@@ -2091,6 +2092,7 @@ public:
                 }
                 ImGui::EndDisabled();
 
+                ImGui::Dummy(ImVec2(0.f, 5.f));
                 ImGui::SeparatorText("Fractal");
 
                 b::EmbedInternal::EmbeddedFile embed;
@@ -2171,7 +2173,10 @@ public:
                     }
                 }
 
-                if (fractal == 0) ImGui::SeparatorText("Variables");
+                if (fractal == 0) {
+                    ImGui::Dummy(ImVec2(0.f, 5.f));
+                    ImGui::SeparatorText("Variables");
+                }
                 bool update_fractal = 0;
                 std::vector<int> to_delete;
                 auto slider = [&](const char* label, double* ptr, int index, const double def, double speed, double min, double max, bool is_deletable) {
@@ -2284,7 +2289,8 @@ public:
                     set_op(MV_COMPUTE, true);
                     reverted = false;
                 }
-
+                
+                ImGui::Dummy(ImVec2(0.f, 5.f));
                 ImGui::SeparatorText("Coloring");
 
                 if (ImGui::BeginTabBar("MyTabBar")) {
@@ -2499,6 +2505,7 @@ public:
                     ImGui::EndTabBar();
                 }
                 
+                ImGui::Dummy(ImVec2(0.f, 5.f));
                 ImGui::SeparatorText("Preferences");
                 if (ImGui::TreeNode("Right-click")) {
                     ImGui::Checkbox("Info", &cmplxinfo);
