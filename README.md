@@ -9,6 +9,7 @@ Points inside the set are colored black, while points outside the set are colore
 
 ## Features
 - Fully customizable equation in GLSL syntax
+- Perturbation theory for zooming further than you'll have the patience for
 - 11 built-in unique fractals
 - Smooth coloring
 - Normal mapping for shadows
@@ -17,7 +18,9 @@ Points inside the set are colored black, while points outside the set are colore
 - Hold right-click to see the orbit, the corresponding Julia set, and hear the sound waves of the orbit for any point
 - Zoom video creation to uncompressed AVI
 
-https://github.com/Yilmaz4/MV2/assets/77583632/bc77921c-2139-464b-84e5-ba0f5cb2a3ce
+https://github.com/user-attachments/assets/3195f7ae-b438-4f13-83b6-38fc45c53397
+
+Zoom video demonstrating perturbation theory using one central reference orbit, 70K iterations, taking 3 minutes to render
 
 https://github.com/Yilmaz4/MV2/assets/77583632/b6c11774-b2cd-4895-8eef-0fd47954e4ff
 
@@ -116,7 +119,7 @@ This project has been tested on Windows and Linux.
 ## Limitations
 - Any custom equation utilizing `dvec2 cpow(dvec2, float)` where the second argument $\not\in \{2, 3, 4\}$ will be limited to single-precision floating point, therefore limiting amount of zoom to $10^4$.
 - Most of the double-precision transcendental functions are software emulated, which means performance will be severely impacted.
-- Maximum zoom is $10^{14}$ due to finite precision.
+- Maximum zoom for all fractals other than the Mandelbrot set is $10^{14}$ due to finite precision.
 
 ## Known issues
 - Shader linkage takes too long on Intel iGPUs with Mesa drivers on Linux, causing the program to open only after several minutes, I have no idea why
