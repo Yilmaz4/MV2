@@ -342,7 +342,7 @@ float smooth_color(dvec2 z, dvec2 prevz, float power, int i, int max_iters) {
     return s;
 }
 
-dvec2 advance(dvec2 z, dvec2 c, dvec2 prevz, double xsq, double ysq) {
+dvec2 advance(dvec2 z, dvec2 c, dvec2 prevz, double xsq, double ysq, int i) {
     return %s;
 }
 
@@ -381,7 +381,7 @@ void main() {
             if (normal_map_effect)
                 der = differentiate(z, der);
             prevz = z;
-            z = advance(z, mouseCoord, prevz, xsq, ysq);
+            z = advance(z, mouseCoord, prevz, xsq, ysq, i);
             xsq = z.x * z.x;
             ysq = z.y * z.y;
         }
@@ -432,7 +432,7 @@ void main() {
                 z = reference[i+1] + d;
             }
             else {
-                z = advance(z, c, prevz, xsq, ysq);
+                z = advance(z, c, prevz, xsq, ysq, i);
             }
             xsq = z.x * z.x;
             ysq = z.y * z.y;
@@ -491,7 +491,7 @@ void main() {
                 orbit_out[i].x = z.x;
                 orbit_out[i].y = z.y;
                 prevz = z;
-                z = advance(z, c, prevz, xsq, ysq);
+                z = advance(z, c, prevz, xsq, ysq, i);
                 xsq = z.x * z.x;
                 ysq = z.y * z.y;
             }
