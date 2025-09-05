@@ -622,9 +622,7 @@ struct Config {
     bool   hflip = false; // horizontal flip
     float  spectrum_offset = 0.f; // offset in the color gradient
     float  iter_multiplier = 12.f; // multiplier when coloring the fractal
-    bool   auto_adjust_iter = true; // whether to automatically adjust max_iters based on zoom
-    int    max_iters = 100;
-    float  iter_co = 1.04f; // the number max_iters is multiplied with with each mouse scroll
+    int    max_iters = 500;
     bool   continuous_coloring = true;
     bool   normal_map_effect = false;
     fvec3  set_color = { 0.f, 0.f, 0.f }; // the color of the points inside the set
@@ -1054,17 +1052,13 @@ private:
             glUniform1i(glGetUniformLocation(shaderProgram, "vflip"), config.vflip);
             glUniform1f(glGetUniformLocation(shaderProgram, "iter_multiplier"), config.iter_multiplier);
             glUniform1d(glGetUniformLocation(shaderProgram, "zoom"), config.zoom);
-            if (!config.auto_adjust_iter) {
-                glUniform1i(glGetUniformLocation(shaderProgram, "max_iters"), config.max_iters);
-            } else {
-                glUniform1i(glGetUniformLocation(shaderProgram, "max_iters"), max_iters(config.zoom, zoom_co, config.iter_co));
-            }
+            glUniform1i(glGetUniformLocation(shaderProgram, "max_iters"), config.max_iters);
             glUniform1f(glGetUniformLocation(shaderProgram, "spectrum_offset"), config.spectrum_offset);
             glUniform1i(glGetUniformLocation(shaderProgram, "continuous_coloring"), config.continuous_coloring);
             glUniform1i(glGetUniformLocation(shaderProgram, "normal_map_effect"), config.normal_map_effect);
             glUniform3f(glGetUniformLocation(shaderProgram, "set_color"), config.set_color.x, config.set_color.y, config.set_color.z);
             glUniform1d(glGetUniformLocation(shaderProgram, "julia_zoom"), julia_zoom);
-            glUniform1i(glGetUniformLocation(shaderProgram, "julia_maxiters"), max_iters(julia_zoom, zoom_co, config.iter_co, 3.0));
+            glUniform1i(glGetUniformLocation(shaderProgram, "julia_maxiters"), config.max_iters);
             glUniform1i(glGetUniformLocation(shaderProgram, "transfer_function"), config.transfer_function);
             glUniform1i(glGetUniformLocation(shaderProgram, "taa"), config.taa);
             glUniform1i(glGetUniformLocation(shaderProgram, "perturbation"), config.perturbation);
@@ -1143,10 +1137,6 @@ private:
         normalizedCoord /= dvec2(zoom, (ss.y * zoom) / ss.x);
         dvec2 pixelCoordNormalized = normalizedCoord + dvec2(0.5, 0.5);
         return dvec2(pixelCoordNormalized.x * ss.x, ss.y - pixelCoordNormalized.y * ss.y);
-    }
-
-    static int max_iters(double zoom, double zoom_co, double iter_co, double initial_zoom = 5.0) {
-        return 100 * std::max(1.0, pow(iter_co, log2(zoom / initial_zoom) / log2(zoom_co)));
     }
 
     // https://stackoverflow.com/a/8204886/15514474
@@ -1293,8 +1283,7 @@ private:
                 if (app->juliaset) {
                     app->julia_zoom = app->sync_zoom_julia ? pow(app->config.zoom, 1.f / app->config.power) * 1.2f : 3.0;
                     glUniform1d(glGetUniformLocation(app->shaderProgram, "julia_zoom"), app->julia_zoom);
-                    glUniform1i(glGetUniformLocation(app->shaderProgram, "julia_maxiters"),
-                        max_iters(app->julia_zoom, zoom_co, app->config.iter_co, 3.0));
+                    glUniform1i(glGetUniformLocation(app->shaderProgram, "julia_maxiters"), app->config.max_iters);
                 }
                 if (app->orbit) {
                     app->enable_orbit = true;
@@ -1328,15 +1317,15 @@ private:
         glUniform2d(glGetUniformLocation(app->shaderProgram, "mousePos"), x, y);
         if (ImGui::GetIO().WantCaptureMouse)
             return;
+        if (app->rightClickHold) {
+            app->refresh_rightclick();
+        }
         if (app->dragging) {
             app->lastPresses = { -doubleClick_interval, 0 };
             app->config.center -= cmultiply(dvec2((x - app->oldPos.x) * app->config.zoom, -(y - app->oldPos.y) * ((app->config.zoom * ss.y) / ss.x)) / dvec2(ss), dvec2(cos(app->config.theta * M_PI / 180.f), sin(app->config.theta * M_PI / 180.f))) * dvec2(app->config.hflip ? -1.0 : 1.0, app->config.vflip ? -1.0 : 1.0);
             glUniform2d(glGetUniformLocation(app->shaderProgram, "center"), app->config.center.real(), app->config.center.imag());
             app->oldPos = { x, y };
             app->set_op(MV_COMPUTE);
-        }
-        if (app->rightClickHold) {
-            app->refresh_rightclick();
         }
     }
 
@@ -1346,7 +1335,7 @@ private:
         if (app->rightClickHold) {
             app->julia_zoom *= pow(zoom_co, y * 1.5);
             glUniform1d(glGetUniformLocation(app->shaderProgram, "julia_zoom"), app->julia_zoom);
-            glUniform1i(glGetUniformLocation(app->shaderProgram, "julia_maxiters"), max_iters(app->julia_zoom, zoom_co, app->config.iter_co, 3.0));
+            glUniform1i(glGetUniformLocation(app->shaderProgram, "julia_maxiters"), app->config.max_iters);
             app->refresh_rightclick();
         }
         else if (!ImGui::GetIO().WantCaptureMouse) {
@@ -1367,10 +1356,6 @@ private:
 
             app->config.zoom = new_zoom;
             glUniform1d(glGetUniformLocation(app->shaderProgram, "zoom"), app->config.zoom);
-            if (app->config.auto_adjust_iter) {
-                app->config.max_iters = max_iters(app->config.zoom, zoom_co, app->config.iter_co);
-                glUniform1i(glGetUniformLocation(app->shaderProgram, "max_iters"), app->config.max_iters);
-            }
             app->set_op(MV_COMPUTE);
             int clearValue[4] = { 1, 1, 1, 1 };
             glClearTexImage(app->accIndexTexBuffer, 0, GL_RED_INTEGER, GL_INT, clearValue);
@@ -2065,11 +2050,6 @@ public:
                     glUniform1i(glGetUniformLocation(shaderProgram, "max_iters"), config.max_iters);
                     set_op(MV_COMPUTE);
                 }
-                if (ImGui::Checkbox("Adjust automatically", &config.auto_adjust_iter) || config.auto_adjust_iter && ImGui::SliderFloat("Iteration coeff.", &config.iter_co, 1.01, 1.1)) {
-                    config.max_iters = max_iters(config.zoom, zoom_co, config.iter_co);
-                    glUniform1i(glGetUniformLocation(shaderProgram, "max_iters"), config.max_iters);
-                    set_op(MV_COMPUTE);
-                }
                 
                 if (ImGui::Checkbox("Perturbation", &config.perturbation)) {
                     glUniform1i(glGetUniformLocation(shaderProgram, "perturbation"), config.perturbation);
@@ -2286,7 +2266,7 @@ public:
                 }
                 if (reload) {
                     reload_shader(shader);
-                    set_op(MV_COMPUTE, true);
+                    set_op(MV_COMPUTE);
                     reverted = false;
                 }
                 
@@ -2647,6 +2627,11 @@ public:
                 for (int i = 0; i < config.max_iters; i++) {
                     orbit.push_back(z);
                     z = z * z + c;
+                    double x = z.real();
+                    double y = z.imag();
+                    if (x * x + y * y > 100.0) {
+                        break;
+                    }
                 }
                 glBindBuffer(GL_SHADER_STORAGE_BUFFER, referenceBuffer);
                 glBufferData(GL_SHADER_STORAGE_BUFFER, orbit.size() * sizeof(dvec2), orbit.data(), GL_DYNAMIC_COPY);
@@ -2742,8 +2727,7 @@ public:
                         zvc.tcfg.zoom = 8.0 * pow(coeff, z * framecount);
                     else
                         zvc.tcfg.zoom = 8.0 * pow(coeff, progress);
-                    glUniform1i(glGetUniformLocation(shaderProgram, "max_iters"),
-                        max_iters(zvc.tcfg.zoom, zoom_co, config.iter_co));
+                    glUniform1i(glGetUniformLocation(shaderProgram, "max_iters"),zvc.tcfg.max_iters);
                     glUniform1d(glGetUniformLocation(shaderProgram, "zoom"), zvc.tcfg.zoom);
                 }
                 set_op(MV_COMPUTE, true);
