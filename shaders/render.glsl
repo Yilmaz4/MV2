@@ -393,10 +393,12 @@ void main() {
         if (taa) {
             fragCoord += (vec2(rand(vec2(time, gl_FragCoord.x)), rand(vec2(time, gl_FragCoord.y))) * 2.f - 1.f) / 2.f;
         }
-        dvec2 c = center + cmultiply((dvec2(fragCoord.x / frameSize.x, fragCoord.y / frameSize.y) - dvec2(0.5, 0.5)) * dvec2(zoom, (frameSize.y * zoom) / frameSize.x), dvec2(cos(theta), sin(theta))) * dvec2(hflip ? -1.0 : 1.0, vflip ? -1.0 : 1.0);
+        
+        dvec2 dz = cmultiply((fragCoord.xy / frameSize - dvec2(0.5, 0.5)) * dvec2(zoom, (frameSize.y * zoom) / frameSize.x), dvec2(cos(theta), sin(theta))) * dvec2(hflip ? -1.0 : 1.0, vflip ? -1.0 : 1.0);
+        dvec2 d = dz;
+        dvec2 c = center + dz;
         dvec2 z = %s;
         dvec2 prevz = dvec2(0.0);
-        dvec2 dz = c - center;
 
         dvec2 der = dvec2(1.0, 0.0);
 
@@ -426,8 +428,8 @@ void main() {
                 der = differentiate(z, der);
             prevz = z;
             if (perturbation) {
-                dz = 2.0 * cmultiply(reference[i], dz) + cpow(dz, 2) + (c - center);
-                z = reference[i+1] + dz;
+                d = 2.0 * cmultiply(reference[i], d) + cpow(d, 2) + dz;
+                z = reference[i+1] + d;
             }
             else {
                 z = advance(z, c, prevz, xsq, ysq);
