@@ -94,11 +94,11 @@ cd MV2
 ```
 
 <details>
-  <summary>On Windows</summary>
+  <summary><b>Windows</b></summary>
 
 <br>
 
-Install MSYS2 to `C:\msys64`, then from a MSYS2 UCRT64 terminal, run 
+Install MSYS2 to `C:\msys64`, and from a MSYS2 UCRT64 terminal, run 
 ```
 pacman -Syu mingw-w64-ucrt-x86_64-gcc mingw-w64-x86_64-ninja
 ```
@@ -106,7 +106,7 @@ Then add `C:\msys64\mingw64\bin` to PATH.
 </details>
 
 <details>
-  <summary>On Linux</summary>
+  <summary><b>On Linux</b></summary>
 
 <br>
 
@@ -139,12 +139,12 @@ You can then find the binary in the `bin` directory
 
 ## Limitations
 - Any custom equation utilizing `dvec2 cpow(dvec2, float)` where the second argument $\not\in \{2, 3, 4\}$ will be limited to single-precision floating point, therefore limiting amount of zoom to $10^4$.
-- Most of the double-precision transcendental functions are software emulated, which means performance will be severely impacted.
-- Maximum zoom for all fractals other than the Mandelbrot set is $10^{14}$ due to finite precision.
+- Maximum zoom for all fractals other than the Mandelbrot set is $10^{14}$ due to finite precision. Perturbation can be enabled for the Mandelbrot set to zoom further.
 
 ## Known issues
-- Shader linkage takes too long on Intel iGPUs with Mesa drivers on Linux, causing the program to open only after several minutes, I have no idea why
-- Taking a screenshot results in a blurry image regardless of how high SSAA is set
+- Shader linkage takes very long on Intel iGPUs with Mesa drivers on Linux, causing the program to open only after several minutes, I have no idea why
+- Enabling perturbation causes "glitches" to appear such as same-color blobs or noise. This can be minimized with glitch detection algorithms and more reference orbits as described [here](https://mathr.co.uk/blog/2021-05-14_deep_zoom_theory_and_practice.html).
+- The zoom videos do not play in VLC or Windows Media Player, however they do in MPV.
 
 ## Contributing
 Contributions are highly welcome, it could be anything from a typo correction to a completely new feature, feel free to create a pull request or raise an issue!
