@@ -81,24 +81,11 @@ User-controlled variables can also be defined, which can then be used in the equ
 > [!NOTE]  
 > Due to limitations in GLSL, zoom is limited to $10^4$ for any non-integer or bigger than 4 power. See [Limitations](#limitations) for more information. Click "Round" to round the power to the nearest integer to zoom further.
 
-## Examples
-![Screenshot 2024-05-31 222113](https://github.com/Yilmaz4/MV2/assets/77583632/8f5d49f5-45ef-4627-8025-a6455f71d1dd)\
-Burning ship fractal $Z_{n+1}=(|\Re(Z_n)| + i|\Im(Z_n)|)^2+c \quad Z_0=c \quad \text{Bailout: } |Z_n| > 100$
-
-![Screenshot 2024-05-31 222339](https://github.com/Yilmaz4/MV2/assets/77583632/d062e30d-ea10-4dfa-a246-74d45ad732fc)\
-Nova fractal $Z_{n+1}=Z_n-\frac{Z_n^3-1}{3Z_n^2}+c \quad Z_0=1 \quad \text{Bailout: } |Z_n-Z_{n-1}| < 10^{-4}$
-
-![image](https://github.com/Yilmaz4/MV2/assets/77583632/cd16be5b-8a45-4d93-8911-dfbe28167162)\
-Magnet 1 fractal $Z_{n+1}=\bigg(\dfrac{Z_n^2+c-1}{2Z_n+c-2}\bigg)^2 \quad Z_0=0 \quad \text{Bailout: } |Z_n| > 100 \lor |Z_n-1| < 10^{-4}$
-
 ## Building
 
 ### Dependencies
-
 - Git
 - CMake version >= 3.21
-- C++ build system (Make, Ninja, MSBuild, etc.)
-- C++ compiler (GCC, Clang, MSVC, etc.)
 
 Clone the repository with `--recurse-submodules`, then go into the directory
 ```
@@ -106,15 +93,49 @@ git clone --recurse-submodules https://github.com/Yilmaz4/MV2.git
 cd MV2
 ```
 
-Generate the build files with CMake and build
+<details>
+  <summary>On Windows</summary>
+
+<br>
+
+Install MSYS2 to `C:\msys64`, then from a MSYS2 UCRT64 terminal, run 
 ```
-cmake -S . -B build
+pacman -Syu mingw-w64-ucrt-x86_64-gcc mingw-w64-x86_64-ninja
+```
+Then add `C:\msys64\mingw64\bin` to PATH.
+</details>
+
+<details>
+  <summary>On Linux</summary>
+
+<br>
+
+**Arch Linux**
+```
+sudo pacman -S base-devel cmake ninja
+```
+**Debian/Ubuntu**
+```
+sudo apt install build-essential cmake ninja-build
+```
+**Fedora**
+```
+sudo dnf install gcc-c++ cmake ninja-build pkg-config
+```
+**openSUSE**
+```
+sudo zypper in -t pattern devel-basis
+sudo zypper install cmake ninja
+```
+</details>
+
+Finally, generate the build files with CMake and build
+```
+cmake -S . -B build -G Ninja
 cmake --build build
 ```
 
 You can then find the binary in the `bin` directory
-
-This project has been tested on Windows and Linux.
 
 ## Limitations
 - Any custom equation utilizing `dvec2 cpow(dvec2, float)` where the second argument $\not\in \{2, 3, 4\}$ will be limited to single-precision floating point, therefore limiting amount of zoom to $10^4$.
