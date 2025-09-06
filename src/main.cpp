@@ -520,6 +520,7 @@ struct Fractal {
 
 std::vector<Fractal> fractals = {
     Fractal({.name = "Custom"}),
+    Fractal({.name = "Hybrid"}),
     Fractal({.name = "Mandelbrot",
         .equation = "cpow(z, power) + c",
         .condition = "xsq + ysq > 100",
@@ -667,14 +668,14 @@ class MV2 {
     AVIWriter writer;
 
     mpfr_prec_t prec = 256;
-    char* re_str = new char[static_cast<int>(prec * log10(2.0)) + 2]{};
-    char* im_str = new char[static_cast<int>(prec * log10(2.0)) + 2]{};
+    char* re_str = new char[1024]{};
+    char* im_str = new char[1024]{};
 
     ivec2 screenPos = { 0, 0 };
     bool fullscreen = false;
     float dpi_scale = 1.f;
     
-    int fractal = 1;
+    int fractal = 2;
     int julia_size = 215;
     double julia_zoom = 3;
     double fps_update_interval = 0.03;
@@ -1234,8 +1235,8 @@ private:
                     x *= app->dpi_scale;
                     y *= app->dpi_scale;
                     dvec2 cmplx = app->pixel_to_complex(dvec2(x, y));
-                    fractals[2].sliders[0].value = cmplx.x;
-                    fractals[2].sliders[1].value = cmplx.y;
+                    fractals[3].sliders[0].value = cmplx.x;
+                    fractals[3].sliders[1].value = cmplx.y;
                     app->tempCenter = app->config.center;
                     app->tempZoom = app->config.zoom;
                     app->config.zoom = app->sync_zoom_julia ? pow(app->config.zoom, 1.f / app->config.power) * 1.2f : 3.0;
@@ -1403,7 +1404,7 @@ private:
                         index_repeat_new = i;
                     orbit_buffer_back[i] = (vec2)src[i];
                 }
-                dst[i] = static_cast<vec2>(complex_to_pixel(MPC(src[i], 256)));
+                dst[i] = static_cast<vec2>(complex_to_pixel(MPC(src[i], 64)));
                 dst[i].y = fs.y - dst[i].y;
             }
             ready_to_copy.store(true);
@@ -1614,15 +1615,13 @@ public:
             
             double currentTime = glfwGetTime();
 
-            //currentTime /= 10.f;
-
-            if (currentTime < 0.2f) {
+            if (currentTime < 0.5f) {
                 config.power = 1.f;
                 glUniform1f(glGetUniformLocation(shaderProgram, "power"), config.power);
                 set_op(MV_COMPUTE);
             }
             else if (currentTime < 2.f) {
-                config.power = (2.f - pow(1.f - (currentTime - 0.2f) / 1.8f, 9));
+                config.power = (2.f - pow(1.f - (currentTime - 0.5f) / 1.5f, 9));
                 glUniform1f(glGetUniformLocation(shaderProgram, "power"), config.power);
                 set_op(MV_COMPUTE);
             }
@@ -1890,19 +1889,19 @@ public:
                 ImGui::SameLine();
                 ImGui::SetCursorPosY(ImGui::GetCursorPosY() - 3.f);
                 ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x);
-                strncpy(re_str, config.center.str_re().c_str(), prec * log10(2.0));
-                update |= ImGui::InputText("##re", re_str, 100);
+                strncpy(re_str, config.center.str_re().c_str(), 1024);
+                update |= ImGui::InputText("##re", re_str, 1024);
 
                 ImGui::Text("Im");
                 ImGui::SameLine();
                 ImGui::SetCursorPosY(ImGui::GetCursorPosY() - 3.f);
                 ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x);
-                strncpy(im_str, config.center.str_im().c_str(), prec * log10(2.0));
-                update |= ImGui::InputText("##im", im_str, 100);
+                strncpy(im_str, config.center.str_im().c_str(), 1024);
+                update |= ImGui::InputText("##im", im_str, 1024);
                 
                 if (update) {
                     try {
-                        config.center = MPC(std::format("({} {})", re_str, im_str).c_str(), 256);
+                        config.center = MPC(std::format("({} {})", re_str, im_str).c_str(), prec);
                     } catch (std::runtime_error& e) { }
                     
                     glUniform2d(glGetUniformLocation(shaderProgram, "center"), config.center.real(), config.center.imag());
@@ -2105,7 +2104,8 @@ public:
                                 fractals[0].initialz.resize(1024);
                                 fractals[0].power     = config.power;
                                 fractals[0].sliders   = fractals[fractal].sliders;
-                            } else {
+                            }
+                            else {
                                 config.power = fractals[n].power;
                                 config.continuous_coloring = static_cast<int>(config.continuous_coloring && fractals[n].continuous_compatible);
                                 config.hflip = fractals[n].hflip;
