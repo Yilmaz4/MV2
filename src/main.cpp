@@ -668,8 +668,8 @@ class MV2 {
     AVIWriter writer;
 
     mpfr_prec_t prec = 256;
-    char* re_str = new char[1024]{};
-    char* im_str = new char[1024]{};
+    char* re_str = new char[2048]{};
+    char* im_str = new char[2048]{};
 
     ivec2 screenPos = { 0, 0 };
     bool fullscreen = false;
@@ -1614,14 +1614,19 @@ public:
             ivec2 fs = (fullscreen ? monitorSize : config.frameSize);
             
             double currentTime = glfwGetTime();
+#ifdef PLATFORM_WINDOWS
+            static float delay = 0.5f;
+#else
+            static float delay = 0.2f;
+#endif
 
-            if (currentTime < 0.5f) {
+            if (currentTime < delay) {
                 config.power = 1.f;
                 glUniform1f(glGetUniformLocation(shaderProgram, "power"), config.power);
                 set_op(MV_COMPUTE);
             }
             else if (currentTime < 2.f) {
-                config.power = (2.f - pow(1.f - (currentTime - 0.5f) / 1.5f, 9));
+                config.power = (2.f - pow(1.f - (currentTime - delay) / (2.f - delay), 9));
                 glUniform1f(glGetUniformLocation(shaderProgram, "power"), config.power);
                 set_op(MV_COMPUTE);
             }
@@ -1889,15 +1894,15 @@ public:
                 ImGui::SameLine();
                 ImGui::SetCursorPosY(ImGui::GetCursorPosY() - 3.f);
                 ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x);
-                strncpy(re_str, config.center.str_re().c_str(), 1024);
-                update |= ImGui::InputText("##re", re_str, 1024);
+                strncpy(re_str, config.center.str_re().c_str(), 2048);
+                update |= ImGui::InputText("##re", re_str, 2048);
 
                 ImGui::Text("Im");
                 ImGui::SameLine();
                 ImGui::SetCursorPosY(ImGui::GetCursorPosY() - 3.f);
                 ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x);
-                strncpy(im_str, config.center.str_im().c_str(), 1024);
-                update |= ImGui::InputText("##im", im_str, 1024);
+                strncpy(im_str, config.center.str_im().c_str(), 2048);
+                update |= ImGui::InputText("##im", im_str, 2048);
                 
                 if (update) {
                     try {
@@ -2059,16 +2064,27 @@ public:
                 ImGui::SetNextItemWidth(50);
                 static int min_prec = 6;
                 static int p2 = 8;
-                if (ImGui::DragScalar("Precision", ImGuiDataType_S32, &p2, 0.05f, &min_prec, nullptr, std::format("{}", prec).c_str(), ImGuiSliderFlags_AlwaysClamp)) {
+                auto update_prec = [&]() {
                     prec = pow(2, p2);
                     config.center.change_prec(prec);
-                    delete[] re_str;
-                    delete[] im_str;
-                    re_str = new char[static_cast<int>(prec * log10(2.0)) + 2]{};
-                    im_str = new char[static_cast<int>(prec * log10(2.0)) + 2]{};
                     glUniform2d(glGetUniformLocation(shaderProgram, "center"), config.center.real(), config.center.imag());
                     set_op(MV_COMPUTE);
+                };
+                if (ImGui::DragScalar("##prec", ImGuiDataType_S32, &p2, 0.05f, &min_prec, nullptr, std::format("{}", prec).c_str(), ImGuiSliderFlags_AlwaysClamp)) {
+                    update_prec();
                 }
+                ImGui::SameLine();
+                if (ImGui::Button("-")) {
+                    p2 -= 1;
+                    update_prec();
+                }
+                ImGui::SameLine();
+                if (ImGui::Button("+")) {
+                    p2 += 1;
+                    update_prec();
+                }
+                ImGui::SameLine();
+                ImGui::Text("Precision");
                 ImGui::EndDisabled();
 
                 ImGui::Dummy(ImVec2(0.f, 5.f));
