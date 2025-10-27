@@ -393,6 +393,9 @@ public:
     MPC& operator+=(const glm::vec<2, T, Q>& v) {
         return *this += MPC(v, prec);
     }
+    MPC& operator+=(const double& val) {
+        return *this += dvec2(val, 0.0);
+    }
 
     MPC& operator-=(const MPC& z) {
         mpc_sub(value, value, z.value, mode);
@@ -402,6 +405,9 @@ public:
     MPC& operator-=(const glm::vec<2, T, Q>& v) {
         return *this -= MPC(v, prec);
     }
+    MPC& operator-=(const double& val) {
+        return *this -= dvec2(val, 0.0);
+    }
 
     MPC& operator*=(const MPC& z) {
         mpc_mul(value, value, z.value, mode);
@@ -409,9 +415,12 @@ public:
     }
     template <typename T, glm::qualifier Q>
     MPC& operator*=(const glm::vec<2, T, Q>& v) {
-        mpfr_mul_d(mpc_realref(value), mpc_realref(value), (double)v.x, mode);
-        mpfr_mul_d(mpc_imagref(value), mpc_imagref(value), (double)v.y, mode);
+        mpfr_mul_d(mpc_realref(value), mpc_realref(value), (double)v.x, MPFR_RNDN);
+        mpfr_mul_d(mpc_imagref(value), mpc_imagref(value), (double)v.y, MPFR_RNDN);
         return *this;
+    }
+    MPC& operator*=(const double& val) {
+        return *this *= dvec2(val);
     }
 
     MPC& operator/=(const MPC& z) {
@@ -420,9 +429,12 @@ public:
     }
     template <typename T, glm::qualifier Q>
     MPC& operator/=(const glm::vec<2, T, Q>& v) {
-        mpfr_div_d(mpc_realref(value), mpc_realref(value), (double)v.x, mode);
-        mpfr_div_d(mpc_imagref(value), mpc_imagref(value), (double)v.y, mode);
+        mpfr_div_d(mpc_realref(value), mpc_realref(value), (double)v.x, MPFR_RNDN);
+        mpfr_div_d(mpc_imagref(value), mpc_imagref(value), (double)v.y, MPFR_RNDN);
         return *this;
+    }
+    MPC& operator/=(const double& val) {
+        return *this /= dvec2(val);
     }
 
     MPC operator+(const MPC& z) const {
@@ -434,6 +446,10 @@ public:
     MPC operator+(const glm::vec<2, T, Q>& v) const {
         return *this + MPC(v, prec);
     }
+    MPC operator+(const double& val) const {
+        return *this + dvec2(val, 0.0);
+    }
+
     MPC operator-(const MPC& z) const {
         MPC result(*this);
         mpc_sub(result.value, value, z.value, mode);
@@ -443,6 +459,10 @@ public:
     MPC operator-(const glm::vec<2, T, Q>& v) const {
         return *this - MPC(v, prec);
     }
+    MPC operator-(const double& val) const {
+        return *this - dvec2(val, 0.0);
+    }
+
     MPC operator*(const MPC& z) const {
         MPC result(*this);
         mpc_mul(result.value, value, z.value, mode);
@@ -451,10 +471,14 @@ public:
     template <typename T, glm::qualifier Q>
     MPC operator*(const glm::vec<2, T, Q>& v) const {
         MPC result(*this);
-        mpfr_mul_d(mpc_realref(result.value), mpc_realref(value), (double)v.x, mode);
-        mpfr_mul_d(mpc_imagref(result.value), mpc_imagref(value), (double)v.y, mode);
+        mpfr_mul_d(mpc_realref(result.value), mpc_realref(value), (double)v.x, MPFR_RNDN);
+        mpfr_mul_d(mpc_imagref(result.value), mpc_imagref(value), (double)v.y, MPFR_RNDN);
         return *this;
     }
+    MPC operator*(const double& val) const {
+        return *this * dvec2(val);
+    }
+
     MPC operator/(const MPC& z) const {
         MPC result(*this);
         mpc_div(result.value, value, z.value, mode);
@@ -463,9 +487,12 @@ public:
     template <typename T, glm::qualifier Q>
     MPC operator/(const glm::vec<2, T, Q>& v) const {
         MPC result(*this);
-        mpfr_div_d(mpc_realref(result.value), mpc_realref(value), (double)v.x, mode);
-        mpfr_div_d(mpc_imagref(result.value), mpc_imagref(value), (double)v.y, mode);
+        mpfr_div_d(mpc_realref(result.value), mpc_realref(value), (double)v.x, MPFR_RNDN);
+        mpfr_div_d(mpc_imagref(result.value), mpc_imagref(value), (double)v.y, MPFR_RNDN);
         return *this;
+    }
+    MPC operator/(const double& val) const {
+        return *this / dvec2(val);
     }
 
     std::string str() const {
@@ -632,6 +659,9 @@ struct Config {
     int    transfer_function = 0; // 0: linear, 1: square root, 2: cubic root, 3: logarithmic
     double power = 1.f;
     bool   perturbation = false;
+    bool   series_approx = false;
+    int    num_terms = 3;
+    bool   cardioid_check = true;
     // normal mapping
     float  angle = 180.f; // angle of the incoming light (not perfectly accurate)
     float  height = 1.5f; // height of the light source, changes how well pronounced the normal map effect is
@@ -685,7 +715,7 @@ class MV2 {
     int zoomTowards = 1; // 0: center, 1: cursor
     bool juliaset = true;
     bool orbit = true;
-    bool audio = true;
+    bool audio = false;
     bool cmplxinfo = true;
     bool always_refresh_main = false;
 
@@ -698,6 +728,7 @@ class MV2 {
     bool rightClickHold = false;
     MPC tempCenter{256};
     double tempZoom = config.zoom;
+    float zoom_sensitivity = 1.0;
 
     bool startup_anim_complete = false;
     bool juliaset_disabled_incompat = false;
@@ -730,7 +761,9 @@ class MV2 {
     GLuint orbitOutBuffer = 0;
     GLuint sliderBuffer = 0;
     GLuint kernelBuffer = 0;
+
     GLuint referenceBuffer = 0;
+    GLuint coeffBuffer = 0;
 
     int32_t stateID = 10;
     ImGradientHDRState state;
@@ -1015,6 +1048,11 @@ public:
         glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 5, referenceBuffer);
         glShaderStorageBlockBinding(shaderProgram, glGetProgramResourceIndex(shaderProgram, GL_SHADER_STORAGE_BLOCK, "reference_orbit"), 5);
 
+        glGenBuffers(1, &coeffBuffer);
+        glBindBuffer(GL_SHADER_STORAGE_BUFFER, coeffBuffer);
+        glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 6, coeffBuffer);
+        glShaderStorageBlockBinding(shaderProgram, glGetProgramResourceIndex(shaderProgram, GL_SHADER_STORAGE_BLOCK, "coefficients"), 6);
+
         use_config(config, true, false);
         on_windowResize(window, config.frameSize.x * dpi_scale, config.frameSize.y * dpi_scale);
 
@@ -1034,8 +1072,6 @@ public:
         if (result != MA_SUCCESS) {
             std::cerr << "Failed to initialize audio device\n";
         }
-
-        ma_device_start(&ma_dev);
     }
     ~MV2() {
         if (ma_device_is_started(&ma_dev)) {
@@ -1063,6 +1099,8 @@ private:
             glUniform1i(glGetUniformLocation(shaderProgram, "transfer_function"), config.transfer_function);
             glUniform1i(glGetUniformLocation(shaderProgram, "taa"), config.taa);
             glUniform1i(glGetUniformLocation(shaderProgram, "perturbation"), config.perturbation);
+            glUniform1i(glGetUniformLocation(shaderProgram, "series_approx"), config.series_approx);
+            glUniform1i(glGetUniformLocation(shaderProgram, "cardioid_check"), config.cardioid_check);
 
             glUniform1i(glGetUniformLocation(shaderProgram, "show_orbit"), false);
             glUniform2i(glGetUniformLocation(shaderProgram, "orbit_start"), -1, -1);
@@ -1340,7 +1378,7 @@ private:
             app->refresh_rightclick();
         }
         else if (!ImGui::GetIO().WantCaptureMouse) {
-            double new_zoom = app->config.zoom * pow(zoom_co, y * 1.5);
+            double new_zoom = app->config.zoom * pow(zoom_co, y * app->zoom_sensitivity * 1.5);
 
             if (app->zoomTowards == 1) {
                 double cursor_x, cursor_y;
@@ -1525,8 +1563,16 @@ private:
         glUniform1i(glGetUniformLocation(shaderProgram, "radius"), config.ssaa);
     }
 
-    void update_shader() const {
+    void update_shader() {
         glUniform1f(glGetUniformLocation(shaderProgram, "power"), config.power);
+        if (config.power != 2.f) {
+            config.perturbation = false;
+            config.series_approx = false;
+            config.cardioid_check = false;
+            glUniform1i(glGetUniformLocation(shaderProgram, "perturbation"), config.perturbation);
+            glUniform1i(glGetUniformLocation(shaderProgram, "series_approx"), config.series_approx);
+            glUniform1i(glGetUniformLocation(shaderProgram, "cardioid_check"), config.cardioid_check);
+        }
         glBindBuffer(GL_SHADER_STORAGE_BUFFER, sliderBuffer);
         std::vector<float> values(fractals[fractal].sliders.size());
         for (int i = 0; i < values.size(); i++) {
@@ -2055,10 +2101,12 @@ public:
                     set_op(MV_COMPUTE);
                 }
                 
+                ImGui::BeginDisabled(fractal != 2 || config.power != 2.f);
                 if (ImGui::Checkbox("Perturbation", &config.perturbation)) {
                     glUniform1i(glGetUniformLocation(shaderProgram, "perturbation"), config.perturbation);
                     set_op(MV_COMPUTE);
                 }
+                ImGui::EndDisabled();
                 ImGui::SameLine();
                 ImGui::BeginDisabled(!config.perturbation);
                 ImGui::SetNextItemWidth(50);
@@ -2085,6 +2133,16 @@ public:
                 }
                 ImGui::SameLine();
                 ImGui::Text("Precision");
+
+                if (ImGui::Checkbox("Series approximation", &config.series_approx)) {
+                    glUniform1i(glGetUniformLocation(shaderProgram, "series_approx"), config.series_approx);
+                }
+                ImGui::EndDisabled();
+
+                ImGui::BeginDisabled(fractal != 2 || config.power != 2.f);
+                if (ImGui::Checkbox("Cardioid/bulb skipping", &config.cardioid_check)) {
+                    glUniform1i(glGetUniformLocation(shaderProgram, "cardioid_check"), config.cardioid_check);
+                }
                 ImGui::EndDisabled();
 
                 ImGui::Dummy(ImVec2(0.f, 5.f));
@@ -2127,6 +2185,11 @@ public:
                                 config.hflip = fractals[n].hflip;
                                 config.vflip = fractals[n].vflip;
                                 always_refresh_main = false;
+                                if (n != 2) {
+                                    config.perturbation = false;
+                                    config.series_approx = false;
+                                    config.cardioid_check = false;
+                                }
                             }
                             fractal = n;
                             update_shader();
@@ -2293,7 +2356,7 @@ public:
                     if (ImGui::BeginTabItem("Outside")) {
 
                         ImGui::BeginDisabled(fractal != 1 && fractal != 2);
-                        if (ImGui::Checkbox("Shadows", &config.normal_map_effect)) {
+                        if (ImGui::Checkbox("Shading", &config.normal_map_effect)) {
                             glUniform1i(glGetUniformLocation(shaderProgram, "normal_map_effect"), config.normal_map_effect);
                             set_op(MV_COMPUTE);
                         }
@@ -2580,6 +2643,8 @@ public:
                 if (ImGui::TreeNode("Zoom and navigation")) {
                     ImGui::RadioButton("Zoom towards the mouse cursor", &zoomTowards, 1);
                     ImGui::RadioButton("Zoom towards the center", &zoomTowards, 0);
+
+                    ImGui::SliderFloat("Zoom speed", &zoom_sensitivity, 0.01f, 1.f);
 
                     ImGui::TreePop();
                 }
