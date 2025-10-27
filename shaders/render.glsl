@@ -29,6 +29,8 @@ uniform int    ssaa_factor;
 uniform int    transfer_function;
 
 uniform bool   perturbation;
+uniform bool   series_approx;
+uniform bool   cardioid_check;
 
 uniform bool   taa;
 
@@ -390,13 +392,22 @@ void main() {
 
     if (op == 2) {
         vec2 fragCoord = gl_FragCoord.xy;
-        if (taa) {
-            fragCoord += (vec2(rand(vec2(time, gl_FragCoord.x)), rand(vec2(time, gl_FragCoord.y))) * 2.f - 1.f) / 2.f;
-        }
+        if (taa) fragCoord += (vec2(rand(vec2(time, gl_FragCoord.x)), rand(vec2(time, gl_FragCoord.y))) * 2.f - 1.f) / 2.f;
         
         dvec2 dz = cmultiply((fragCoord.xy / frameSize - dvec2(0.5, 0.5)) * dvec2(zoom, (frameSize.y * zoom) / frameSize.x), dvec2(cos(theta), sin(theta))) * dvec2(hflip ? -1.0 : 1.0, vflip ? -1.0 : 1.0);
         dvec2 d = dz;
         dvec2 c = center + dz;
+
+        if (power == 2.f && cardioid_check) {
+            double q = (c.x - 0.25) * (c.x - 0.25) + c.y * c.y;
+            bool cardioid = q * (q + (c.x - 0.25)) <= 0.25 * c.y * c.y;
+            bool bulb = (c.x + 1.0) * (c.x + 1.0) + c.y * c.y <= 0.0625;
+            if (cardioid || bulb) {
+                fragColor = vec4(-1.f, -1.f, 0.f, 0.f);
+                return;
+            }
+        }
+
         dvec2 z = %s;
         dvec2 prevz = dvec2(0.0);
 
