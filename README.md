@@ -83,10 +83,6 @@ User-controlled variables can also be defined, which can then be used in the equ
 
 ## Building
 
-### Dependencies
-- Git
-- CMake version >= 3.21
-
 Clone the repository with `--recurse-submodules`, then go into the directory
 ```
 git clone --recurse-submodules https://github.com/Yilmaz4/MV2.git
