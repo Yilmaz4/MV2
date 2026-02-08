@@ -100,9 +100,9 @@ cd MV2
 
 Install MSYS2 to `C:\msys64`, and from a MSYS2 UCRT64 terminal, run 
 ```
-pacman -Syu mingw-w64-ucrt-x86_64-gcc mingw-w64-x86_64-ninja
+pacman -Syu mingw-w64-ucrt-x86_64-gcc mingw-w64-ucrt-x86_64-ninja mingw-w64-ucrt-x86_64-cmake
 ```
-Then add `C:\msys64\mingw64\bin` to PATH.
+Then add `C:\msys64\ucrt64\bin` to PATH. Note that you have to run the cmake commands in the UCRT64 terminal as well.
 </details>
 
 <details>
