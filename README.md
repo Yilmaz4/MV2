@@ -139,8 +139,8 @@ You can then find the binary in the `bin` directory
 
 ## Known issues
 - Shader linkage takes very long on Intel iGPUs with Mesa drivers on Linux, causing the program to open only after several minutes, I have no idea why
-- Enabling perturbation causes "glitches" to appear such as same-color blobs or noise. This can be minimized with glitch detection algorithms and more reference orbits as described [here](https://mathr.co.uk/blog/2021-05-14_deep_zoom_theory_and_practice.html).
-- The zoom videos do not play in VLC or Windows Media Player, however they do in MPV.
+- Enabling perturbation causes "glitches" to appear such as same-color blobs or noise. This can be minimized with glitch detection algorithms and more reference orbits as described [here](https://mathr.co.uk/blog/2021-05-14_deep_zoom_theory_and_practice.html). TODO: implement glitch detection.
+- The zoom videos do not play in VLC or Windows Media Player, even though they do in MPV. TODO: Use ffmpeg instead.
 
 ## Contributing
 Contributions are highly welcome, it could be anything from a typo correction to a completely new feature, feel free to create a pull request or raise an issue!
